@@ -33,7 +33,12 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install dependencies
-        run: npm ci
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install --no-fund --no-audit
+          fi
 
       - name: Format check (Prettier)
         run: npm run format:check
@@ -43,4 +48,3 @@ jobs:
 
       - name: Build (Vite)
         run: npm run build
-

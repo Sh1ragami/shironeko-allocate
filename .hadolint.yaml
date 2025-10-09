@@ -1,0 +1,9 @@
+ignored:
+  - DL3008  # pin versions in apt-get (not applicable/pedagogical)
+  - DL3018  # pin versions in apk add (pedagogical simplicity)
+  - DL3042  # STOPSIGNAL not needed for fpm/node dev images
+  - DL3059  # missing label(s)
+  - DL4006  # use SHELL (not required here)
+  - SC1091  # non-interactive shells sourcing
+  - SC2086  # word splitting where intentional
+
