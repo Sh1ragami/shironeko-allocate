@@ -1,0 +1,31 @@
+name: Dotenv Lint
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dotenv-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Detect dotenv files
+        id: detect
+        run: |
+          files=$(git ls-files | grep -E '(^|/)\.env($|\.|[^/])' | grep -Ev '\.(example|dist|sample)$' || true)
+          echo "files<<EOF" >> $GITHUB_OUTPUT
+          echo "$files" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          count=$(printf '%s\n' "$files" | sed '/^$/d' | wc -l | tr -d ' ')
+          echo "count=$count" >> $GITHUB_OUTPUT
+      - name: Run dotenv-linter
+        if: steps.detect.outputs.count != '0'
+        uses: dotenv-linter/action-dotenv-linter@v2
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          args: ${{ steps.detect.outputs.files }}

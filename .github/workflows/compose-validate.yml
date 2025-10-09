@@ -1,0 +1,29 @@
+name: Compose Validate
+
+on:
+  push:
+    paths:
+      - 'docker-compose.yml'
+      - '.github/workflows/compose-validate.yml'
+  pull_request:
+    paths:
+      - 'docker-compose.yml'
+      - '.github/workflows/compose-validate.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Show versions
+        run: |
+          docker --version
+          docker compose version
+      - name: Validate docker-compose.yml
+        run: docker compose -f docker-compose.yml config -q
+
