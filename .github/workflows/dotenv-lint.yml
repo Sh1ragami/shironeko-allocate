@@ -1,0 +1,28 @@
+name: Dotenv Lint
+
+on:
+  push:
+    paths:
+      - '**/.env*'
+      - '.github/workflows/dotenv-lint.yml'
+  pull_request:
+    paths:
+      - '**/.env*'
+      - '.github/workflows/dotenv-lint.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dotenv-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run dotenv-linter
+        uses: dotenv-linter/action-dotenv-linter@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          args: .
+
