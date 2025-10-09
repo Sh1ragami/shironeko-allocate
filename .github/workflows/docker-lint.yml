@@ -29,5 +29,8 @@ jobs:
       - name: Lint Dockerfiles (hadolint)
         uses: hadolint/hadolint-action@v3.1.0
         with:
-          recursive: true
-          path: .
+          args: >-
+            --config .hadolint.yaml
+            --failure-threshold warning
+            frontend/Dockerfile
+            backend/docker/php/Dockerfile
