@@ -1,39 +1,47 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>newProjectModal</title>
+
+    <script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body>
-    <div>
-        <h2>新規プロジェクト</h2>
-        <button>閉じる</button>
+
+<body class="bg-gray-900 px-4 py-4">
+    <div class="flex justify-between items-center h-16 border-gray-700 border-b">
+        <span class="text-white font-semibold text-xl">新規プロジェクト</span>
+        <button class="text-white p-1 px-4 rounded-md bg-gray-700 hover:bg-gray-800">閉じる</button>
     </div>
 
-    <div>
-        <button>新規作成</button>
-        <button>既存リポジトリ</button>
+    <div class="flex h-16 items-center border-b border-gray-700">
+        <button class="text-white">新規作成</button>
+        <span class="text-white">/</span>
+        <button class="text-white">既存リポジトリ</button>
     </div>
 
-    <div>
-        <div>
-            <p>リポジトリ名</p>
-            <input type="text" placeholder="例: my-app">
+    <div class="px-4 py-4 border border-gray-700 mt-4 rounded-md">
+        <div class="mb-2">
+            <p class="text-white">リポジトリ名</p>
+            <input class="bg-black w-full px-2 py-1" type="text" placeholder="例: my-app">
         </div>
-        <div>
-            <p>説明（任意）</p>
-            <input type="text" placeholder="説明">
+        <div class="mb-2">
+            <p class="text-white">説明（任意）</p>
+            <input class="bg-black w-full px-2 py-1" type="text" placeholder="説明">
         </div>
-        <div>
-            <input type="checkbox">非公開
+        <div class="mb-2">
+            <input type="checkbox">
+            <span class="text-white">非公開</span>
         </div>
-        <div>
-            <p>アイデアからタスク生成（任意）</p>
-            <input type="text" placeholder="作りたいアプリの概要">
+        <div class="mb-2">
+            <p class="text-white">アイデアからタスク生成（任意）</p>
+            <textarea class="bg-black w-full px-2 py-1 text-white resize-none" rows="2"
+                placeholder="作りたいアプリの概要を入力してください"></textarea>
         </div>
 
-        <button>作成して開く</button>
+        <button class="text-white bg-green-700 px-3 py-1 rounded-md">作成して開く</button>
     </div>
 </body>
+
 </html>
