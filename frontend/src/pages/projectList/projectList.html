@@ -1,27 +1,47 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>projectList</title>
+
+    <script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body>
-    <div class="">
-        <div>
-            <h3>Allocate</h3>
-            <img src="" alt="">
-            <p>ユーザー名</p>
-            <button>ログアウト</button>
+
+<body class="bg-black">
+    <!-- ヘッダー -->
+    <div class="w-full h-20 flex items-center justify-between bg-gray-900 text-white px-8">
+        <span class="text-3xl font-semibold">Allocate</span>
+
+        <div class="flex items-center gap-3">
+            <span>
+                <img src="" alt="icon">
+            </span>
+            <span class="text-base whitespace-nowrap">
+                ユーザー名
+            </span>
+            <button class="p-1 px-4 rounded-md bg-gray-700 hover:bg-gray-800">
+                ログアウト
+            </button>
         </div>
     </div>
 
-    <div>
-        <h1>プロジェクト</h1>
-        <button>新規プロジェクト</button>
+    <!-- ヘッダー下 -->
+    <div class="px-36">
+        <div class="flex justify-between py-8">
+            <h1 class="text-white text-2xl font-semibold">プロジェクト</h1>
+            <button class="text-white bg-green-700 px-3 py-1 rounded-md">新規プロジェクト</button>
+        </div>
+
+        <!-- ヘッダー一覧 -->
+        <div class="text-white">
+            新規プロジェクトで作成したプロジェクトを表示
+        </div>
     </div>
 
-    <div>
-        新規プロジェクトで作成したプロジェクトを表示
-    </div>
+
+
 </body>
-</html> 
+
+</html>
