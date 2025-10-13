@@ -13,7 +13,6 @@
     <!-- ヘッダー -->
     <div class="w-full h-20 flex items-center justify-between bg-gray-900 text-white px-8 border-b border-gray-700">
         <span class="text-3xl font-semibold">Allocate</span>
-
         <div class="flex items-center gap-3">
             <span>
                 <img src="" alt="icon">
@@ -26,12 +25,15 @@
             </button>
         </div>
     </div>
+    <div id="modal-root"></div>
+    <style src="../projectList/projectList.css"></style>
+
 
     <!-- ヘッダー下 -->
     <div class="px-36">
         <div class="flex justify-between py-8">
             <h1 class="text-white text-2xl font-semibold">プロジェクト</h1>
-            <button class="text-white bg-green-700 px-3 py-1 rounded-md">新規プロジェクト</button>
+            <button class="text-white bg-green-700 px-3 py-1 rounded-md" id="open-new-project">新規プロジェクト</button>
         </div>
 
         <!-- ヘッダー一覧 -->
@@ -40,8 +42,7 @@
         </div>
     </div>
 
-
-
+    <script type="module" src="/src/pages/projectList/projectList.ts"></script>
 </body>
 
 </html>
