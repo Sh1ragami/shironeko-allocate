@@ -1,0 +1,24 @@
+includes:
+  - vendor/nunomaduro/larastan/extension.neon
+
+parameters:
+  # Directories to analyze
+  paths:
+    - app
+    - routes
+
+  # Analysis strictness (0–9). Adjust as the codebase matures.
+  level: 6
+
+  # Performance and environment
+  tmpDir: /tmp/phpstan
+  parallel:
+    maximumNumberOfProcesses: 4
+  memoryLimit: 1G
+  phpVersion: 80300
+
+  # Optional: exclude generated or non-source paths if needed
+  excludePaths:
+    - storage/*
+    - bootstrap/*
+

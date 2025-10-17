@@ -1,0 +1,43 @@
+name: PHPStan
+
+on:
+  push:
+    paths:
+      - 'backend/**'
+      - '.github/workflows/phpstan.yml'
+  pull_request:
+    paths:
+      - 'backend/**'
+      - '.github/workflows/phpstan.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  phpstan:
+    if: ${{ hashFiles('backend/app/composer.json') != '' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend/app
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, intl, pdo_mysql, zip
+          coverage: none
+
+      - name: Validate composer.json
+        run: composer validate --no-check-publish
+
+      - name: Install Composer dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Run PHPStan
+        run: vendor/bin/phpstan analyse --no-interaction --no-progress --configuration=phpstan.neon
