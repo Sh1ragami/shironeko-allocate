@@ -17,7 +17,6 @@ concurrency:
 
 jobs:
   phpstan:
-    if: ${{ hashFiles('backend/app/composer.json') != '' }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -34,10 +33,13 @@ jobs:
           coverage: none
 
       - name: Validate composer.json
+        if: ${{ hashFiles('backend/app/composer.json') != '' }}
         run: composer validate --no-check-publish
 
       - name: Install Composer dependencies
+        if: ${{ hashFiles('backend/app/composer.json') != '' }}
         run: composer install --no-interaction --prefer-dist --no-progress
 
       - name: Run PHPStan
+        if: ${{ hashFiles('backend/app/composer.json') != '' }}
         run: vendor/bin/phpstan analyse --no-interaction --no-progress --configuration=phpstan.neon
