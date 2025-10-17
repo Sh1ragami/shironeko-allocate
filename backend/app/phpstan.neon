@@ -11,7 +11,7 @@ parameters:
   level: 6
 
   # Performance and environment
-  tmpDir: /tmp/phpstan
+  tmpDir: var/cache/phpstan
   parallel:
     maximumNumberOfProcesses: 4
   memoryLimit: 1G
