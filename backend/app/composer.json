@@ -17,7 +17,9 @@
         "laravel/sail": "^1.41",
         "mockery/mockery": "^1.6",
         "nunomaduro/collision": "^8.6",
-        "phpunit/phpunit": "^11.5.3"
+        "phpunit/phpunit": "^11.5.3",
+        "phpstan/phpstan": "^1.11",
+        "nunomaduro/larastan": "^2.9"
     },
     "autoload": {
         "psr-4": {
@@ -48,6 +50,7 @@
             "@php artisan config:clear --ansi",
             "@php artisan test"
         ],
+        "phpstan": "vendor/bin/phpstan analyse --no-interaction --no-progress --configuration=phpstan.neon",
         "post-autoload-dump": [
             "Illuminate\\Foundation\\ComposerScripts::postAutoloadDump",
             "@php artisan package:discover --ansi"
