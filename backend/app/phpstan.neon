@@ -15,7 +15,6 @@ parameters:
   tmpDir: var/cache/phpstan
   parallel:
     maximumNumberOfProcesses: 4
-  memoryLimit: 1G
   phpVersion: 80300
 
   # Optional: exclude generated or non-source paths if needed
