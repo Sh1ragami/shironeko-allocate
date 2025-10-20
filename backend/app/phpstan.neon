@@ -1,5 +1,6 @@
 includes:
-  - vendor/nunomaduro/larastan/extension.neon
+  - vendor/larastan/larastan/extension.neon
+  - vendor/larastan/larastan/rules.neon
 
 parameters:
   # Directories to analyze
@@ -21,4 +22,3 @@ parameters:
   excludePaths:
     - storage/*
     - bootstrap/*
-
