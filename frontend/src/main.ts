@@ -1,6 +1,6 @@
 import { Router } from './router'
-import { renderTop } from './pages/top'
-import { renderLogin } from './pages/login'
+import { renderTop } from './pages/top/top'
+import { renderLogin } from './pages/login/login'
 
 const app = document.getElementById('app') as HTMLElement | null
 if (app) {
