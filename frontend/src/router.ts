@@ -23,12 +23,19 @@ export class Router {
 
   render(): void {
     const path = this.normalize(window.location.hash)
-    const render = this.routes[path] ?? this.routes['/404']
-    if (render) {
-      render(this.outlet)
-    } else {
+    const render = this.routes[path]
+
+    // 未定義のパスは 404 にリダイレクト
+    if (!render) {
+      if (path !== '/404' && this.routes['/404']) {
+        window.location.hash = '#/404'
+        return
+      }
+      // 404 ルート自体が未定義の場合のフォールバック
       this.outlet.innerHTML = '<p class="text-rose-700">Route not found</p>'
+      return
     }
+
+    render(this.outlet)
   }
 }
-
