@@ -1,0 +1,12 @@
+includes:
+  - phpstan.neon
+
+parameters:
+  parallel:
+    maximumNumberOfProcesses: 4
+  # CIでの解析対象やレベルを必要に応じて上書き
+  # level: 6
+  # paths:
+  #   - app
+  #   - routes
+
