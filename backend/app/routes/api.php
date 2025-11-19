@@ -10,3 +10,23 @@ Route::middleware('token.auth')->get('/me', function () {
         'email' => $user->email ?? null,
     ]);
 });
+
+// GitHub proxy endpoints (use server to call GitHub)
+Route::middleware('token.auth')->group(function () {
+    Route::get('/github/profile', [\App\Http\Controllers\Api\GitHubProxyController::class, 'profile']);
+    Route::get('/github/repos', [\App\Http\Controllers\Api\GitHubProxyController::class, 'repos']);
+    Route::get('/github/repo', [\App\Http\Controllers\Api\GitHubProxyController::class, 'repo']);
+    Route::get('/github/contributors', [\App\Http\Controllers\Api\GitHubProxyController::class, 'contributors']);
+    Route::get('/github/readme', [\App\Http\Controllers\Api\GitHubProxyController::class, 'readme']);
+    Route::get('/github/search/users', [\App\Http\Controllers\Api\GitHubProxyController::class, 'searchUsers']);
+
+    // Projects
+    Route::post('/projects', [\App\Http\Controllers\Api\ProjectController::class, 'store']);
+    Route::get('/projects', [\App\Http\Controllers\Api\ProjectController::class, 'index']);
+    Route::get('/projects/{id}', [\App\Http\Controllers\Api\ProjectController::class, 'show']);
+    Route::patch('/projects/{id}', [\App\Http\Controllers\Api\ProjectController::class, 'update']);
+    Route::delete('/projects/{id}', [\App\Http\Controllers\Api\ProjectController::class, 'destroy']);
+    Route::get('/projects/{id}/collaborators', [\App\Http\Controllers\Api\ProjectController::class, 'collaborators']);
+    Route::post('/projects/{id}/collaborators', [\App\Http\Controllers\Api\ProjectController::class, 'inviteCollaborator']);
+    Route::delete('/projects/{id}/collaborators/{login}', [\App\Http\Controllers\Api\ProjectController::class, 'deleteCollaborator']);
+});

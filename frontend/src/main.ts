@@ -3,6 +3,7 @@ import './styles/index.css'
 import { renderTop } from './pages/top/top'
 import { renderLogin } from './pages/login/login'
 import { renderProject } from './pages/project/project'
+import { renderProjectDetail } from './pages/project/detail'
 
 const app = document.getElementById('app') as HTMLElement | null
 if (app) {
@@ -10,6 +11,7 @@ if (app) {
     '/': renderTop,
     '/login': renderLogin,
     '/project': renderProject,
+    '/project/detail': renderProjectDetail,
     '/404': (el) => (el.innerHTML = '<p class="text-rose-700">Page not found</p>'),
   })
   // Capture token in hash and store
