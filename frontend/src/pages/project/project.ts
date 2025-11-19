@@ -3,23 +3,35 @@ import { apiFetch } from '../../utils/api'
 type Project = {
   id: number
   name: string
+  alias?: string
   start?: string
   end?: string
-  color?: 'blue' | 'red' | 'green'
+  color?: 'blue' | 'red' | 'green' | 'black' | 'white' | 'purple' | 'orange' | 'yellow' | 'gray'
+}
+
+const CARD_COLORS: Project['color'][] = ['blue','green','red','purple','orange','yellow','gray','black','white']
+function randomCardColor(): Project['color'] {
+  return CARD_COLORS[Math.floor(Math.random() * CARD_COLORS.length)]
 }
 
 function projectCard(p: Project): string {
   // Guard: ignore invalid/empty projects
-  if (!p || !p.id || !p.name || String(p.name).trim() === '') return ''
-  const ring =
-    p.color === 'red'
-      ? 'ring-red-900/40 hover:ring-red-700/50'
-      : p.color === 'green'
-        ? 'ring-emerald-900/40 hover:ring-emerald-700/50'
-        : 'ring-sky-900/40 hover:ring-sky-700/50'
+  if (!p || !p.id || (!p.name && !p.alias) || String(p.name || p.alias || '').trim() === '') return ''
+  const color = p.color || 'blue'
+  const style =
+    color === 'red' ? 'bg-rose-900/40 hover:bg-rose-900/55 ring-rose-900/50 hover:ring-rose-700/60'
+    : color === 'green' ? 'bg-emerald-900/40 hover:bg-emerald-900/55 ring-emerald-900/50 hover:ring-emerald-700/60'
+    : color === 'black' ? 'bg-black/60 hover:bg-black/70 ring-black/60 hover:ring-black/70'
+    : color === 'white' ? 'bg-white/10 hover:bg-white/15 ring-white/30 hover:ring-white/40'
+    : color === 'purple' ? 'bg-fuchsia-900/40 hover:bg-fuchsia-900/55 ring-fuchsia-900/50 hover:ring-fuchsia-700/60'
+    : color === 'orange' ? 'bg-orange-900/40 hover:bg-orange-900/55 ring-orange-900/50 hover:ring-orange-700/60'
+    : color === 'yellow' ? 'bg-yellow-900/40 hover:bg-yellow-900/55 ring-yellow-900/50 hover:ring-yellow-700/60'
+    : color === 'gray' ? 'bg-neutral-800/60 hover:bg-neutral-800/70 ring-neutral-700/60 hover:ring-neutral-500/60'
+    : 'bg-sky-900/40 hover:bg-sky-900/55 ring-sky-900/50 hover:ring-sky-700/60'
+  const title = (p.alias && String(p.alias).trim() !== '' ? p.alias : p.name)
   return `
-    <button data-id="${p.id}" class="group relative w-full h-40 rounded-xl bg-neutral-800/50 ring-1 ${ring} shadow-sm text-left p-5 transition-colors hover:bg-neutral-800/70">
-      <div class="text-base font-medium text-gray-100/90">${p.name}</div>
+    <button data-id="${p.id}" class="group relative w-full h-40 rounded-xl ring-1 ${style} shadow-sm text-left p-5 transition-colors">
+      <div class="text-base font-medium text-gray-100/90">${title}</div>
       <div class="mt-2 text-xs text-gray-400">${p.start ? `${p.start} ~ ${p.end ?? ''}` : '&nbsp;'}</div>
       <div class="absolute bottom-3 right-3 flex gap-2 items-center opacity-0 group-hover:opacity-80 pointer-events-none group-hover:pointer-events-auto transition-opacity">
         <button type="button" class="card-menu inline-flex items-center gap-1 rounded-md bg-neutral-800/80 ring-1 ring-neutral-700/60 px-2 py-1 text-xs text-gray-300 hover:text-white">
@@ -108,7 +120,7 @@ export function renderProject(container: HTMLElement): void {
     })
 
   // interactions
-  const onCreate = () => alert('プロジェクト作成ダイアログ（未実装）')
+  const onCreate = () => {/* noop: modal implemented below */}
   const openCreate = () => openCreateProjectModal(container)
   container.querySelector('#createBtn')?.addEventListener('click', openCreate)
   container.querySelector('#createCard')?.addEventListener('click', openCreate)
@@ -143,15 +155,117 @@ export function renderProject(container: HTMLElement): void {
   }
 }
 
+// ----- Progress Overlay for Project Creation -----
+function openCreateProgress(msg: string) {
+  // Close existing one
+  document.getElementById('pjProgress')?.remove()
+  const overlay = document.createElement('div')
+  overlay.id = 'pjProgress'
+  overlay.className = 'fixed inset-0 z-[70] bg-black/50 backdrop-blur-[1px] grid place-items-center'
+  overlay.innerHTML = `
+    <div class="w-[min(560px,92vw)] rounded-xl bg-neutral-900 ring-1 ring-neutral-700/70 shadow-2xl p-6 text-gray-100">
+      <div class="flex items-center gap-3">
+        <div class="w-6 h-6 rounded-full border-2 border-emerald-500 border-t-transparent animate-spin" id="pjProgSpin"></div>
+        <div id="pjProgMsg" class="text-sm">${msg}</div>
+      </div>
+      <div id="pjProgBody" class="mt-4 text-sm text-gray-300">
+        <ul id="pjProgSteps" class="space-y-2">
+          <li data-step="ai" class="flex items-center gap-2">
+            <span class="w-4 h-4 rounded-full bg-neutral-700/60" data-icon></span>
+            <span>AIプラン生成</span>
+            <span class="ml-auto text-xs text-gray-400" data-note></span>
+          </li>
+          <li data-step="repo" class="flex items-center gap-2">
+            <span class="w-4 h-4 rounded-full bg-neutral-700/60" data-icon></span>
+            <span>リポジトリ処理（作成/リンク）</span>
+            <span class="ml-auto text-xs text-gray-400" data-note></span>
+          </li>
+          <li data-step="readme" class="flex items-center gap-2">
+            <span class="w-4 h-4 rounded-full bg-neutral-700/60" data-icon></span>
+            <span>README更新</span>
+            <span class="ml-auto text-xs text-gray-400" data-note></span>
+          </li>
+          <li data-step="issues" class="flex items-center gap-2">
+            <span class="w-4 h-4 rounded-full bg-neutral-700/60" data-icon></span>
+            <span>Issue作成</span>
+            <span class="ml-auto text-xs text-gray-400" data-note></span>
+          </li>
+          <li data-step="tasks" class="flex items-center gap-2">
+            <span class="w-4 h-4 rounded-full bg-neutral-700/60" data-icon></span>
+            <span>初期タスク保存</span>
+            <span class="ml-auto text-xs text-gray-400" data-note></span>
+          </li>
+        </ul>
+      </div>
+      <div id="pjProgActions" class="mt-5 flex justify-end gap-3 hidden">
+        <button id="pjProgClose" class="rounded-md bg-neutral-800/60 ring-1 ring-neutral-700/60 px-3 py-1.5 text-gray-200">閉じる</button>
+        <button id="pjProgOpen" class="hidden rounded-md bg-emerald-700 hover:bg-emerald-600 text-white px-3 py-1.5">詳細を開く</button>
+      </div>
+    </div>
+  `
+  document.body.appendChild(overlay)
+  const set = (text: string) => { const el = overlay.querySelector('#pjProgMsg'); if (el) el.textContent = text }
+  const showError = (text: string) => {
+    const body = overlay.querySelector('#pjProgBody') as HTMLElement | null
+    if (body) body.innerHTML = `<div class="text-rose-400">${text}</div>`
+    const actions = overlay.querySelector('#pjProgActions') as HTMLElement | null
+    actions?.classList.remove('hidden')
+    const spinner = overlay.querySelector('#pjProgSpin') as HTMLElement | null
+    if (spinner) spinner.classList.add('hidden')
+    overlay.querySelector('#pjProgClose')?.addEventListener('click', () => overlay.remove())
+  }
+  const showSuccess = (id?: number) => {
+    set('プロジェクトの準備が完了しました。')
+    const actions = overlay.querySelector('#pjProgActions') as HTMLElement | null
+    actions?.classList.remove('hidden')
+    const openBtn = overlay.querySelector('#pjProgOpen') as HTMLElement | null
+    if (id && openBtn) {
+      openBtn.classList.remove('hidden')
+      openBtn.addEventListener('click', () => {
+        window.location.hash = `#/project/detail?id=${id}`
+        overlay.remove()
+      })
+    }
+    const spinner = overlay.querySelector('#pjProgSpin') as HTMLElement | null
+    if (spinner) spinner.classList.add('hidden')
+    overlay.querySelector('#pjProgClose')?.addEventListener('click', () => overlay.remove())
+  }
+  const mark = (step: string, ok: boolean, note?: string) => {
+    const li = overlay.querySelector(`li[data-step="${step}"]`) as HTMLElement | null
+    if (!li) return
+    const icon = li.querySelector('[data-icon]') as HTMLElement | null
+    const noteEl = li.querySelector('[data-note]') as HTMLElement | null
+    if (icon) icon.className = `w-4 h-4 rounded-full ${ok ? 'bg-emerald-600' : 'bg-rose-600'}`
+    if (note && noteEl) noteEl.textContent = note
+  }
+  const updateFromMeta = (meta: any) => {
+    // ai
+    mark('ai', !!meta?.ai_used, meta?.ai_used ? `tasks: ${meta?.ai_tasks_count ?? 0}` : 'fallback')
+    // repo
+    mark('repo', (meta?.gh_repo_created ?? true), meta?.gh_repo_created ? 'ok' : 'linked')
+    // readme
+    const rs = meta?.gh_readme_status
+    mark('readme', !!meta?.gh_readme_updated, meta?.gh_readme_updated ? 'updated' : (rs ? `status ${rs}` : 'skipped'))
+    // issues
+    const cnt = Number(meta?.gh_issues_created ?? 0)
+    const is = meta?.gh_issue_last_status
+    mark('issues', cnt > 0, cnt > 0 ? `${cnt}件` : (is ? `status ${is}` : '0件'))
+    // tasks
+    mark('tasks', true, (Array.isArray(meta?.initial_tasks) ? meta.initial_tasks.length : 0) + '件')
+  }
+  return { set, showError, showSuccess, updateFromMeta, close: () => overlay.remove() }
+}
+
 function loadProjects(root: HTMLElement): void {
   apiFetch<any[]>('/projects')
     .then((list) => {
       const toCard = (p: any): Project => ({
         id: p.id,
         name: (p.name ?? '').toString().trim(),
+        alias: ((p.github_meta && p.github_meta.ui && p.github_meta.ui.alias) || p.alias || '').toString(),
         start: p.start_date || p.start || undefined,
         end: p.end_date || p.end || undefined,
-        color: 'blue',
+        color: ((p.github_meta && p.github_meta.ui && p.github_meta.ui.color) || (p.ui && p.ui.color) || 'blue'),
       })
       // filter by selected group
       const me = (root as any)._me as { id?: number } | undefined
@@ -195,6 +309,13 @@ function bindGridInteractions(root: HTMLElement): void {
       const id = (el as HTMLElement).getAttribute('data-id')
       if (id) window.location.hash = `#/project/detail?id=${encodeURIComponent(id)}`
     })
+    // right-click context menu
+    el.addEventListener('contextmenu', (ev) => {
+      ev.preventDefault()
+      ev.stopPropagation()
+      const id = (el as HTMLElement).getAttribute('data-id')
+      if (id) openCardMenu(root, el as HTMLElement, Number(id))
+    })
     ;(el as HTMLElement).querySelector('.card-menu')?.addEventListener('click', (ev) => {
       ev.stopPropagation()
       const id = (el as HTMLElement).getAttribute('data-id')
@@ -218,11 +339,6 @@ function removeEmptyCards(root: HTMLElement): void {
     if (!titleEl || !dateEl || !title) {
       card.remove()
       return
-    }
-    // also guard against cards that contain only the menu button
-    const contentText = (card.textContent || '').replace(/[\s\n\r]+/g, '')
-    if (contentText.length <= 3) {
-      card.remove()
     }
   })
 }
@@ -709,6 +825,7 @@ function openCreateProjectModal(root: HTMLElement): void {
     const submitBtn = overlay.querySelector('#pj-submit') as HTMLButtonElement | null
     if (submitBtn?.disabled) return
     if (submitBtn) submitBtn.disabled = true
+    const prog = openCreateProgress('プロジェクトを作成しています...')
     const active = overlay.querySelector('.pj-panel:not(.hidden)') as HTMLElement
     const mode = active?.getAttribute('data-tab')
     try {
@@ -723,11 +840,28 @@ function openCreateProjectModal(root: HTMLElement): void {
         const start = created?.start_date || created?.start || payload.start
         const end = created?.end_date || created?.end || payload.end
         if (id && name) {
-          addProjectToGrid(root, { id, name, start, end, color: 'blue' })
+          const color = randomCardColor()
+          addProjectToGrid(root, { id, name, start, end, color })
+          // Save initial tasks (if AI provided)
+          if (Array.isArray(created?.initial_tasks)) {
+            try { localStorage.setItem(`kb-${id}`, JSON.stringify(created.initial_tasks)) } catch {}
+          }
+          // Persist chosen color
+          try { await apiFetch(`/projects/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ color }) }) } catch {}
+          // Update progress steps from server meta
+          prog.updateFromMeta(created)
+          // Close create form and show success
+          close()
+          loadProjects(root)
+          prog.showSuccess(id)
         }
       } else {
         const repo = (overlay as any)._selectedRepo as string | undefined
-        if (!repo) return alert('リポジトリを選択してください。')
+        if (!repo) {
+          const list = overlay.querySelector('#repoList') as HTMLElement | null
+          if (list) list.insertAdjacentHTML('afterbegin', '<div class="mb-2 text-rose-400">リポジトリを選択してください。</div>')
+          return
+        }
         const extra = readExistingProjectForm(overlay)
         // validate name if provided
         if (extra.name && !/^[A-Za-z0-9._-]{1,100}$/.test(extra.name)) {
@@ -739,20 +873,25 @@ function openCreateProjectModal(root: HTMLElement): void {
         const created = await createProject({ linkRepo: repo, ...extra })
         const id = Number(created?.id)
         const name = (created?.name ?? (repo.split('/')[1] || 'Repo')).toString()
-        if (id && name) addProjectToGrid(root, { id, name, start: extra.start, end: extra.end, color: 'green' })
+        if (id && name) {
+          const color = randomCardColor()
+          addProjectToGrid(root, { id, name, start: extra.start, end: extra.end, color })
+          if (Array.isArray(created?.initial_tasks)) {
+            try { localStorage.setItem(`kb-${id}`, JSON.stringify(created.initial_tasks)) } catch {}
+          }
+          try { await apiFetch(`/projects/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ color }) }) } catch {}
+          prog.updateFromMeta(created)
+          close(); loadProjects(root); prog.showSuccess(id)
+        }
       }
-      // refresh from server to reflect truth and avoid stale cards
-      loadProjects(root)
-      close()
-      alert('プロジェクトを作成しました。')
     } catch (e) {
       console.error(e)
       // If unauthorized, route to login
       if ((e as any)?.message?.includes('401')) {
-        alert('ログインが必要です。ログイン画面へ移動します。')
+        prog.showError('ログインが必要です。ログイン画面へ移動します。')
         window.location.hash = '#/login'
       } else {
-        alert('作成に失敗しました。サーバーの状態をご確認ください。')
+        prog.showError('作成に失敗しました。サーバーやネットワークの状態をご確認ください。')
       }
     } finally {
       if (submitBtn) submitBtn.disabled = false
@@ -871,6 +1010,12 @@ function addProjectToGrid(root: HTMLElement, p: Project): void {
     const idAttr = (card as HTMLElement).getAttribute('data-id')
     if (idAttr) window.location.hash = `#/project/detail?id=${encodeURIComponent(idAttr)}`
   })
+  // right-click context menu
+  ;(card as HTMLElement).addEventListener('contextmenu', (ev) => {
+    ev.preventDefault(); ev.stopPropagation();
+    const idAttr = (card as HTMLElement).getAttribute('data-id')
+    if (idAttr) openCardMenu(root, card as HTMLElement, Number(idAttr))
+  })
   ;(card as HTMLElement)?.querySelector('.card-menu')?.addEventListener('click', (ev) => {
     ev.stopPropagation()
     const idAttr = (card as HTMLElement).getAttribute('data-id')
@@ -883,10 +1028,27 @@ function openCardMenu(root: HTMLElement, anchor: HTMLElement, id: number): void 
   const rect = anchor.getBoundingClientRect()
   const menu = document.createElement('div')
   menu.className = 'fixed z-50 rounded-md bg-neutral-900 ring-1 ring-neutral-700/70 shadow-xl text-sm text-gray-200'
+  // Initial position; we'll correct after mount to avoid viewport overflow
   menu.style.top = `${rect.bottom + 6}px`
-  menu.style.left = `${rect.right - 140}px`
+  menu.style.left = `${rect.right}px`
+  // Close any existing project menu before opening a new one
+  document.getElementById('pjCardMenu')?.remove()
+  menu.id = 'pjCardMenu'
   menu.innerHTML = `
     <button class="w-36 text-left px-3 py-2 hover:bg-neutral-800" data-act="open">開く</button>
+    <button class="w-36 text-left px-3 py-2 hover:bg-neutral-800" data-act="rename">別名（アプリ内）</button>
+    <div class="px-3 py-1 text-xs text-gray-400">見た目</div>
+    <div class="px-2 pb-2 flex gap-2">
+      <button class="w-6 h-6 rounded-full ring-2 ring-neutral-700/60 bg-sky-800" data-color="blue" title="Blue"></button>
+      <button class="w-6 h-6 rounded-full ring-2 ring-neutral-700/60 bg-emerald-800" data-color="green" title="Green"></button>
+      <button class="w-6 h-6 rounded-full ring-2 ring-neutral-700/60 bg-rose-800" data-color="red" title="Red"></button>
+      <button class="w-6 h-6 rounded-full ring-2 ring-neutral-700/60 bg-fuchsia-800" data-color="purple" title="Purple"></button>
+      <button class="w-6 h-6 rounded-full ring-2 ring-neutral-700/60 bg-orange-800" data-color="orange" title="Orange"></button>
+      <button class="w-6 h-6 rounded-full ring-2 ring-neutral-700/60 bg-yellow-700" data-color="yellow" title="Yellow"></button>
+      <button class="w-6 h-6 rounded-full ring-2 ring-neutral-700/60 bg-neutral-700" data-color="gray" title="Gray"></button>
+      <button class="w-6 h-6 rounded-full ring-2 ring-neutral-700/60 bg-black" data-color="black" title="Black"></button>
+      <button class="w-6 h-6 rounded-full ring-2 ring-neutral-700/60 bg-white" data-color="white" title="White"></button>
+    </div>
     <button class="w-36 text-left px-3 py-2 hover:bg-neutral-800 text-rose-400" data-act="delete">削除</button>
   `
   const remove = () => menu.remove()
@@ -895,6 +1057,33 @@ function openCardMenu(root: HTMLElement, anchor: HTMLElement, id: number): void 
   menu.querySelector('[data-act="open"]')?.addEventListener('click', () => {
     window.location.hash = `#/project/detail?id=${id}`
     remove()
+  })
+  // rename
+  menu.querySelector('[data-act="rename"]')?.addEventListener('click', async () => {
+    const host = root.querySelector(`[data-id="${id}"]`) as HTMLElement | null
+    const current = host?.querySelector('.text-base')?.textContent?.trim() || ''
+    const next = prompt('別名（アプリ内のみで表示されます）', current)
+    if (!next || next.trim() === '' || next === current) { remove(); return }
+    try {
+      await apiFetch(`/projects/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ alias: next.trim() }) })
+      loadProjects(root)
+    } catch (e) {
+      alert('別名の保存に失敗しました')
+    }
+    remove()
+  })
+  // appearance color
+  menu.querySelectorAll('[data-color]')?.forEach((el) => {
+    el.addEventListener('click', async () => {
+      const color = (el as HTMLElement).getAttribute('data-color') || 'blue'
+      try {
+        await apiFetch(`/projects/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ color }) })
+        loadProjects(root)
+      } catch {
+        alert('見た目の変更に失敗しました')
+      }
+      remove()
+    })
   })
   menu.querySelector('[data-act="delete"]')?.addEventListener('click', async () => {
     if (!confirm('このプロジェクトを削除しますか？（GitHubリポジトリは削除されません）')) return
@@ -931,6 +1120,16 @@ function openCardMenu(root: HTMLElement, anchor: HTMLElement, id: number): void 
   } catch {}
 
   document.body.appendChild(menu)
+  // Reposition to keep menu within viewport
+  const pad = 12
+  const mrect = menu.getBoundingClientRect()
+  let left = rect.right - mrect.width // align right edge to anchor right
+  if (left < pad) left = rect.left // fallback align left edge
+  if (left + mrect.width > window.innerWidth - pad) left = Math.max(pad, window.innerWidth - mrect.width - pad)
+  let top = rect.bottom + 6
+  if (top + mrect.height > window.innerHeight - pad) top = Math.max(pad, rect.top - mrect.height - 6)
+  menu.style.left = `${left}px`
+  menu.style.top = `${top}px`
 }
 
 function renderNewProjectForm(me?: { name?: string }): string {

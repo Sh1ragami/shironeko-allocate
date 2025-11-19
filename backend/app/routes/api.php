@@ -24,6 +24,7 @@ Route::middleware('token.auth')->group(function () {
     Route::post('/projects', [\App\Http\Controllers\Api\ProjectController::class, 'store']);
     Route::get('/projects', [\App\Http\Controllers\Api\ProjectController::class, 'index']);
     Route::get('/projects/{id}', [\App\Http\Controllers\Api\ProjectController::class, 'show']);
+    Route::patch('/projects/{id}', [\App\Http\Controllers\Api\ProjectController::class, 'update']);
     Route::delete('/projects/{id}', [\App\Http\Controllers\Api\ProjectController::class, 'destroy']);
     Route::get('/projects/{id}/collaborators', [\App\Http\Controllers\Api\ProjectController::class, 'collaborators']);
     Route::post('/projects/{id}/collaborators', [\App\Http\Controllers\Api\ProjectController::class, 'inviteCollaborator']);

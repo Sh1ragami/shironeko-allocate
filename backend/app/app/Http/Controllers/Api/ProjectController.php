@@ -11,6 +11,11 @@ use Illuminate\Support\Facades\Crypt;
 
 class ProjectController extends Controller
 {
+    private function randomColor(): string
+    {
+        $colors = ['blue','green','red','purple','orange','yellow','gray','black','white'];
+        return $colors[random_int(0, count($colors)-1)];
+    }
     private function filePath(): string
     {
         return storage_path('app/projects.json');
@@ -100,6 +105,41 @@ class ProjectController extends Controller
         ]);
 
         $repoMeta = null;
+        // Prepare AI-generated README and tasks (best-effort)
+        $ai = $this->generateAiPlan(
+            ($data['name'] ?? '') ?: ($data['linkRepo'] ?? 'project'),
+            $data['description'] ?? ''
+        );
+        // Normalize AI output
+        $aiReadme = null; $aiTasks = [];
+        if (is_array($ai)) {
+            $aiReadme = $ai['readme'] ?? ($ai['README'] ?? ($ai['markdown'] ?? null));
+            $tasksRaw = $ai['tasks'] ?? ($ai['issues'] ?? ($ai['items'] ?? []));
+            if (is_array($tasksRaw)) {
+                foreach ($tasksRaw as $t) {
+                    if (is_string($t)) { $aiTasks[] = ['title' => $t, 'body' => '']; continue; }
+                    if (is_array($t)) {
+                        $title = $t['title'] ?? ($t['name'] ?? null);
+                        if ($title) $aiTasks[] = ['title' => (string)$title, 'body' => (string)($t['body'] ?? ($t['desc'] ?? ''))];
+                    }
+                }
+            }
+            // If readme missing but provided entire markdown under another key
+            if (!$aiReadme && is_string(($ai['content'] ?? null)) && str_starts_with($ai['content'], '#')) $aiReadme = $ai['content'];
+        }
+        if (!is_array($aiTasks) || count($aiTasks) === 0) {
+            $aiTasks = $this->fallbackTasks(($data['name'] ?? '') ?: ($data['linkRepo'] ?? 'project'), $data['description'] ?? '');
+        }
+        $metaFlags = [
+            'ai_used' => (bool)$ai,
+            'ai_tasks_count' => is_array($aiTasks) ? count($aiTasks) : 0,
+            'gh_repo_created' => false,
+            'gh_readme_updated' => false,
+            'gh_issues_created' => 0,
+            'gh_issue_last_status' => null,
+            'gh_readme_status' => null,
+        ];
+
         if (!empty($data['linkRepo'])) {
             $repo = $data['linkRepo'];
             // Try to fetch repo meta; include token if available to allow private repos
@@ -113,6 +153,37 @@ class ProjectController extends Controller
                 $repoMeta = $res->json();
                 if (empty($data['name'])) $data['name'] = $repoMeta['name'] ?? $repo;
                 if (empty($data['description'])) $data['description'] = $repoMeta['description'] ?? null;
+                // Best-effort: create issues from AI tasks when linking existing repo
+                $fullName = $repoMeta['full_name'] ?? $repo;
+                if ($fullName && is_array($aiTasks) && count($aiTasks) > 0) {
+                    try {
+                        foreach ($aiTasks as $t) {
+                            $title = is_array($t) ? ($t['title'] ?? null) : null;
+                            $body = is_array($t) ? ($t['body'] ?? '') : '';
+                            if (!$title) continue;
+                            $resp = Http::withHeaders($headers)->post("https://api.github.com/repos/{$fullName}/issues", [
+                                'title' => $title,
+                                'body' => $body,
+                            ]);
+                            $metaFlags['gh_issue_last_status'] = $resp->status();
+                            if ($resp->ok()) $metaFlags['gh_issues_created']++;
+                        }
+                    } catch (\Throwable $e) {}
+                }
+                // Best-effort: update README for existing repo as well (AI > template)
+                try {
+                    $readme = $aiReadme ?: $this->readmeTemplate($data['name'] ?? $repo, $data['description'] ?? '');
+                    $get = Http::withHeaders($headers)->get("https://api.github.com/repos/{$fullName}/contents/README.md");
+                    $sha = $get->ok() ? ($get->json()['sha'] ?? null) : null;
+                    $put = Http::withHeaders($headers)->put("https://api.github.com/repos/{$fullName}/contents/README.md", [
+                        'message' => 'docs: initialize README with project plan',
+                        'content' => base64_encode($readme),
+                        'sha' => $sha,
+                        'branch' => $repoMeta['default_branch'] ?? null,
+                    ]);
+                    $metaFlags['gh_readme_status'] = $put->status();
+                    if ($put->ok()) $metaFlags['gh_readme_updated'] = true;
+                } catch (\Throwable $e) {}
             } else {
                 // Do not hard-fail: allow registration even if meta fetch failed
                 // Ensure we have a name at least (use repo path suffix)
@@ -143,17 +214,34 @@ class ProjectController extends Controller
                         $repoMeta = $create->json();
                         $fullName = $repoMeta['full_name'] ?? null;
                         if ($fullName) {
-                            // craft README content
-                            $readme = $this->readmeTemplate($data['name'], $data['description'] ?? '');
+                            $metaFlags['gh_repo_created'] = true;
+                            // craft README content (AI > template)
+                            $readme = $aiReadme ?: $this->readmeTemplate($data['name'], $data['description'] ?? '');
                             // get existing README to obtain sha (safe to try)
                             $get = Http::withHeaders($headers)->get("https://api.github.com/repos/{$fullName}/contents/README.md");
                             $sha = $get->ok() ? ($get->json()['sha'] ?? null) : null;
-                            Http::withHeaders($headers)->put("https://api.github.com/repos/{$fullName}/contents/README.md", [
+                            $put = Http::withHeaders($headers)->put("https://api.github.com/repos/{$fullName}/contents/README.md", [
                                 'message' => 'chore: initialize README',
                                 'content' => base64_encode($readme),
                                 'sha' => $sha,
                                 'branch' => $repoMeta['default_branch'] ?? null,
                             ]);
+                            $metaFlags['gh_readme_status'] = $put->status();
+                            if ($put->ok()) $metaFlags['gh_readme_updated'] = true;
+                            // Create issues from AI tasks (best-effort)
+                            if (is_array($aiTasks) && count($aiTasks) > 0) {
+                                foreach ($aiTasks as $t) {
+                                    $title = is_array($t) ? ($t['title'] ?? null) : null;
+                                    $body = is_array($t) ? ($t['body'] ?? '') : '';
+                                    if (!$title) continue;
+                                    $ires = Http::withHeaders($headers)->post("https://api.github.com/repos/{$fullName}/issues", [
+                                        'title' => $title,
+                                        'body' => $body,
+                                    ]);
+                                    $metaFlags['gh_issue_last_status'] = $ires->status();
+                                    if ($ires->ok()) $metaFlags['gh_issues_created']++;
+                                }
+                            }
                             $data['linkRepo'] = $fullName;
                         }
                     }
@@ -179,14 +267,29 @@ class ProjectController extends Controller
                 $project->end_date = $data['end'] ?? null;
                 $project->skills = $data['skills'] ?? [];
                 $project->link_repo = $data['linkRepo'] ?? null;
-                $project->github_meta = $repoMeta ? [
-                    'full_name' => $repoMeta['full_name'] ?? null,
-                    'private' => $repoMeta['private'] ?? null,
-                    'html_url' => $repoMeta['html_url'] ?? null,
-                    'language' => $repoMeta['language'] ?? null,
-                ] : null;
+                // Initialize metadata with UI alias/color
+                $ui = ['alias' => $data['name'], 'color' => $this->randomColor()];
+                $meta = [ 'ui' => $ui ];
+                if ($repoMeta) {
+                    $meta = array_merge($meta, [
+                        'full_name' => $repoMeta['full_name'] ?? null,
+                        'private' => $repoMeta['private'] ?? null,
+                        'html_url' => $repoMeta['html_url'] ?? null,
+                        'language' => $repoMeta['language'] ?? null,
+                    ]);
+                }
+                $project->github_meta = $meta;
                 $project->save();
-                return response()->json($project, 201);
+                $resp = $project->toArray();
+                if (is_array($aiTasks) && count($aiTasks) > 0) {
+                    $resp['initial_tasks'] = $this->toKanbanTasks((int)$project->id, $aiTasks);
+                }
+                $resp['ai_used'] = $metaFlags['ai_used'];
+                $resp['ai_tasks_count'] = $metaFlags['ai_tasks_count'];
+                $resp['gh_repo_created'] = $metaFlags['gh_repo_created'];
+                $resp['gh_readme_updated'] = $metaFlags['gh_readme_updated'];
+                $resp['gh_issues_created'] = $metaFlags['gh_issues_created'];
+                return response()->json($resp, 201);
             } catch (\Throwable $e) {
                 // continue to JSON fallback below
             }
@@ -204,18 +307,33 @@ class ProjectController extends Controller
             'end_date' => $data['end'] ?? null,
             'skills' => $data['skills'] ?? [],
             'link_repo' => $data['linkRepo'] ?? null,
-            'github_meta' => $repoMeta ? [
-                'full_name' => $repoMeta['full_name'] ?? null,
-                'private' => $repoMeta['private'] ?? null,
-                'html_url' => $repoMeta['html_url'] ?? null,
-                'language' => $repoMeta['language'] ?? null,
-            ] : null,
+            'github_meta' => (function() use ($repoMeta, $data) {
+                $base = ['ui' => ['alias' => $data['name'], 'color' => $this->randomColor()]];
+                if ($repoMeta) {
+                    $base = array_merge($base, [
+                        'full_name' => $repoMeta['full_name'] ?? null,
+                        'private' => $repoMeta['private'] ?? null,
+                        'html_url' => $repoMeta['html_url'] ?? null,
+                        'language' => $repoMeta['language'] ?? null,
+                    ]);
+                }
+                return $base;
+            })(),
             'created_at' => $now,
             'updated_at' => $now,
         ];
         $all = $this->readAll();
         $all[] = $project;
         $this->writeAll($all);
+        // Include initial tasks for front-end Kanban when AI provided
+        if (is_array($aiTasks) && count($aiTasks) > 0) {
+            $project['initial_tasks'] = $this->toKanbanTasks($project['id'], $aiTasks);
+        }
+        $project['ai_used'] = $metaFlags['ai_used'];
+        $project['ai_tasks_count'] = $metaFlags['ai_tasks_count'];
+        $project['gh_repo_created'] = $metaFlags['gh_repo_created'];
+        $project['gh_readme_updated'] = $metaFlags['gh_readme_updated'];
+        $project['gh_issues_created'] = $metaFlags['gh_issues_created'];
         return response()->json($project, 201);
     }
 
@@ -247,6 +365,70 @@ This project is licensed under the MIT License.
 
 _Generated on {$today} by Allocate._
 MD;
+    }
+
+    private function generateAiPlan(string $name, string $desc): ?array
+    {
+        $key = env('GEMINI_API_KEY');
+        if (!$key) return null;
+        try {
+            $payload = [
+                'contents' => [[
+                    'parts' => [[ 'text' =>
+                        "You are a helpful project assistant. Based on the inputs, produce a JSON with keys 'readme' (a detailed README.md markdown string for the app to be created) and 'tasks' (an array of objects with 'title' and optional 'body').\nInputs:\nName: {$name}\nDescription: {$desc}\nOutput must be strictly valid JSON with no extra commentary."
+                    ]]
+                ]],
+                // Keep config minimal for broader compatibility
+            ];
+            $url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key='.urlencode($key);
+            $res = Http::asJson()->post($url, $payload);
+            if (!$res->ok()) return null;
+            $json = $res->json();
+            $parts = $json['candidates'][0]['content']['parts'] ?? [];
+            $text = '';
+            foreach ($parts as $p) { if (!empty($p['text'])) $text .= $p['text']; }
+            if (!$text) $text = $json['candidates'][0]['content']['parts'][0]['text'] ?? null;
+            if (!$text) return null;
+            // Strip code fences if present
+            if (preg_match('/```(json)?\n([\s\S]*?)\n```/u', $text, $m)) { $text = $m[2]; }
+            $out = json_decode($text, true);
+            if (is_array($out)) return $out;
+        } catch (\Throwable $e) {
+            // swallow
+        }
+        return null;
+    }
+
+    private function toKanbanTasks(int $pid, array $aiTasks): array
+    {
+        $arr = [];
+        foreach ($aiTasks as $i => $t) {
+            $title = is_array($t) ? ($t['title'] ?? null) : null;
+            if (!$title) continue;
+            $body = is_array($t) ? ($t['body'] ?? '') : '';
+            $arr[] = [
+                'id' => (string) (microtime(true)*1000 + $i),
+                'title' => $title,
+                'description' => $body,
+                'status' => 'todo',
+                'priority' => '中',
+            ];
+        }
+        return $arr;
+    }
+
+    private function fallbackTasks(string $name, string $desc): array
+    {
+        // Simple deterministic task breakdown when AI is unavailable
+        $base = [
+            ['title' => 'プロジェクト初期化', 'body' => "リポジトリ初期化、ブランチ保護、README更新。対象: {$name}"],
+            ['title' => '要件整理', 'body' => "概要から機能一覧を洗い出し: {$desc}"],
+            ['title' => 'UIスケッチ', 'body' => '主要画面のモック作成（Figma/Excalidrawなど）'],
+            ['title' => 'バックエンド雛形', 'body' => 'APIエンドポイントの雛形と疎通確認'],
+            ['title' => 'フロント雛形', 'body' => 'ページルーティングと基本コンポーネント'],
+            ['title' => 'CIセットアップ', 'body' => 'テストとLintの自動実行を構築'],
+        ];
+        return $base;
     }
 
     public function show(Request $request, int $id)
@@ -402,13 +584,82 @@ MD;
         $uid = $request->user()?->id;
         if (Schema::hasTable('projects')) {
             $p = Project::query()->where('user_id', $uid)->where('id', $id)->first();
-            if (!$p) return response()->json(['message' => 'Not found'], 404);
-            $p->delete();
-            return response()->json(['ok' => true]);
+            if ($p) {
+                $p->delete();
+                // Also clean up JSON fallback if any
+                $all = $this->readAll();
+                $filtered = array_values(array_filter($all, fn ($x) => !((int)($x['id'] ?? 0) === $id && ($x['user_id'] ?? null) === $uid)));
+                $this->writeAll($filtered);
+                return response()->json(['ok' => true]);
+            }
+            // Fallback: try JSON store deletion when DB not found
+            $all = $this->readAll();
+            $before = count($all);
+            $filtered = array_values(array_filter($all, fn ($x) => !((int)($x['id'] ?? 0) === $id && ($x['user_id'] ?? null) === $uid)));
+            if (count($filtered) !== $before) {
+                $this->writeAll($filtered);
+                return response()->json(['ok' => true]);
+            }
+            return response()->json(['message' => 'Not found'], 404);
         }
         $all = $this->readAll();
         $filtered = array_values(array_filter($all, fn ($x) => !((int)($x['id'] ?? 0) === $id && ($x['user_id'] ?? null) === $uid)));
         $this->writeAll($filtered);
         return response()->json(['ok' => true]);
+    }
+
+    public function update(Request $request, int $id)
+    {
+        $project = $this->findByIdForUser($request, $id);
+        if (!$project) return response()->json(['message' => 'Not found'], 404);
+
+        $data = $request->validate([
+            // alias: app内だけで表示する名称（日本語OK）
+            'alias' => ['nullable', 'string', 'max:200'],
+            'description' => ['nullable', 'string'],
+            'start' => ['nullable', 'string', 'max:32'],
+            'end' => ['nullable', 'string', 'max:32'],
+            'color' => ['nullable', 'in:blue,red,green,black,white,purple,orange,yellow,gray'],
+        ]);
+
+        // Apply local changes
+        $apply = function (&$meta, $key, $value) {
+            if (!is_array($meta)) $meta = [];
+            $meta[$key] = $value;
+        };
+
+        if ($project instanceof \App\Models\Project) {
+            if (array_key_exists('description', $data)) $project->description = $data['description'];
+            if (array_key_exists('start', $data)) $project->start_date = $data['start'];
+            if (array_key_exists('end', $data)) $project->end_date = $data['end'];
+            $meta = $project->github_meta ?? [];
+            if (!isset($meta['ui']) || !is_array($meta['ui'])) $meta['ui'] = [];
+            if (!empty($data['alias'])) {
+                $meta['ui']['alias'] = $data['alias'];
+            }
+            if (!empty($data['color'])) {
+                $meta['ui']['color'] = $data['color'];
+            }
+            $project->github_meta = $meta;
+            $project->save();
+            return response()->json($project);
+        }
+
+        // JSON store update
+        $all = $this->readAll();
+        foreach ($all as &$p) {
+            if ((int)($p['id'] ?? 0) !== $id || ($p['user_id'] ?? null) !== $request->user()?->id) continue;
+            if (array_key_exists('description', $data)) $p['description'] = $data['description'];
+            if (array_key_exists('start', $data)) $p['start_date'] = $data['start'];
+            if (array_key_exists('end', $data)) $p['end_date'] = $data['end'];
+            $meta = $p['github_meta'] ?? [];
+            if (!isset($meta['ui']) || !is_array($meta['ui'])) $meta['ui'] = [];
+            if (!empty($data['alias'])) $meta['ui']['alias'] = $data['alias'];
+            if (!empty($data['color'])) $meta['ui']['color'] = $data['color'];
+            $p['github_meta'] = $meta;
+        }
+        $this->writeAll($all);
+        $updated = $this->findByIdForUser($request, $id);
+        return response()->json($updated);
     }
 }

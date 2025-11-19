@@ -204,9 +204,10 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
   container.innerHTML = detailLayout({ id: project.id, name: project.name, fullName })
 
   setupTabs(container, String(project.id))
+  applyCoreTabs(container, String(project.id))
 
   // DnD (Summary widgets)
-enableDragAndDrop(container)
+  enableDragAndDrop(container)
 
   // Kanban board
 renderKanban(container, String(project.id))
@@ -214,8 +215,26 @@ renderKanban(container, String(project.id))
 try { refreshDynamicWidgets(container, String(project.id)) } catch {}
   // Load saved custom tabs
   loadCustomTabs(container, String(project.id))
+  // Apply saved tab order (core + custom)
+  try { applySavedTabOrder(container, String(project.id)) } catch {}
+  // Enable DnD for tabs
+  try { enableTabDnD(container, String(project.id)) } catch {}
   // Enable tab drag & drop reordering for custom tabs
   try { enableTabDnD(container, String(project.id)) } catch {}
+
+  // Activate the leftmost visible tab (excluding the "+ 新規タブ")
+  try {
+    const bar = container.querySelector('#tabBar') as HTMLElement | null
+    if (bar) {
+      const tabs = Array.from(bar.querySelectorAll('.tab-btn')) as HTMLElement[]
+      const first = tabs.find((el) => {
+        const id = el.getAttribute('data-tab') || ''
+        const hidden = el.classList.contains('hidden')
+        return id && id !== 'new' && !hidden
+      })
+      first?.click()
+    }
+  } catch {}
 
   // Account avatar click: open account modal on the current page
   container.querySelector('#accountTopBtn')?.addEventListener('click', () => {
@@ -284,6 +303,8 @@ function widgetShell(id: string, title: string, body: string): string {
           <button class="w-size px-1 py-0.5 rounded ring-1 ring-neutral-700/60 hover:bg-neutral-800" data-size="sm">S</button>
           <button class="w-size px-1 py-0.5 rounded ring-1 ring-neutral-700/60 hover:bg-neutral-800" data-size="md">M</button>
           <button class="w-size px-1 py-0.5 rounded ring-1 ring-neutral-700/60 hover:bg-neutral-800" data-size="lg">L</button>
+          <span class="mx-2 text-neutral-600">|</span>
+          <button class="w-del px-2 py-0.5 rounded ring-1 ring-rose-700/70 text-rose-400 hover:bg-rose-900/30">削除</button>
           <span class="ml-2">ドラッグで並べ替え</span>
         </div>
       </div>
@@ -480,6 +501,26 @@ function enableDragAndDrop(root: HTMLElement): void {
     if (!widget) return
     const id = widget.getAttribute('data-widget') || ''
     setWidgetSize(root, pid, id, size)
+  })
+
+  // Delete widget
+  grid.addEventListener('click', (e) => {
+    const del = (e.target as HTMLElement).closest('.w-del') as HTMLElement | null
+    if (!del) return
+    const widget = del.closest('.widget') as HTMLElement | null
+    if (!widget) return
+    const id = widget.getAttribute('data-widget') || ''
+    // Confirm deletion
+    const ok = confirm('このウィジェットを削除しますか？')
+    if (!ok) return
+    // Remove DOM
+    widget.remove()
+    // Persist order
+    const order = Array.from(grid.querySelectorAll('.widget')).map((w) => (w as HTMLElement).getAttribute('data-widget'))
+    localStorage.setItem(`pj-widgets-${pid}`, JSON.stringify(order))
+    // Remove meta
+    const meta = getWidgetMeta(pid)
+    if (meta[id]) { delete meta[id]; setWidgetMeta(pid, meta) }
   })
 
   // Markdown widget delegated handlers
@@ -688,6 +729,9 @@ function widgetThumb(type: string): string {
   if (type === 'tasksum') return `<div class=\"w-full h-20 bg-neutral-900/60 ring-1 ring-neutral-600/60 rounded p-2 grid grid-cols-3 gap-2 text-[10px] text-gray-300\"><div class=\"rounded bg-neutral-800/60 p-1 text-center\">TODO<br/><span class=\"text-emerald-400\">5</span></div><div class=\"rounded bg-neutral-800/60 p-1 text-center\">DOING<br/><span class=\"text-emerald-400\">3</span></div><div class=\"rounded bg-neutral-800/60 p-1 text-center\">DONE<br/><span class=\"text-emerald-400\">8</span></div></div>`
   if (type === 'milestones') return `<div class=\"w-full h-20 bg-neutral-900/60 ring-1 ring-neutral-600/60 rounded p-2 text-xs text-gray-400\"><div>v1.0 リリース</div><div class=\"text-gray-500\">2025-01-31</div></div>`
   if (type === 'links') return `<div class=\"w-full h-20 bg-neutral-900/60 ring-1 ring-neutral-600/60 rounded p-2 text-xs text-gray-400\">- PR一覧\n- 仕様書</div>`
+  if (type === 'progress') return `<div class=\"w-full h-20 bg-neutral-900/60 ring-1 ring-neutral-600/60 rounded p-2\"><div class=\"h-2 bg-neutral-800 rounded\"><div class=\"h-2 bg-emerald-600 rounded w-1/2\"></div></div><div class=\"text-[10px] text-gray-400 mt-1\">50%</div></div>`
+  if (type === 'team') return `<div class=\"w-full h-20 bg-neutral-900/60 ring-1 ring-neutral-600/60 rounded p-2 text-xs text-gray-400\">👥 メンバー</div>`
+  if (type === 'todo') return `<div class=\"w-full h-20 bg-neutral-900/60 ring-1 ring-neutral-600/60 rounded p-2 text-xs text-gray-400\">- [ ] 項目</div>`
   return `<div class=\"text-gray-400\">Widget</div>`
 }
 
@@ -776,6 +820,9 @@ function buildWidgetBody(type: string): string {
     case 'tasksum': return `<div class=\"tasksum-body text-sm text-gray-200\"></div>`
     case 'milestones': return `<ul class=\"text-sm text-gray-200 space-y-2\"><li>企画 <span class=\"text-gray-400\">(完了)</span></li><li>実装 <span class=\"text-gray-400\">(進行中)</span></li><li>リリース <span class=\"text-gray-400\">(未着手)</span></li></ul>`
     case 'links': return `<div class=\"links-body text-sm text-gray-200\"></div><div class=\"mt-2 text-xs\"><button class=\"lnk-add rounded ring-1 ring-neutral-700/60 px-2 py-0.5 hover:bg-neutral-800\">リンク追加</button></div>`
+    case 'progress': return `<div class=\"progress-body\"><div class=\"h-2 bg-neutral-800 rounded\"><div class=\"h-2 bg-emerald-600 rounded w-0\"></div></div><div class=\"text-xs text-gray-400 mt-1\">0%</div></div>`
+    case 'team': return `<div class=\"team-body text-sm text-gray-200\"><p class=\"text-gray-400\">読み込み中...</p></div>`
+    case 'todo': return `<div class=\"todo-body text-sm text-gray-200\"></div><div class=\"mt-2 text-xs\"><button class=\"todo-add rounded ring-1 ring-neutral-700/60 px-2 py-0.5 hover:bg-neutral-800\">項目追加</button></div>`
     case 'committers': return barSkeleton()
     default: return `<div class=\"h-40 grid place-items-center text-gray-400\">Mock</div>`
   }
@@ -840,6 +887,180 @@ function renderDummyDetail(container: HTMLElement, id: string): void {
   setupTabs(container, id)
   enableDragAndDrop(container)
   renderKanban(container, id)
+}
+
+// ---------- Custom tab builders ----------
+function buildNotesTab(panel: HTMLElement, pid: string, id: string): void {
+  panel.innerHTML = `
+    <div class="rounded-xl ring-1 ring-neutral-800/70 bg-neutral-900/50 p-4 text-gray-200">
+      <div class="flex items-center gap-3 mb-3">
+        <div class="text-sm text-gray-300">ノート</div>
+        <button id="nt-save" class="ml-auto rounded bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-medium px-3 py-1.5">保存</button>
+      </div>
+      <div class="grid md:grid-cols-2 gap-4">
+        <textarea id="nt-text" class="w-full h-72 rounded-md bg-neutral-800/60 ring-1 ring-neutral-700/60 px-3 py-2 text-gray-100" placeholder="ここにMarkdownでノートを書けます"></textarea>
+        <div id="nt-preview" class="h-72 overflow-auto rounded-md bg-neutral-950/40 ring-1 ring-neutral-800/70 p-3 text-gray-100 whitespace-pre-wrap"></div>
+      </div>
+    </div>
+  `
+  const key = `tab-notes-${pid}-${id}`
+  const txt = panel.querySelector('#nt-text') as HTMLTextAreaElement
+  const prev = panel.querySelector('#nt-preview') as HTMLElement
+  try { txt.value = localStorage.getItem(key) || '' } catch {}
+  const render = () => { prev.innerHTML = mdRenderToHtml(txt.value || '') }
+  render()
+  txt.addEventListener('input', render)
+  panel.querySelector('#nt-save')?.addEventListener('click', () => { localStorage.setItem(key, txt.value || '') })
+}
+
+function buildDocsTab(panel: HTMLElement, pid: string, id: string): void {
+  panel.innerHTML = `
+    <div class="rounded-xl ring-1 ring-neutral-800/70 bg-neutral-900/50 p-0 text-gray-200 overflow-hidden">
+      <div class="flex">
+        <aside class="w-56 shrink-0 border-r border-neutral-800/70 p-3 space-y-2" id="dc-nav">
+          <div class="flex items-center gap-2">
+            <div class="text-sm text-gray-300">ページ</div>
+            <button id="dc-add" class="ml-auto text-xs rounded bg-neutral-800/60 ring-1 ring-neutral-700/60 px-2 py-0.5">追加</button>
+          </div>
+          <div id="dc-list" class="space-y-1"></div>
+        </aside>
+        <section class="flex-1 p-4">
+          <input id="dc-title" class="w-full rounded bg-neutral-800/60 ring-1 ring-neutral-700/60 px-3 py-2 text-gray-100 mb-2" placeholder="タイトル" />
+          <textarea id="dc-body" class="w-full h-72 rounded bg-neutral-800/60 ring-1 ring-neutral-700/60 px-3 py-2 text-gray-100" placeholder="Markdownで本文"></textarea>
+          <div class="mt-2 text-right">
+            <button id="dc-save" class="rounded bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-medium px-3 py-1.5">保存</button>
+          </div>
+        </section>
+      </div>
+    </div>
+  `
+  type Page = { id: string; title: string; body: string }
+  const storeKey = `tab-docs-${pid}-${id}`
+  const load = (): { pages: Page[]; sel?: string } => { try { return JSON.parse(localStorage.getItem(storeKey) || '{"pages":[]}') } catch { return { pages: [] } } }
+  const save = (data: { pages: Page[]; sel?: string }) => localStorage.setItem(storeKey, JSON.stringify(data))
+  const state = load()
+  const list = panel.querySelector('#dc-list') as HTMLElement
+  const title = panel.querySelector('#dc-title') as HTMLInputElement
+  const body = panel.querySelector('#dc-body') as HTMLTextAreaElement
+  const renderList = () => {
+    list.innerHTML = (state.pages || []).map(p => `<button data-id="${p.id}" class="w-full text-left px-2 py-1 rounded hover:bg-neutral-800/60 ${state.sel===p.id?'bg-neutral-800/60':''}">${p.title||'Untitled'}</button>`).join('') || '<p class="text-xs text-gray-400">ページがありません。</p>'
+    list.querySelectorAll('[data-id]')?.forEach((el)=> el.addEventListener('click', ()=>{ state.sel = (el as HTMLElement).getAttribute('data-id')||''; save(state); loadPage() }))
+  }
+  const loadPage = () => {
+    const p = state.pages.find(x=>x.id===state.sel)
+    title.value = p?.title || ''
+    body.value = p?.body || ''
+    renderList()
+  }
+  panel.querySelector('#dc-add')?.addEventListener('click', ()=>{ const p: Page = { id: String(Date.now()), title: '新規ページ', body: '' }; state.pages.push(p); state.sel=p.id; save(state); renderList(); loadPage() })
+  panel.querySelector('#dc-save')?.addEventListener('click', ()=>{ const p = state.pages.find(x=>x.id===state.sel); if (!p) return; p.title=title.value; p.body=body.value; save(state); renderList() })
+  if (!state.pages.length) { state.pages=[{id:String(Date.now()), title:'はじめに', body:''}]; state.sel=state.pages[0].id; save(state) }
+  renderList(); loadPage()
+}
+
+function buildReportTab(panel: HTMLElement, pid: string): void {
+  const tasks = loadTasks(pid)
+  const counts = { todo:0, doing:0, review:0, done:0 } as Record<string, number>
+  tasks.forEach(t=> counts[t.status] = (counts[t.status]||0)+1)
+  const today = new Date().toISOString().slice(0,10)
+  const overdue = tasks.filter(t => t.due && t.due < today && t.status!=='done')
+  panel.innerHTML = `
+    <div class="rounded-xl ring-1 ring-neutral-800/70 bg-neutral-900/50 p-4 text-gray-200">
+      <div class="text-sm text-gray-300 mb-2">タスクサマリー</div>
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
+        ${[['TODO','todo'],['DOING','doing'],['REVIEW','review'],['DONE','done']].map(([label,k])=>`<div class=\"rounded ring-1 ring-neutral-700/60 bg-neutral-800/40 p-3 text-center\">${label}<div class=\"text-2xl text-emerald-400\">${counts[k]||0}</div></div>`).join('')}
+      </div>
+      <div class="mt-4">
+        <div class="text-sm text-gray-300 mb-1">期限切れ</div>
+        ${overdue.length ? `<ul class=\"list-disc ml-6 space-y-1\">${overdue.map(t=>`<li>${t.title} <span class=\\"text-xs text-rose-400\\">${t.due}</span></li>`).join('')}</ul>` : '<p class="text-gray-400 text-sm">ありません。</p>'}
+      </div>
+    </div>
+  `
+}
+
+function buildRoadmapTab(panel: HTMLElement, pid: string, id: string): void {
+  panel.innerHTML = `
+    <div class="rounded-xl ring-1 ring-neutral-800/70 bg-neutral-900/50 p-4 text-gray-200">
+      <div class="flex items-center gap-2 mb-3">
+        <input id="rd-title" class="rounded bg-neutral-800/60 ring-1 ring-neutral-700/60 px-2 py-1 text-sm" placeholder="項目名" />
+        <input id="rd-date" type="date" class="rounded bg-neutral-800/60 ring-1 ring-neutral-700/60 px-2 py-1 text-sm" />
+        <button id="rd-add" class="rounded bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-medium px-3 py-1.5">追加</button>
+      </div>
+      <div id="rd-list" class="space-y-2"></div>
+    </div>
+  `
+  type Item = { title: string; date: string }
+  const key = `tab-roadmap-${pid}-${id}`
+  const load = (): Item[] => { try { return JSON.parse(localStorage.getItem(key) || '[]') as Item[] } catch { return [] } }
+  const save = (list: Item[]) => localStorage.setItem(key, JSON.stringify(list))
+  const list = panel.querySelector('#rd-list') as HTMLElement
+  const render = () => {
+    const data = load().sort((a,b)=> (a.date||'').localeCompare(b.date||''))
+    list.innerHTML = data.length ? data.map(i=>`<div class=\"rounded ring-1 ring-neutral-700/60 bg-neutral-800/40 p-2 flex items-center\"><div class=\"text-sm\">${i.title}</div><div class=\"ml-auto text-xs text-gray-400\">${i.date||'-'}</div></div>`).join('') : '<p class="text-sm text-gray-400">項目がありません。</p>'
+  }
+  panel.querySelector('#rd-add')?.addEventListener('click', ()=>{
+    const t = (panel.querySelector('#rd-title') as HTMLInputElement).value.trim()
+    const d = (panel.querySelector('#rd-date') as HTMLInputElement).value
+    if (!t) return
+    const cur = load(); cur.push({ title: t, date: d }); save(cur); render()
+    ;(panel.querySelector('#rd-title') as HTMLInputElement).value = ''
+    ;(panel.querySelector('#rd-date') as HTMLInputElement).value = ''
+  })
+  render()
+}
+
+function buildBurndownTab(panel: HTMLElement, pid: string): void {
+  const days = 14
+  const tasks = loadTasks(pid)
+  const remaining = tasks.filter(t=> t.status!=='done').length
+  const series = Array.from({length: days}, (_,i)=> remaining - Math.floor((remaining/days)*i))
+  panel.innerHTML = `
+    <div class="rounded-xl ring-1 ring-neutral-800/70 bg-neutral-900/50 p-4 text-gray-200">
+      <div class="text-sm text-gray-300 mb-2">簡易バーンダウン（${days}日）</div>
+      <div class="h-40 flex items-end gap-1">
+        ${series.map(v=>`<div class=\"w-4 bg-emerald-700\" style=\"height:${Math.max(4, v*6)}px\"></div>`).join('')}
+      </div>
+      <p class="text-xs text-gray-400 mt-2">実データ連携は未実装。タスク残数ベースの簡易表示です。</p>
+    </div>
+  `
+}
+
+function buildTimelineTab(panel: HTMLElement, pid: string): void {
+  const tasks = loadTasks(pid)
+  const events: Array<{ at: string; text: string; title: string }> = []
+  tasks.forEach(t=> (t.history||[]).forEach(h=> events.push({ at: h.at, text: h.text, title: t.title })))
+  events.sort((a,b)=> (b.at||'').localeCompare(a.at||''))
+  panel.innerHTML = `
+    <div class="rounded-xl ring-1 ring-neutral-800/70 bg-neutral-900/50 p-4 text-gray-200">
+      <div class="text-sm text-gray-300 mb-2">最近のアクティビティ</div>
+      ${events.length ? `<ul class=\"space-y-2\">${events.slice(0,30).map(e=>`<li class=\\"text-sm\\"><span class=\\"text-xs text-gray-400\\">${e.at}</span> - ${e.text} <span class=\\"text-xs text-gray-400\\">(${e.title})</span></li>`).join('')}</ul>` : '<p class="text-sm text-gray-400">記録がありません。</p>'}
+    </div>
+  `
+}
+
+// Build a widget-enabled tab panel with its own widget scope (pid:tabId)
+function buildWidgetTab(panel: HTMLElement, pid: string, scope: string, defaults: string[]): void {
+  panel.innerHTML = `
+    <div class="space-y-3">
+      <div class="flex items-center">
+        <button id="wgEditToggle" class="ml-auto text-xs rounded-md bg-neutral-800/60 ring-1 ring-neutral-700/60 px-2 py-1 text-gray-200">編集</button>
+      </div>
+      <div class="grid gap-7 md:gap-8 grid-cols-1 md:grid-cols-12" id="widgetGrid" data-pid="${pid}:${scope}">
+        ${addWidgetCard()}
+      </div>
+    </div>
+  `
+  // enable widget editing for this panel only
+  enableDragAndDrop(panel)
+  const scoped = `${pid}:${scope}`
+  // seed defaults when there's no saved meta
+  const meta = getWidgetMeta(scoped)
+  if (Object.keys(meta).length === 0 && defaults.length) {
+    defaults.forEach((t) => addWidget(panel, scoped, t))
+  } else {
+    applyWidgetSizes(panel, scoped)
+    ensureWidgets(panel, scoped)
+  }
 }
 
 function detailLayout(ctx: { id: number; name: string; fullName: string }): string {
@@ -929,24 +1150,165 @@ function setupTabs(container: HTMLElement, pid: string): void {
   })
 }
 
+// ---- Core tabs (summary/board) rename + delete with persistence ----
+type CoreTabs = { summary: { title: string; visible: boolean }; board: { title: string; visible: boolean } }
+function coreKey(pid: string): string { return `tabs-core-${pid}` }
+function getCoreTabs(pid: string): CoreTabs {
+  try {
+    const raw = localStorage.getItem(coreKey(pid))
+    if (raw) return JSON.parse(raw) as CoreTabs
+  } catch {}
+  return { summary: { title: '概要', visible: true }, board: { title: 'カンバンボード', visible: true } }
+}
+function saveCoreTabs(pid: string, v: CoreTabs): void { localStorage.setItem(coreKey(pid), JSON.stringify(v)) }
+
+function applyCoreTabs(root: HTMLElement, pid: string): void {
+  const bar = root.querySelector('#tabBar') as HTMLElement | null
+  if (!bar) return
+  const core = getCoreTabs(pid)
+  const ensureWrap = (btn: HTMLElement, key: 'summary'|'board') => {
+    let wrap = btn.parentElement as HTMLElement
+    if (!wrap || wrap.tagName.toLowerCase() !== 'span') {
+      const span = document.createElement('span')
+      span.className = 'group relative inline-flex'
+      btn.replaceWith(span)
+      span.appendChild(btn)
+      wrap = span
+    }
+    // Make core tabs draggable like custom tabs
+    wrap.setAttribute('draggable', 'true')
+    // context menu for rename/delete
+    btn.addEventListener('contextmenu', (e) => {
+      e.preventDefault()
+      openTabContextMenu(root, pid, { kind: 'core', id: key, btn })
+    })
+    // rename on double click
+    btn.addEventListener('dblclick', (e) => {
+      e.stopPropagation()
+      const cur = btn.textContent || ''
+      const next = prompt('タブ名を入力', cur)
+      if (!next) return
+      const c = getCoreTabs(pid)
+      c[key].title = next
+      saveCoreTabs(pid, c)
+      applyCoreTabs(root, pid)
+    })
+  }
+
+  const sumBtn = bar.querySelector('[data-tab="summary"]') as HTMLElement | null
+  const brdBtn = bar.querySelector('[data-tab="board"]') as HTMLElement | null
+  if (sumBtn) {
+    sumBtn.textContent = core.summary.title
+    sumBtn.classList.toggle('hidden', !core.summary.visible)
+    ensureWrap(sumBtn, 'summary')
+  }
+  if (brdBtn) {
+    brdBtn.textContent = core.board.title
+    brdBtn.classList.toggle('hidden', !core.board.visible)
+    ensureWrap(brdBtn, 'board')
+  }
+  // hide sections if invisible
+  const sumSec = root.querySelector('[data-tab="summary"]') as HTMLElement | null
+  const brdSec = root.querySelector('[data-tab="board"]') as HTMLElement | null
+  if (sumSec) sumSec.classList.toggle('hidden', !core.summary.visible)
+  if (brdSec) brdSec.classList.toggle('hidden', !core.board.visible)
+  // Ensure at least one visible
+  const visibleCount = Array.from(bar.querySelectorAll('.tab-btn')).filter(b => (b as HTMLElement).getAttribute('data-tab') !== 'new' && !(b as HTMLElement).classList.contains('hidden')).length
+  if (visibleCount === 0) {
+    core.summary.visible = true
+    saveCoreTabs(pid, core)
+    if (sumBtn) sumBtn.classList.remove('hidden')
+    if (sumSec) sumSec.classList.remove('hidden')
+  }
+  // persist overall order of tabs (core + custom)
+  const ids = Array.from(bar.querySelectorAll('.tab-btn')).map(b => (b as HTMLElement).getAttribute('data-tab') || '').filter(id => id && id !== 'new')
+  localStorage.setItem(`tabs-order-${pid}`, JSON.stringify(ids))
+}
+
+// Context menu for tabs (rename/delete)
+function openTabContextMenu(root: HTMLElement, pid: string, arg: { kind: 'core'|'custom'; id: string; btn: HTMLElement; type?: TabTemplate }): void {
+  const { kind, id, btn } = arg
+  // Close any existing tab context menu before opening a new one
+  document.getElementById('tabCtxMenu')?.remove()
+  const rect = btn.getBoundingClientRect()
+  const menu = document.createElement('div')
+  menu.id = 'tabCtxMenu'
+  menu.className = 'fixed z-[80] w-36 rounded-md bg-neutral-900 ring-1 ring-neutral-700/70 shadow-xl text-sm text-gray-200'
+  menu.style.top = `${rect.bottom + 6}px`
+  menu.style.left = `${rect.left}px`
+  menu.innerHTML = `
+    <button data-act="rename" class="w-full text-left px-3 py-2 hover:bg-neutral-800">名前を変更</button>
+    <button data-act="delete" class="w-full text-left px-3 py-2 hover:bg-neutral-800 text-rose-400">削除</button>
+  `
+  const close = () => menu.remove()
+  setTimeout(() => document.addEventListener('click', (e) => { if (!menu.contains(e.target as Node)) close() }, { once: true }), 0)
+  document.body.appendChild(menu)
+  const bar = root.querySelector('#tabBar') as HTMLElement
+  const minCheck = (): boolean => {
+    const count = Array.from(bar.querySelectorAll('.tab-btn')).filter(b => (b as HTMLElement).getAttribute('data-tab') !== 'new' && !(b as HTMLElement).classList.contains('hidden')).length
+    if (count <= 1) { alert('少なくとも1つのタブは必要です。'); return false }
+    return true
+  }
+  menu.querySelector('[data-act="rename"]')?.addEventListener('click', () => {
+    const cur = btn.textContent || ''
+    const next = prompt('タブ名を入力', cur)
+    if (!next) return
+    if (kind === 'core') {
+      const c = getCoreTabs(pid)
+      const k = id as 'summary'|'board'
+      c[k].title = next
+      saveCoreTabs(pid, c)
+      applyCoreTabs(root, pid)
+    } else {
+      btn.textContent = next
+      const saved = JSON.parse(localStorage.getItem(`tabs-${pid}`) || '[]') as Array<{ id: string; type: TabTemplate; title?: string }>
+      const idx = saved.findIndex(t => t.id === id)
+      if (idx >= 0) saved[idx].title = next
+      localStorage.setItem(`tabs-${pid}`, JSON.stringify(saved))
+    }
+    close()
+  })
+  menu.querySelector('[data-act="delete"]')?.addEventListener('click', () => {
+    if (!minCheck()) { close(); return }
+    if (kind === 'core') {
+      const c = getCoreTabs(pid)
+      const k = id as 'summary'|'board'
+      c[k].visible = false
+      saveCoreTabs(pid, c)
+      applyCoreTabs(root, pid)
+    } else {
+      // remove panel and tab
+      const panel = root.querySelector(`section[data-tab="${id}"]`)
+      panel?.parentElement?.removeChild(panel as Element)
+      const wrap = btn.parentElement as HTMLElement | null
+      wrap?.remove()
+      const saved = JSON.parse(localStorage.getItem(`tabs-${pid}`) || '[]') as Array<{ id: string; type: TabTemplate; title?: string }>
+      const next = saved.filter((t) => t.id !== id)
+      localStorage.setItem(`tabs-${pid}`, JSON.stringify(next))
+    }
+    // activate another visible tab
+    const nextBtn = bar.querySelector('.tab-btn:not(.hidden):not([data-tab="new"])') as HTMLElement | null
+    nextBtn?.click()
+    // persist order after deletion
+    const ids = Array.from(bar.querySelectorAll('.tab-btn')).map(b => (b as HTMLElement).getAttribute('data-tab') || '').filter(x => x && x !== 'new')
+    localStorage.setItem(`tabs-order-${pid}`, JSON.stringify(ids))
+    close()
+  })
+}
 // Create and append a custom tab (blank/kanban/mock). Persist to localStorage.
-function addCustomTab(root: HTMLElement, pid: string, type: TabTemplate, persist = true): void {
-  const id = `custom-${Date.now()}`
+function addCustomTab(root: HTMLElement, pid: string, type: TabTemplate, persist = true, preId?: string, preTitle?: string): void {
+  const id = preId || `custom-${Date.now()}`
   const tabBar = root.querySelector('#tabBar') as HTMLElement
   const newBtn = tabBar.querySelector('[data-tab="new"]') as HTMLElement
   // wrapper to host delete button
   const wrap = document.createElement('span')
   wrap.className = 'group relative inline-flex'
   const btn = document.createElement('button')
-  btn.className = 'tab-btn text-gray-400 hover:text-gray-200 pr-5'
+  // Use symmetric spacing to keep label centered under the active underline
+  btn.className = 'tab-btn text-gray-400 hover:text-gray-200'
   btn.setAttribute('data-tab', id)
-  btn.textContent = tabTitle(type)
-  const del = document.createElement('button')
-  del.title = '削除'
-  del.className = 'absolute right-0 -top-2 hidden group-hover:inline text-neutral-400 hover:text-rose-400 text-lg leading-none'
-  del.textContent = '×'
+  btn.textContent = preTitle || tabTitle(type)
   wrap.appendChild(btn)
-  wrap.appendChild(del)
   tabBar.insertBefore(wrap, newBtn)
   wrap.setAttribute('draggable', 'true')
 
@@ -959,7 +1321,25 @@ function addCustomTab(root: HTMLElement, pid: string, type: TabTemplate, persist
     root.querySelector('main')?.appendChild(panel)
     renderKanban(root, pid, boardId)
   } else if (type === 'blank') {
-    panel.innerHTML = `<div class=\"rounded-xl ring-1 ring-neutral-800/70 bg-neutral-900/50 p-8 text-gray-300\">このタブは空白です。</div>`
+    buildWidgetTab(panel, pid, id, [])
+    root.querySelector('main')?.appendChild(panel)
+  } else if (type === 'notes') {
+    buildWidgetTab(panel, pid, id, ['markdown'])
+    root.querySelector('main')?.appendChild(panel)
+  } else if (type === 'docs') {
+    buildWidgetTab(panel, pid, id, ['markdown','links'])
+    root.querySelector('main')?.appendChild(panel)
+  } else if (type === 'report') {
+    buildWidgetTab(panel, pid, id, ['tasksum'])
+    root.querySelector('main')?.appendChild(panel)
+  } else if (type === 'roadmap') {
+    buildWidgetTab(panel, pid, id, ['milestones'])
+    root.querySelector('main')?.appendChild(panel)
+  } else if (type === 'burndown') {
+    buildWidgetTab(panel, pid, id, [])
+    root.querySelector('main')?.appendChild(panel)
+  } else if (type === 'timeline') {
+    buildWidgetTab(panel, pid, id, [])
     root.querySelector('main')?.appendChild(panel)
   } else {
     panel.innerHTML = `<div class=\"rounded-xl ring-1 ring-neutral-800/70 bg-neutral-900/50 p-8 text-gray-300\">${tabTitle(type)}（プレースホルダー）</div>`
@@ -976,32 +1356,37 @@ function addCustomTab(root: HTMLElement, pid: string, type: TabTemplate, persist
     })
   })
 
-  // delete handler
-  del.addEventListener('click', (e) => {
+  // rename on double click (prompt-based for simplicity)
+  btn.addEventListener('dblclick', (e) => {
     e.stopPropagation()
-    // remove panel and tab
-    const panel = root.querySelector(`section[data-tab="${id}"]`)
-    panel?.parentElement?.removeChild(panel as Element)
-    wrap.remove()
-    // update storage
-    const saved = JSON.parse(localStorage.getItem(`tabs-${pid}`) || '[]') as Array<{ id: string; type: TabTemplate }>
-    const next = saved.filter((t) => t.id !== id)
-    localStorage.setItem(`tabs-${pid}`, JSON.stringify(next))
-    // activate summary tab
-    ;(root.querySelector('[data-tab="summary"]') as HTMLElement)?.click()
+    const cur = btn.textContent || tabTitle(type)
+    const next = prompt('タブ名を入力', cur || '')
+    if (!next) return
+    btn.textContent = next
+    // persist title
+    const saved = JSON.parse(localStorage.getItem(`tabs-${pid}`) || '[]') as Array<{ id: string; type: TabTemplate; title?: string }>
+    const idx = saved.findIndex((t) => t.id === id)
+    if (idx >= 0) { saved[idx].title = next } else { saved.push({ id, type, title: next }) }
+    localStorage.setItem(`tabs-${pid}`, JSON.stringify(saved))
+  })
+
+  // context menu
+  btn.addEventListener('contextmenu', (e) => {
+    e.preventDefault()
+    openTabContextMenu(root, pid, { kind: 'custom', id, btn, type })
   })
 
   if (persist) {
-    const saved = JSON.parse(localStorage.getItem(`tabs-${pid}`) || '[]') as Array<{ id: string; type: TabTemplate }>
-    saved.push({ id, type })
+    const saved = JSON.parse(localStorage.getItem(`tabs-${pid}`) || '[]') as Array<{ id: string; type: TabTemplate; title?: string }>
+    saved.push({ id, type, title: btn.textContent || tabTitle(type) })
     localStorage.setItem(`tabs-${pid}`, JSON.stringify(saved))
   }
   btn.click()
 }
 
 function loadCustomTabs(root: HTMLElement, pid: string): void {
-  const saved = JSON.parse(localStorage.getItem(`tabs-${pid}`) || '[]') as Array<{ id: string; type: TabTemplate }>
-  saved.forEach((t) => addCustomTab(root, pid, t.type, false))
+  const saved = JSON.parse(localStorage.getItem(`tabs-${pid}`) || '[]') as Array<{ id: string; type: TabTemplate; title?: string }>
+  saved.forEach((t) => addCustomTab(root, pid, t.type, false, t.id, t.title))
 }
 
 // Enable drag & drop reordering of custom tabs in the tab bar
@@ -1010,29 +1395,34 @@ function enableTabDnD(root: HTMLElement, pid: string): void {
   if (!bar) return
   let dragEl: HTMLElement | null = null
 
-  const isCustomWrap = (el: HTMLElement | null): el is HTMLElement => {
+  const isDraggableWrap = (el: HTMLElement | null): el is HTMLElement => {
     if (!el) return false
     const btn = el.querySelector('.tab-btn') as HTMLElement | null
     const id = btn?.getAttribute('data-tab') || ''
-    return id.startsWith('custom-')
+    return id !== 'new'
   }
   const persistOrder = () => {
-    const saved = JSON.parse(localStorage.getItem(`tabs-${pid}`) || '[]') as Array<{ id: string; type: TabTemplate }>
-    const typeMap = new Map(saved.map((t) => [t.id, t.type]))
-    const order: Array<{ id: string; type: TabTemplate }> = []
+    // Save custom tabs order
+    const saved = JSON.parse(localStorage.getItem(`tabs-${pid}`) || '[]') as Array<{ id: string; type: TabTemplate; title?: string }>
+    const map = new Map(saved.map((t) => [t.id, t]))
+    const order: Array<{ id: string; type: TabTemplate; title?: string }> = []
+    const ids: string[] = []
     bar.querySelectorAll('.tab-btn').forEach((b) => {
       const id = (b as HTMLElement).getAttribute('data-tab') || ''
+      if (id === 'new') return
+      ids.push(id)
       if (id.startsWith('custom-')) {
-        const t = typeMap.get(id) || 'blank'
-        order.push({ id, type: t })
+        const item = map.get(id) || { id, type: 'blank' as TabTemplate, title: (b as HTMLElement).textContent || undefined }
+        order.push(item)
       }
     })
     localStorage.setItem(`tabs-${pid}`, JSON.stringify(order))
+    localStorage.setItem(`tabs-order-${pid}`, JSON.stringify(ids))
   }
 
   bar.addEventListener('dragstart', (e) => {
     const wrap = (e.target as HTMLElement).closest('span') as HTMLElement | null
-    if (!isCustomWrap(wrap)) { (e as DragEvent).preventDefault(); return }
+    if (!isDraggableWrap(wrap)) { (e as DragEvent).preventDefault(); return }
     dragEl = wrap
     // visual cue while dragging
     dragEl.classList.add('opacity-60')
@@ -1041,7 +1431,7 @@ function enableTabDnD(root: HTMLElement, pid: string): void {
     if (!dragEl) return
     e.preventDefault()
     const t = (e.target as HTMLElement).closest('span') as HTMLElement | null
-    if (!t || !bar.contains(t) || !isCustomWrap(t) || t === dragEl) return
+    if (!t || !bar.contains(t) || !isDraggableWrap(t) || t === dragEl) return
     const rect = t.getBoundingClientRect()
     const before = (e as DragEvent).clientX < rect.left + rect.width / 2
     if (before) bar.insertBefore(dragEl, t)
@@ -1248,19 +1638,19 @@ function renderKanban(root: HTMLElement, pid: string, targetId = 'kb-board'): vo
       const idx = tasks.findIndex((t) => t.id === id)
       if (idx >= 0) tasks[idx].status = target
       saveTasks(pid, tasks)
-      renderKanban(root, pid)
+      renderKanban(root, pid, targetId)
     })
   })
 
   // Add task global button (unique per board)
   const addBtn = document.getElementById(`kb-add-${targetId}`)
-  addBtn?.addEventListener('click', () => openNewTaskModal(root, pid, 'todo'))
+  addBtn?.addEventListener('click', () => openNewTaskModal(root, pid, 'todo', targetId))
 
   // Add task per column
   board.querySelectorAll('[data-add]')?.forEach((btn) => {
     btn.addEventListener('click', () => {
       const st = (btn as HTMLElement).getAttribute('data-add') as Status
-      openNewTaskModal(root, pid, st)
+      openNewTaskModal(root, pid, st, targetId)
     })
   })
 }
@@ -1304,7 +1694,7 @@ function taskCard(t: Task): string {
 }
 
 // New Task modal (rich form)
-function openNewTaskModal(root: HTMLElement, pid: string, status: Status): void {
+function openNewTaskModal(root: HTMLElement, pid: string, status: Status, targetId?: string): void {
   const old = document.getElementById('newTaskOverlay')
   if (old) old.remove()
   const overlay = document.createElement('div')
@@ -1422,7 +1812,7 @@ function openNewTaskModal(root: HTMLElement, pid: string, status: Status): void 
     const tasks = loadTasks(pid)
     const t: Task = { id: String(Date.now()), title, due, status, priority: pr==='自動設定'?'中':pr, assignee: asg, description: desc, comments: [], history: [{ at: new Date().toLocaleString(), by: 'あなた', text: 'タスクを作成しました。' }] }
     tasks.push(t); saveTasks(pid, tasks)
-    close(); renderKanban(root, pid)
+    close(); renderKanban(root, pid, targetId || 'kb-board')
   })
   document.body.appendChild(overlay)
 }
