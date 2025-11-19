@@ -6,3 +6,41 @@ html, body, #root {
   height: 100%;
 }
 
+/* Dark theme tokens (GitHub-inspired) */
+:root {
+  --gh-canvas: #0d1117;
+  --gh-canvas-subtle: #161b22;
+  --gh-border: #30363d;
+  --gh-muted: #8b949e;
+  --gh-contrast: #c9d1d9;
+  --gh-accent: #58a6ff;
+  --gh-green: #238636;
+  --gh-green-hover: #2ea043;
+}
+
+/* Theme helpers */
+.gh-canvas { background-color: var(--gh-canvas); }
+.gh-canvas-subtle { background-color: var(--gh-canvas-subtle); }
+.gh-border { border-color: var(--gh-border); }
+.gh-text-muted { color: var(--gh-muted); }
+.gh-title { color: var(--gh-contrast); }
+.gh-card {
+  background-color: var(--gh-canvas-subtle);
+  border: 1px solid var(--gh-border);
+  border-radius: 0.75rem;
+}
+.btn-primary {
+  background-color: var(--gh-green);
+  color: white;
+}
+.btn-primary:hover { background-color: var(--gh-green-hover); }
+
+/* Improve default focus visibility */
+button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible {
+  outline: 2px solid var(--gh-accent);
+  outline-offset: 1px;
+}
+
+/* Slightly brighten default text */
+body { color: var(--gh-contrast); }
+

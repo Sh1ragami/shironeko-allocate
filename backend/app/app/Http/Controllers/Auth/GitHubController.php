@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Str;
 use Laravel\Socialite\Facades\Socialite;
 use Illuminate\Support\Facades\Schema;
@@ -16,7 +17,7 @@ class GitHubController extends Controller
     public function redirect(): RedirectResponse
     {
         return Socialite::driver('github')
-            ->scopes(['read:user', 'user:email'])
+            ->scopes(['read:user', 'user:email', 'repo'])
             ->redirect();
     }
 
@@ -62,6 +63,11 @@ class GitHubController extends Controller
         $token = Str::random(60);
         $tokenHashed = hash('sha256', $token);
         $updateData = ['github_id' => $githubId, 'api_token' => $tokenHashed];
+        // Persist GitHub access token if column exists
+        $ghAccess = $gitUser->token ?? null;
+        if ($has('github_access_token') && $ghAccess) {
+            $updateData['github_access_token'] = Crypt::encryptString($ghAccess);
+        }
         if ($has('updated_at')) $updateData['updated_at'] = now();
 
         // Upsert by github_id without relying on primary key
