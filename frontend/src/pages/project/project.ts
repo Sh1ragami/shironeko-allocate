@@ -21,7 +21,7 @@ function projectCard(p: Project): string {
     <button data-id="${p.id}" class="group relative w-full h-40 rounded-xl bg-neutral-800/50 ring-1 ${ring} shadow-sm text-left p-5 transition-colors hover:bg-neutral-800/70">
       <div class="text-base font-medium text-gray-100/90">${p.name}</div>
       <div class="mt-2 text-xs text-gray-400">${p.start ? `${p.start} ~ ${p.end ?? ''}` : '&nbsp;'}</div>
-      <div class="absolute bottom-3 right-3 flex gap-2 items-center opacity-80">
+      <div class="absolute bottom-3 right-3 flex gap-2 items-center opacity-0 group-hover:opacity-80 pointer-events-none group-hover:pointer-events-auto transition-opacity">
         <button type="button" class="card-menu inline-flex items-center gap-1 rounded-md bg-neutral-800/80 ring-1 ring-neutral-700/60 px-2 py-1 text-xs text-gray-300 hover:text-white">
           <span class="w-1.5 h-1.5 rounded-full bg-gray-300/70"></span>
           <span class="w-1.5 h-1.5 rounded-full bg-gray-300/70"></span>
@@ -158,19 +158,28 @@ function loadProjects(root: HTMLElement): void {
       const selected = getSelectedGroup(me?.id)
       const map = getGroupMap(me?.id)
 
-      const html = list
+      const filtered = list
         .filter((p) => p && typeof p === 'object' && Number(p.id) > 0 && (p.name ?? '').toString().trim().length > 0)
         .filter((p) => {
           const gid = map[String(p.id)] || 'user'
           return !selected || selected === 'all' ? true : gid === selected
         })
+      const ids = new Set(filtered.map((p)=> String(p.id)))
+      const html = filtered
         .map((p) => projectCard(toCard(p)))
         .join('')
       const grid = root.querySelector('#projectGrid') as HTMLElement | null
       if (!grid) return
       grid.innerHTML = `${html}${createProjectCard()}`
       bindGridInteractions(root)
+      sanitizeProjectGrid(grid)
+      // remove any card not in current ids (stale/unknown)
+      Array.from(grid.querySelectorAll('[data-id]')).forEach((el)=>{
+        const id = (el as HTMLElement).getAttribute('data-id') || ''
+        if (!ids.has(id)) (el as HTMLElement).remove()
+      })
       removeEmptyCards(grid)
+      sanitizeProjectGrid(grid)
     })
     .catch(() => {
       // ignore if API not ready
@@ -196,13 +205,40 @@ function bindGridInteractions(root: HTMLElement): void {
   const openCreate = () => openCreateProjectModal(root)
   grid.querySelector('#createCard')?.addEventListener('click', openCreate)
   removeEmptyCards(grid)
+  sanitizeProjectGrid(grid)
 }
 
 function removeEmptyCards(root: HTMLElement): void {
-  root.querySelectorAll('[data-id]')?.forEach((card) => {
-    const nameEl = (card as HTMLElement).querySelector('.text-base') as HTMLElement | null
-    const name = nameEl?.textContent?.trim() || ''
-    if (!name) (card as HTMLElement).remove()
+  const cards = Array.from(root.querySelectorAll('[data-id]')) as HTMLElement[]
+  cards.forEach((card) => {
+    const titleEl = card.querySelector('.text-base') as HTMLElement | null
+    const dateEl = card.querySelector('.mt-2') as HTMLElement | null
+    const title = titleEl?.textContent?.trim() || ''
+    // remove if title/date missing (invalid card) or extremely short
+    if (!titleEl || !dateEl || !title) {
+      card.remove()
+      return
+    }
+    // also guard against cards that contain only the menu button
+    const contentText = (card.textContent || '').replace(/[\s\n\r]+/g, '')
+    if (contentText.length <= 3) {
+      card.remove()
+    }
+  })
+}
+
+function sanitizeProjectGrid(grid: HTMLElement): void {
+  // Remove any rogue card-menu buttons or unexpected children without data-id
+  grid.querySelectorAll('.card-menu').forEach((btn) => {
+    const host = (btn as HTMLElement).closest('[data-id]')
+    if (!host) (btn as HTMLElement).remove()
+  })
+  Array.from(grid.children).forEach((child) => {
+    const el = child as HTMLElement
+    if (el.id === 'createCard') return
+    if (el.getAttribute('data-id')) return
+    // Unknown element inside grid -> drop
+    el.remove()
   })
 }
 
@@ -564,7 +600,7 @@ function openCreateProjectModal(root: HTMLElement): void {
         <button class="ml-auto text-2xl text-neutral-300 hover:text-white" id="pj-close">×</button>
       </div>
       <div class="h-[calc(100%-3rem)] flex overflow-hidden">
-        <section class="flex-1 overflow-y-auto p-6 space-y-6">
+        <section class="flex-1 overflow-y-auto p-6 pb-28 space-y-6">
           <!-- New project tab -->
           <div class="pj-panel" data-tab="new">
             ${renderNewProjectForm(me)}
@@ -611,21 +647,36 @@ function openCreateProjectModal(root: HTMLElement): void {
     fetchGithubProfile(me.github_id)
       .then((profile) => fetchGithubRepos(profile.login))
       .then((repos) => {
-        const container = overlay.querySelector('#repoList')
+        const container = overlay.querySelector('#repoList') as HTMLElement | null
         if (container) container.innerHTML = repos.map(repoItem).join('')
-        // selection
-        container?.querySelectorAll('[data-repo]').forEach((el) => {
-          el.addEventListener('click', () => {
-            container.querySelectorAll('[data-repo]').forEach((n) => n.classList.remove('ring-emerald-600'))
-            el.classList.add('ring-emerald-600')
-            ;(overlay as any)._selectedRepo = (el as HTMLElement).getAttribute('data-repo')
+        ;(overlay as any)._repos = repos
+        // selection (delegated)
+        container?.addEventListener('click', (ev) => {
+          const target = (ev.target as HTMLElement).closest('[data-repo]') as HTMLElement | null
+          if (!target || !container.contains(target)) return
+          container.querySelectorAll('[data-repo]').forEach((n) => {
+            n.classList.remove('ring-emerald-600', 'ring-2', 'bg-neutral-900/50')
           })
+          target.classList.add('ring-emerald-600', 'ring-2', 'bg-neutral-900/50')
+          const full = target.getAttribute('data-repo') || ''
+          ;(overlay as any)._selectedRepo = full
+          // populate right-side form
+          try {
+            const list = ((overlay as any)._repos || []) as any[]
+            const r = list.find((x) => String(x.full_name) === full)
+            const nameEl = overlay.querySelector('#ex-name') as HTMLInputElement | null
+            const descEl = overlay.querySelector('#ex-desc') as HTMLTextAreaElement | null
+            const selEl = overlay.querySelector('#ex-selected') as HTMLElement | null
+            if (nameEl) nameEl.value = (r?.name || '')
+            if (descEl) descEl.value = (r?.description || '')
+            if (selEl) selEl.textContent = r ? `${r.full_name} ${r.private ? '(Private)' : '(Public)'}` : full
+          } catch {}
         })
         // search
         const search = overlay.querySelector('#repoSearch') as HTMLInputElement | null
         search?.addEventListener('input', () => {
           const q = (search.value || '').toLowerCase()
-          container.querySelectorAll('[data-repo]').forEach((el) => {
+          container?.querySelectorAll('[data-repo]').forEach((el) => {
             const text = el.textContent?.toLowerCase() || ''
             ;(el as HTMLElement).style.display = text.includes(q) ? '' : 'none'
           })
@@ -639,6 +690,10 @@ function openCreateProjectModal(root: HTMLElement): void {
 
   // Submit
   overlay.querySelector('#pj-submit')?.addEventListener('click', async () => {
+    // prevent double submit
+    const submitBtn = overlay.querySelector('#pj-submit') as HTMLButtonElement | null
+    if (submitBtn?.disabled) return
+    if (submitBtn) submitBtn.disabled = true
     const active = overlay.querySelector('.pj-panel:not(.hidden)') as HTMLElement
     const mode = active?.getAttribute('data-tab')
     try {
@@ -646,26 +701,39 @@ function openCreateProjectModal(root: HTMLElement): void {
         clearFormErrors(overlay)
         const payload = readNewProjectForm(overlay)
         if (!validateProjectForm(overlay, payload)) return
-        await createProject(payload)
-        addProjectToGrid(root, {
-          id: Date.now(),
-          name: payload.name || '新規プロジェクト',
-          start: payload.start,
-          end: payload.end,
-          color: 'blue',
-        })
+        const created = await createProject(payload)
+        // Use server response if available; fallback to form values
+        const id = Number(created?.id)
+        const name = (created?.name ?? payload.name ?? '').toString()
+        const start = created?.start_date || created?.start || payload.start
+        const end = created?.end_date || created?.end || payload.end
+        if (id && name) {
+          addProjectToGrid(root, { id, name, start, end, color: 'blue' })
+        }
       } else {
         const repo = (overlay as any)._selectedRepo as string | undefined
         if (!repo) return alert('リポジトリを選択してください。')
-        await createProject({ linkRepo: repo })
-        const name = repo.split('/')[1]
-        addProjectToGrid(root, { id: Date.now(), name, color: 'green' })
+        const extra = readExistingProjectForm(overlay)
+        const created = await createProject({ linkRepo: repo, ...extra })
+        const id = Number(created?.id)
+        const name = (created?.name ?? (repo.split('/')[1] || 'Repo')).toString()
+        if (id && name) addProjectToGrid(root, { id, name, start: extra.start, end: extra.end, color: 'green' })
       }
+      // refresh from server to reflect truth and avoid stale cards
+      loadProjects(root)
       close()
       alert('プロジェクトを作成しました。')
     } catch (e) {
       console.error(e)
-      alert('作成に失敗しました（API未実装の可能性）')
+      // If unauthorized, route to login
+      if ((e as any)?.message?.includes('401')) {
+        alert('ログインが必要です。ログイン画面へ移動します。')
+        window.location.hash = '#/login'
+      } else {
+        alert('作成に失敗しました。サーバーの状態をご確認ください。')
+      }
+    } finally {
+      if (submitBtn) submitBtn.disabled = false
     }
   })
 
@@ -697,6 +765,34 @@ function openCreateProjectModal(root: HTMLElement): void {
     if (endEl && startEl?.value) {
       endEl.min = startEl.value
       if (endEl.value && endEl.value < startEl.value) endEl.value = startEl.value
+    }
+  })
+
+  // Interactions in existing form
+  overlay.querySelectorAll('#ex-skills .ex-skill').forEach((chip) => {
+    chip.addEventListener('click', () => {
+      chip.classList.toggle('active')
+      const on = chip.classList.contains('active')
+      chip.classList.toggle('bg-emerald-700', on)
+      chip.classList.toggle('text-white', on)
+      chip.classList.toggle('ring-emerald-600', on)
+      chip.classList.toggle('bg-neutral-800/60', !on)
+      chip.classList.toggle('text-gray-200', !on)
+      chip.classList.toggle('ring-neutral-700/60', !on)
+    })
+  })
+  overlay.querySelector('#ex-visibility')?.addEventListener('click', (e) => {
+    const btn = e.currentTarget as HTMLElement
+    const next = btn.getAttribute('data-state') === 'public' ? 'private' : 'public'
+    btn.setAttribute('data-state', next)
+    btn.textContent = next === 'public' ? 'Public' : 'Private'
+  })
+  const exStartEl = overlay.querySelector('#ex-start') as HTMLInputElement | null
+  const exEndEl = overlay.querySelector('#ex-end') as HTMLInputElement | null
+  exStartEl?.addEventListener('change', () => {
+    if (exEndEl && exStartEl?.value) {
+      exEndEl.min = exStartEl.value
+      if (exEndEl.value && exEndEl.value < exStartEl.value) exEndEl.value = exStartEl.value
     }
   })
 
@@ -751,6 +847,7 @@ function addProjectToGrid(root: HTMLElement, p: Project): void {
     const idAttr = (card as HTMLElement).getAttribute('data-id')
     if (idAttr) openCardMenu(root, card as HTMLElement, Number(idAttr))
   })
+  sanitizeProjectGrid(grid as HTMLElement)
 }
 
 function openCardMenu(root: HTMLElement, anchor: HTMLElement, id: number): void {
@@ -863,13 +960,59 @@ function renderNewProjectForm(me?: { name?: string }): string {
 }
 
 function renderExistingRepoPanel(): string {
+  const skills = ['Ruby','Python','Dart','Java','JavaScript','HTML','CSS','C++','C','Lisp','Rust','Julia','MATLAB','Haskell','COBOL']
   return `
-    <div class="space-y-4">
-      <div class="flex items-center gap-3">
-        <input id="repoSearch" type="text" placeholder="リポジトリを検索..." class="flex-1 rounded-md bg-neutral-800/60 ring-1 ring-neutral-700/60 px-3 py-2 text-gray-100 placeholder:text-gray-500" />
-        <button class="rounded-md bg-neutral-800/60 ring-1 ring-neutral-700/60 px-3 py-2 text-sm">更新が新しい順</button>
+    <div class="grid gap-6 md:grid-cols-12">
+      <div class="md:col-span-5">
+        <div class="text-sm text-gray-300 mb-2">GitHubリポジトリを選択</div>
+        <div class="flex items-center gap-3">
+          <input id="repoSearch" type="text" placeholder="リポジトリを検索..." class="flex-1 rounded-md bg-neutral-800/60 ring-1 ring-neutral-700/60 px-3 py-2 text-gray-100 placeholder:text-gray-500" />
+          <button class="rounded-md bg-neutral-800/60 ring-1 ring-neutral-700/60 px-3 py-2 text-sm">更新が新しい順</button>
+        </div>
+        <div id="repoList" class="mt-3 divide-y divide-neutral-800/70 max-h-[48vh] overflow-y-auto"></div>
+        <p class="text-xs text-gray-400 mt-2">リポジトリをひとつ選択してください。</p>
       </div>
-      <div id="repoList" class="divide-y divide-neutral-800/70"></div>
+      <div class="md:col-span-7">
+        <div class="rounded-lg ring-1 ring-neutral-700/60 bg-neutral-900/40 p-4 space-y-4">
+          <div class="flex items-center justify-between">
+            <div>
+              <div class="text-sm text-gray-300">選択されたリポジトリ</div>
+              <div id="ex-selected" class="text-xs text-gray-400">未選択</div>
+            </div>
+          </div>
+          <div class="flex items-center gap-4">
+            <div class="text-sm text-gray-400 w-24">プロジェクト名</div>
+            <input id="ex-name" type="text" placeholder="プロジェクト名" class="flex-1 rounded-md bg-neutral-800/60 ring-1 ring-neutral-700/60 px-3 py-2 text-gray-100 placeholder:text-gray-500" />
+          </div>
+          <div>
+            <div class="text-sm text-gray-400 mb-1">プロジェクト概要</div>
+            <textarea id="ex-desc" rows="4" class="w-full rounded-md bg-neutral-800/60 ring-1 ring-neutral-700/60 px-3 py-2 text-gray-100 placeholder:text-gray-500" placeholder="説明を入力"></textarea>
+          </div>
+
+          <div class="flex items-center justify-between">
+            <div>
+              <div class="text-sm text-gray-300">表示権限を選択</div>
+              <div class="text-xs text-gray-400">このプロジェクトを閲覧およびコミットできるユーザーを選択する</div>
+            </div>
+            <button id="ex-visibility" data-state="public" class="rounded-md bg-neutral-800/70 ring-1 ring-neutral-700/60 px-3 py-1.5 text-sm">Public</button>
+          </div>
+
+          <div class="flex items-center gap-3">
+            <div class="text-sm text-gray-300 w-28">期日を選択</div>
+            <input id="ex-start" type="date" class="w-44 rounded-md bg-neutral-800/60 ring-1 ring-neutral-700/60 px-3 py-1.5 text-gray-100 placeholder:text-gray-500" />
+            <span class="text-gray-400">〜</span>
+            <input id="ex-end" type="date" class="w-44 rounded-md bg-neutral-800/60 ring-1 ring-neutral-700/60 px-3 py-1.5 text-gray-100 placeholder:text-gray-500" />
+          </div>
+          <p id="ex-err-date" class="text-rose-400 text-sm hidden">開始日は終了日より前の日付にしてください。</p>
+
+          <div>
+            <div class="text-sm text-gray-300 mb-2">スキル要件を選択</div>
+            <div id="ex-skills" class="flex flex-wrap gap-2">
+              ${skills.map((s, i) => `<button class="ex-skill px-3 py-1.5 rounded-full text-sm ring-1 ${i % 5 === 0 ? 'bg-emerald-700 text-white ring-emerald-600' : 'bg-neutral-800/60 text-gray-200 ring-neutral-700/60'}" data-skill="${s}">${s}</button>`).join('')}
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   `
 }
@@ -887,7 +1030,7 @@ function repoItem(r: any): string {
   const lang = r.language ? `<span class=\"ml-2 text-xs text-gray-400\">${r.language}</span>` : ''
   const updated = r.updated_at ? new Date(r.updated_at).toLocaleDateString() : ''
   return `
-    <button class="w-full text-left py-4 hover:bg-neutral-900/40 px-1 rounded-md ring-1 ring-transparent" data-repo="${r.full_name}">
+    <button type="button" class="w-full text-left py-4 hover:bg-neutral-900/40 px-1 rounded-md ring-1 ring-transparent" data-repo="${r.full_name}">
       <div class="flex items-center gap-2">
         <div class="font-medium text-sky-300">${r.name}</div>
         <span class="text-xs rounded bg-neutral-800/80 ring-1 ring-neutral-700/60 px-1.5 py-0.5">${visibility}</span>
@@ -914,16 +1057,31 @@ function readNewProjectForm(scope: HTMLElement): any {
   }
 }
 
-async function createProject(payload: any): Promise<any> {
-  // Try to call backend if exists; otherwise simulate
-  try {
-    return await apiFetch('/projects', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    })
-  } catch (e) {
-    // Fallback: simulate success
-    return Promise.resolve({ ok: true, mock: true })
+function readExistingProjectForm(scope: HTMLElement): any {
+  const selectedSkills = Array.from(scope.querySelectorAll('#ex-skills .ex-skill.active')).map((el) => (
+    (el as HTMLElement).getAttribute('data-skill') as string
+  ))
+  const visibilityState = scope.querySelector('#ex-visibility')?.getAttribute('data-state')
+  const start = (scope.querySelector('#ex-start') as HTMLInputElement | null)?.value?.trim()
+  const end = (scope.querySelector('#ex-end') as HTMLInputElement | null)?.value?.trim()
+  const err = scope.querySelector('#ex-err-date') as HTMLElement | null
+  if (start && end && new Date(start) > new Date(end)) err?.classList.remove('hidden')
+  else err?.classList.add('hidden')
+  return {
+    name: (scope.querySelector('#ex-name') as HTMLInputElement | null)?.value?.trim(),
+    description: (scope.querySelector('#ex-desc') as HTMLTextAreaElement | null)?.value?.trim(),
+    visibility: visibilityState === 'private' ? 'private' : 'public',
+    start,
+    end,
+    skills: selectedSkills,
   }
+}
+
+async function createProject(payload: any): Promise<any> {
+  // Call backend and surface errors (no mock success)
+  return apiFetch('/projects', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
 }

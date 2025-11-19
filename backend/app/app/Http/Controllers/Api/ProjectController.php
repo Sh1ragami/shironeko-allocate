@@ -34,27 +34,53 @@ class ProjectController extends Controller
     public function index(Request $request)
     {
         $uid = $request->user()?->id;
-        $result = [];
+        // When DB table exists, merge DB rows and JSON fallback, dedupe by id
         if (Schema::hasTable('projects')) {
             $rows = Project::query()->where('user_id', $uid)->orderByDesc('id')->get()->toArray();
-            $result = array_map(function ($p) {
-                // Normalize keys
+            $db = array_map(function ($p) {
                 $p['start'] = $p['start_date'] ?? null;
                 $p['end'] = $p['end_date'] ?? null;
                 return $p;
             }, $rows);
+            // JSON fallback (legacy or when DB insert failed)
+            $json = array_values(array_filter($this->readAll(), function ($p) use ($uid) {
+                return (($p['user_id'] ?? null) === $uid);
+            }));
+            // Merge with preference to DB, dedupe by link_repo or name (normalized)
+            $byKey = [];
+            $makeKey = function ($p) {
+                $link = is_array($p) ? ($p['link_repo'] ?? null) : ($p->link_repo ?? null);
+                $name = is_array($p) ? ($p['name'] ?? null) : ($p->name ?? null);
+                if (is_string($link) && trim($link) !== '') return 'repo:'.strtolower(trim($link));
+                if (is_string($name) && trim($name) !== '') return 'name:'.mb_strtolower(trim($name));
+                return 'id:'.(string)(is_array($p) ? ($p['id'] ?? '') : ($p->id ?? ''));
+            };
+            foreach ($json as $p) { $byKey[$makeKey($p)] = $p; }
+            foreach ($db as $p) { $byKey[$makeKey($p)] = $p; }
+            $merged = array_values($byKey);
+            // Filter out invalid entries
+            $merged = array_values(array_filter($merged, function ($p) {
+                $name = is_array($p) ? ($p['name'] ?? null) : ($p->name ?? null);
+                $id = is_array($p) ? ($p['id'] ?? null) : ($p->id ?? null);
+                return is_numeric($id) && (int)$id > 0 && is_string($name) && trim($name) !== '';
+            }));
+            // Sort by id desc as a simple heuristic
+            usort($merged, fn($a, $b) => (int)($b['id'] ?? 0) <=> (int)($a['id'] ?? 0));
+            return response()->json($merged);
         }
-        // Merge JSON fallback too (for legacy items)
+
+        // No DB table: return JSON store only
+        $result = [];
         foreach ($this->readAll() as $p) {
             if (($p['user_id'] ?? null) !== $uid) continue;
             $result[] = $p;
         }
-        // Filter out invalid entries that lack a name
         $result = array_values(array_filter($result, function ($p) {
             $name = is_array($p) ? ($p['name'] ?? null) : ($p->name ?? null);
             $id = is_array($p) ? ($p['id'] ?? null) : ($p->id ?? null);
             return is_numeric($id) && (int)$id > 0 && is_string($name) && trim($name) !== '';
         }));
+        usort($result, fn($a, $b) => (int)($b['id'] ?? 0) <=> (int)($a['id'] ?? 0));
         return response()->json($result);
     }
 
@@ -74,14 +100,25 @@ class ProjectController extends Controller
         $repoMeta = null;
         if (!empty($data['linkRepo'])) {
             $repo = $data['linkRepo'];
-            $res = Http::withHeaders(['User-Agent' => 'shironeko-allocate'])
-                ->get("https://api.github.com/repos/{$repo}");
-            if (!$res->ok()) {
-                return response()->json(['message' => 'Repository not found or not accessible'], 400);
+            // Try to fetch repo meta; include token if available to allow private repos
+            $headers = ['User-Agent' => 'shironeko-allocate', 'Accept' => 'application/vnd.github+json'];
+            $tokenEnc = $request->user()?->github_access_token;
+            if ($tokenEnc) {
+                try { $headers['Authorization'] = 'Bearer '.Crypt::decryptString($tokenEnc); } catch (\Throwable $e) {}
             }
-            $repoMeta = $res->json();
-            if (empty($data['name'])) $data['name'] = $repoMeta['name'] ?? $repo;
-            if (empty($data['description'])) $data['description'] = $repoMeta['description'] ?? null;
+            $res = Http::withHeaders($headers)->get("https://api.github.com/repos/{$repo}");
+            if ($res->ok()) {
+                $repoMeta = $res->json();
+                if (empty($data['name'])) $data['name'] = $repoMeta['name'] ?? $repo;
+                if (empty($data['description'])) $data['description'] = $repoMeta['description'] ?? null;
+            } else {
+                // Do not hard-fail: allow registration even if meta fetch failed
+                // Ensure we have a name at least (use repo path suffix)
+                if (empty($data['name'])) {
+                    $parts = explode('/', $repo);
+                    $data['name'] = end($parts) ?: $repo;
+                }
+            }
         } else {
             // No link specified -> create a repository for the user if token available
             $tokenEnc = $user?->github_access_token;
@@ -128,25 +165,29 @@ class ProjectController extends Controller
             return response()->json(['message' => 'Project name is required'], 422);
         }
 
-        // Prefer DB if available
+        // Prefer DB if available; on failure gracefully fall back to JSON store
         if (Schema::hasTable('projects')) {
-            $project = new Project();
-            $project->user_id = $user?->id;
-            $project->name = $data['name'];
-            $project->description = $data['description'] ?? null;
-            $project->visibility = $data['visibility'] ?? 'public';
-            $project->start_date = $data['start'] ?? null;
-            $project->end_date = $data['end'] ?? null;
-            $project->skills = $data['skills'] ?? [];
-            $project->link_repo = $data['linkRepo'] ?? null;
-            $project->github_meta = $repoMeta ? [
-                'full_name' => $repoMeta['full_name'] ?? null,
-                'private' => $repoMeta['private'] ?? null,
-                'html_url' => $repoMeta['html_url'] ?? null,
-                'language' => $repoMeta['language'] ?? null,
-            ] : null;
-            $project->save();
-            return response()->json($project, 201);
+            try {
+                $project = new Project();
+                $project->user_id = $user?->id;
+                $project->name = $data['name'];
+                $project->description = $data['description'] ?? null;
+                $project->visibility = $data['visibility'] ?? 'public';
+                $project->start_date = $data['start'] ?? null;
+                $project->end_date = $data['end'] ?? null;
+                $project->skills = $data['skills'] ?? [];
+                $project->link_repo = $data['linkRepo'] ?? null;
+                $project->github_meta = $repoMeta ? [
+                    'full_name' => $repoMeta['full_name'] ?? null,
+                    'private' => $repoMeta['private'] ?? null,
+                    'html_url' => $repoMeta['html_url'] ?? null,
+                    'language' => $repoMeta['language'] ?? null,
+                ] : null;
+                $project->save();
+                return response()->json($project, 201);
+            } catch (\Throwable $e) {
+                // continue to JSON fallback below
+            }
         }
 
         // Fallback: JSON store
