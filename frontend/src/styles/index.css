@@ -6,7 +6,7 @@ html, body, #root {
   height: 100%;
 }
 
-/* Dark theme tokens (GitHub-inspired) */
+/* Dark theme tokens (GitHub-inspired, subtle) */
 :root {
   --gh-canvas: #0d1117;
   --gh-canvas-subtle: #161b22;
@@ -44,3 +44,4 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 /* Slightly brighten default text */
 body { color: var(--gh-contrast); }
 
+/* Keep defaults subtle and aligned with existing tabs */

@@ -1,6 +1,169 @@
 import { apiFetch } from '../../utils/api'
 import { openTaskModal } from './task-modal'
+// Account modal helpers (duplicated to open over current page)
+function renderSkillSection(title: string): string {
+  const skills = ['COBOL','Dart','Java','C++','Ruby','Lisp','C','Julia','MATLAB','HTML','CSS','Python']
+  return `
+    <section class="space-y-3">
+      <div class="text-sm text-gray-400">${title}</div>
+      <div class="rounded-lg ring-1 ring-neutral-700/60 bg-neutral-900/40 p-3 flex flex-wrap gap-2">
+        ${skills.map((s, i) => `<button class="skill-pill px-3 py-1.5 rounded-full text-sm ring-1 ${i < 3 ? 'bg-emerald-700 text-white ring-emerald-600' : 'bg-neutral-800/60 text-gray-200 ring-neutral-700/60'}" data-skill="${s}">${s}</button>`).join('')}
+      </div>
+      <p class="text-xs text-center text-gray-400">+ すべてみる</p>
+    </section>
+  `
+}
+function toggle(on = true): string {
+  return `<button type="button" class="toggle ${on ? 'bg-emerald-600' : 'bg-neutral-700'} relative inline-flex h-6 w-10 items-center rounded-full transition-colors">
+    <span class="knob inline-block h-5 w-5 transform rounded-full bg-white transition-transform ${on ? 'translate-x-5' : 'translate-x-1'}"></span>
+  </button>`
+}
+function notifyRow(label: string, extra: string = ''): string {
+  return `
+    <div class="flex items-center justify-between px-4 py-3 bg-neutral-900/60">
+      <div class="text-sm text-gray-200">${label} ${extra}</div>
+      ${toggle(true)}
+    </div>
+  `
+}
+function openAccountModal(root: HTMLElement): void {
+  const me = (root as any)._me as { name?: string; email?: string; github_id?: number } | undefined
+  const avatarUrl = me?.github_id ? `https://avatars.githubusercontent.com/u/${me.github_id}?s=128` : ''
+  const overlay = document.createElement('div')
+  overlay.id = 'accountOverlay'
+  overlay.className = 'fixed inset-0 z-50 bg-black/60 backdrop-blur-[1px] grid place-items-center'
+  overlay.innerHTML = `
+    <div class="relative w-[min(960px,92vw)] h-[80vh] max-h-[86vh] overflow-hidden rounded-xl bg-neutral-900 ring-1 ring-neutral-700/70 shadow-2xl text-gray-100">
+      <div class="flex items-center h-12 px-5 border-b border-neutral-800/70">
+        <h3 class="text-lg font-semibold">マイページ</h3>
+        <button id="accountClose" class="ml-auto text-2xl text-neutral-300 hover:text-white">×</button>
+      </div>
+      <div class="flex">
+        <aside class="w-48 shrink-0 p-4 border-r border-neutral-800/70 space-y-2">
+          <button data-tab="basic" class="tab-btn w-full text-left px-3 py-2 rounded-md bg-neutral-800/60 ring-1 ring-neutral-700/60 text-gray-100">
+            <span>基本情報</span>
+          </button>
+          <button data-tab="notify" class="tab-btn w-full text-left px-3 py-2 rounded-md hover:bg-neutral-800/40 ring-1 ring-transparent text-gray-100">
+            <span>通知設定</span>
+          </button>
+        </aside>
+        <section class="flex-1 p-6 space-y-6 overflow-y-auto">
+          <div class="tab-panel" data-tab="basic">
+            <div class="flex items-center gap-4">
+              <div class="w-16 h-16 rounded-full overflow-hidden bg-neutral-700 ring-1 ring-neutral-600/70">
+                ${avatarUrl ? `<img src="${avatarUrl}" class="w-full h-full object-cover"/>` : ''}
+              </div>
+              <div>
+                <div class="text-sm text-gray-400">連携中のGitHubアカウント</div>
+                <div class="text-base">${me?.name ?? 'ゲスト'}</div>
+              </div>
+              <button id="logoutBtn" class="ml-auto inline-flex items-center rounded-md bg-rose-700 hover:bg-rose-600 text-white text-sm font-medium px-3 py-1.5">ログアウト</button>
+            </div>
+            <hr class="my-6 border-neutral-800/70"/>
+            <h4 class="text-base font-medium">ユーザー設定</h4>
+            <div class="space-y-6">
+              ${renderSkillSection('所有スキル一覧')}
+              ${renderSkillSection('希望スキル一覧')}
+            </div>
+          </div>
+          <div class="tab-panel hidden" data-tab="notify">
+            <div class="mb-6 p-4 rounded-lg ring-1 ring-neutral-700/60 bg-neutral-900/60">
+              <p class="text-gray-300">Slackと連携することで、アクティビティをSlack通知で受け取ることができるようになります。</p>
+              <div class="mt-3">
+                <button class="inline-flex items-center gap-2 rounded-md px-4 py-2 text-white font-medium bg-gradient-to-r from-fuchsia-600 to-violet-600 hover:brightness-110">
+                  <span class="inline-block w-5 h-5 rounded bg-white"></span>
+                  <span>slack と連携する</span>
+                </button>
+              </div>
+            </div>
+            <section class="space-y-3">
+              <h4 class="text-base font-medium">通知のタイミング</h4>
+              <div class="divide-y divide-neutral-800/70 ring-1 ring-neutral-800/60 rounded-lg overflow-hidden">
+                ${notifyRow('レビュアーに割り当てられた時')}
+                ${notifyRow('新しいタスクが割り当てられた時')}
+                ${notifyRow('担当タスクの期日が近くなった時', '<span class="ml-2 text-xs rounded-md bg-neutral-800/80 ring-1 ring-neutral-700/60 px-2 py-0.5 text-gray-300">3日前</span>')}
+                ${notifyRow('自分のタスクに対するレビューが完了した時')}
+              </div>
+            </section>
+            <section class="mt-8 space-y-3">
+              <h4 class="text-base font-medium">通知の送信時間</h4>
+              <p class="text-sm text-gray-400">送信時間の制限をオンにすると、指定した時間帯のみ通知を受け取ることができます。設定した時間外に届いた通知は、次の通知可能時間にまとめて送信されます。</p>
+              <div class="mt-3 flex items-center gap-3">
+                <span class="text-sm text-gray-200">通知の時間を制限する</span>
+                <button id="ntf-toggle" type="button" class="toggle bg-emerald-600 relative inline-flex h-6 w-10 items-center rounded-full transition-colors">
+                  <span class="knob inline-block h-5 w-5 transform rounded-full bg-white transition-transform translate-x-5"></span>
+                </button>
+              </div>
+              <div class="mt-2 flex items-center gap-4 text-gray-200">
+                <input id="ntf-start" type="time" value="06:30" class="w-32 rounded-md bg-neutral-800/60 ring-1 ring-neutral-700/60 px-3 py-1.5 text-gray-100" />
+                <span class="text-gray-400">〜</span>
+                <input id="ntf-end" type="time" value="20:30" class="w-32 rounded-md bg-neutral-800/60 ring-1 ring-neutral-700/60 px-3 py-1.5 text-gray-100" />
+              </div>
+            </section>
+          </div>
+        </section>
+      </div>
+    </div>
+  `
+  const close = () => overlay.remove()
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close() })
+  overlay.querySelector('#accountClose')?.addEventListener('click', close)
+  overlay.querySelector('#logoutBtn')?.addEventListener('click', () => {
+    localStorage.removeItem('apiToken')
+    close()
+    window.location.hash = '#/login'
+  })
+  overlay.querySelectorAll('.tab-btn')?.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const id = (btn as HTMLElement).getAttribute('data-tab')
+      overlay.querySelectorAll('.tab-panel')?.forEach((p) => {
+        (p as HTMLElement).classList.toggle('hidden', (p as HTMLElement).getAttribute('data-tab') !== id)
+      })
+      overlay.querySelectorAll('.tab-btn')?.forEach((b) => {
+        const active = b === btn
+        b.classList.toggle('bg-neutral-800/60', active)
+        b.classList.toggle('ring-1', active)
+        b.classList.toggle('ring-neutral-700/60', active)
+      })
+    })
+  })
+  // Toggle switch interactions
+  overlay.querySelectorAll('.toggle').forEach((t) => {
+    t.addEventListener('click', () => {
+      t.classList.toggle('bg-emerald-600')
+      t.classList.toggle('bg-neutral-700')
+      const knob = (t as HTMLElement).querySelector('.knob') as HTMLElement | null
+      knob?.classList.toggle('translate-x-5')
+    })
+  })
+  // Notify time limit lock handling
+  const ntfToggle = overlay.querySelector('#ntf-toggle') as HTMLElement | null
+  const ntfStart = overlay.querySelector('#ntf-start') as HTMLInputElement | null
+  const ntfEnd = overlay.querySelector('#ntf-end') as HTMLInputElement | null
+  const applyTimeLock = () => {
+    const on = ntfToggle?.classList.contains('bg-emerald-600')
+    if (ntfStart) { ntfStart.disabled = !on; ntfStart.classList.toggle('opacity-50', !on) }
+    if (ntfEnd) { ntfEnd.disabled = !on; ntfEnd.classList.toggle('opacity-50', !on) }
+  }
+  ntfToggle?.addEventListener('click', () => setTimeout(applyTimeLock, 0))
+  applyTimeLock()
+  document.body.appendChild(overlay)
+}
 import { openTabPickerModal, type TabTemplate } from './tabs'
+
+function tabTitle(type: TabTemplate): string {
+  switch (type) {
+    case 'kanban': return 'カンバンボード'
+    case 'blank': return '空白のタブ'
+    case 'notes': return 'ノート'
+    case 'docs': return 'ドキュメント'
+    case 'report': return 'レポート'
+    case 'roadmap': return 'ロードマップ'
+    case 'burndown': return 'バーンダウン'
+    case 'timeline': return 'タイムライン'
+    default: return 'タブ'
+  }
+}
 
 type Project = {
   id: number
@@ -43,17 +206,20 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
   setupTabs(container, String(project.id))
 
   // DnD (Summary widgets)
-  enableDragAndDrop(container)
+enableDragAndDrop(container)
 
   // Kanban board
-  renderKanban(container, String(project.id))
+renderKanban(container, String(project.id))
+// After rendering base UI, refresh dynamic widgets (task summary, links, etc.)
+try { refreshDynamicWidgets(container, String(project.id)) } catch {}
   // Load saved custom tabs
   loadCustomTabs(container, String(project.id))
+  // Enable tab drag & drop reordering for custom tabs
+  try { enableTabDnD(container, String(project.id)) } catch {}
 
-  // Account avatar click from detail -> open account settings
+  // Account avatar click: open account modal on the current page
   container.querySelector('#accountTopBtn')?.addEventListener('click', () => {
-    localStorage.setItem('openAccountModal', '1')
-    window.location.hash = '#/project'
+    openAccountModal(container)
   })
 
   // Load collaborators avatars
@@ -63,19 +229,27 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
   const addBtn = container.querySelector('#addCollabBtn') as HTMLElement | null
   addBtn?.addEventListener('click', (e) => openCollaboratorPopover(container, project.id, e.currentTarget as HTMLElement))
 
-  // Load data for widgets from GitHub proxy
+  // Load data for widgets from GitHub proxy (independent fallbacks)
   if (fullName) {
+    // Overview (repo meta)
     try {
       const repo = await apiFetch<any>(`/github/repo?full_name=${encodeURIComponent(fullName)}`)
       hydrateOverview(container, repo)
+    } catch {}
+    // Top committers
+    try {
       const contr = await apiFetch<any[]>(`/github/contributors?full_name=${encodeURIComponent(fullName)}`)
       hydrateCommitters(container, contr)
-      const res = await fetch(`/api/github/readme?full_name=${encodeURIComponent(fullName)}&ref=${encodeURIComponent(repo.default_branch ?? '')}`)
-      const readmeText = await res.text()
+    } catch {}
+    // README text (do not depend on repo call)
+    try {
+      const token = localStorage.getItem('apiToken')
+      const res = await fetch(`/api/github/readme?full_name=${encodeURIComponent(fullName)}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      })
+      const readmeText = res.ok ? await res.text() : 'README not found'
       hydrateReadme(container, readmeText)
-    } catch {
-      // ignore
-    }
+    } catch {}
   }
 
   // Top header: path + account avatar
@@ -94,6 +268,7 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
       const url = `https://avatars.githubusercontent.com/u/${me.github_id}?s=96`
       if (accImg) { accImg.src = url; accImg.classList.remove('hidden') }
     }
+    ;(container as any)._me = me
   } catch {}
 }
 
@@ -101,10 +276,10 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
 
 function widgetShell(id: string, title: string, body: string): string {
   return `
-    <div class="widget group rounded-xl ring-1 ring-neutral-800/70 bg-neutral-900/50 p-4 md:col-span-6" draggable="true" data-widget="${id}">
-      <div class="flex items-center mb-3">
+    <div class="widget group rounded-xl ring-1 ring-neutral-700/60 bg-neutral-900/50 p-4 md:col-span-6 min-h-[12rem]" draggable="false" data-widget="${id}">
+      <div class="flex items-center pb-2 mb-3 border-b border-neutral-700/60">
         <div class="text-sm text-gray-300">${title}</div>
-        <div class="ml-auto opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 text-xs flex items-center gap-1">
+        <div class="wg-tools ml-auto opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 text-xs flex items-center gap-1">
           <span class="hidden md:inline">サイズ:</span>
           <button class="w-size px-1 py-0.5 rounded ring-1 ring-neutral-700/60 hover:bg-neutral-800" data-size="sm">S</button>
           <button class="w-size px-1 py-0.5 rounded ring-1 ring-neutral-700/60 hover:bg-neutral-800" data-size="md">M</button>
@@ -118,7 +293,8 @@ function widgetShell(id: string, title: string, body: string): string {
 }
 
 function addWidgetCard(): string {
-  return `<button id="addWidget" class="rounded-xl ring-1 ring-neutral-800/70 bg-neutral-900/40 grid place-items-center text-gray-400 h-72">ウィジェット追加<br/><span class="text-3xl">＋</span></button>`
+  // Always stay at the bottom and take full width on desktop so it doesn't get in the way
+  return `<button id="addWidget" class="order-last md:col-span-12 rounded-xl ring-1 ring-neutral-800/70 bg-neutral-900/40 grid place-items-center text-gray-400 h-24 md:h-28">ウィジェット追加<br/><span class="text-2xl md:text-3xl">＋</span></button>`
 }
 
 function contributionWidget(): string {
@@ -216,11 +392,17 @@ function enableDragAndDrop(root: HTMLElement): void {
     } catch {}
   }
 
+  const isEdit = () => grid.getAttribute('data-edit') === '1'
   grid.addEventListener('dragstart', (e) => {
-    const t = e.target as HTMLElement
-    if (t.classList.contains('widget')) dragEl = t
+    if (!isEdit()) { (e as DragEvent).preventDefault(); return }
+    const t = (e.target as HTMLElement).closest('.widget') as HTMLElement | null
+    if (!t) return
+    dragEl = t
+    // Hide original so it doesn't look duplicated (kanban-style)
+    setTimeout(() => { t.style.display = 'none' }, 0)
   })
   grid.addEventListener('dragover', (e) => {
+    if (!isEdit()) return
     e.preventDefault()
     const t = e.target as HTMLElement
     const widget = t.closest('.widget') as HTMLElement | null
@@ -230,7 +412,57 @@ function enableDragAndDrop(root: HTMLElement): void {
     if (before) grid.insertBefore(dragEl, widget)
     else grid.insertBefore(dragEl, widget.nextSibling)
   })
-  grid.addEventListener('drop', () => save())
+  grid.addEventListener('drop', () => {
+    if (!isEdit()) return
+    if (dragEl) (dragEl as HTMLElement).style.display = ''
+    save()
+    dragEl = null
+  })
+  grid.addEventListener('dragend', () => {
+    if (dragEl) (dragEl as HTMLElement).style.display = ''
+    dragEl = null
+  })
+
+  // Edit mode toggle
+  const setEdit = (on: boolean) => {
+    grid.setAttribute('data-edit', on ? '1' : '0')
+    grid.querySelectorAll('.widget').forEach((w) => (w as HTMLElement).setAttribute('draggable', on ? 'true' : 'false'))
+    const btn = root.querySelector('#wgEditToggle') as HTMLElement | null
+    if (btn) btn.textContent = on ? '完了' : '編集'
+    localStorage.setItem(`wg-edit-${pid}`, on ? '1' : '0')
+    // Show "add widget" card only in edit mode
+    const add = grid.querySelector('#addWidget') as HTMLElement | null
+    if (on) {
+      if (!add) {
+        const t = document.createElement('template')
+        t.innerHTML = addWidgetCard()
+        const node = t.content.firstElementChild as HTMLElement | null
+        if (node) {
+          grid.appendChild(node)
+          node.addEventListener('click', () => openWidgetPickerModal(root, pid))
+        }
+      }
+    } else {
+      add?.remove()
+    }
+    // Visual cues for edit mode
+    // no badge toggle (badge removed)
+    // Do not outline the whole grid in edit mode
+    grid.classList.remove('ring-1', 'ring-amber-500/40', 'bg-amber-950/10', 'rounded-lg')
+    grid.querySelectorAll('.widget').forEach((w) => {
+      const el = w as HTMLElement
+      el.classList.toggle('cursor-move', on)
+      el.classList.toggle('border', on)
+      el.classList.toggle('border-dashed', on)
+      el.classList.toggle('border-amber-500/40', on)
+      const tools = el.querySelector('.wg-tools') as HTMLElement | null
+      if (tools) tools.classList.toggle('hidden', !on)
+    })
+  }
+  const savedEdit = localStorage.getItem(`wg-edit-${pid}`) === '1'
+  setEdit(!!savedEdit)
+  const toggleBtn = root.querySelector('#wgEditToggle') as HTMLElement | null
+  toggleBtn?.addEventListener('click', () => setEdit(grid.getAttribute('data-edit') !== '1'))
 
   load()
   applyWidgetSizes(root, pid)
@@ -249,6 +481,70 @@ function enableDragAndDrop(root: HTMLElement): void {
     const id = widget.getAttribute('data-widget') || ''
     setWidgetSize(root, pid, id, size)
   })
+
+  // Markdown widget delegated handlers
+  const getWid = (el: HTMLElement | null) => (el?.closest('.widget') as HTMLElement | null)
+  grid.addEventListener('click', (e) => {
+    const edit = (e.target as HTMLElement).closest('.md-edit') as HTMLElement | null
+    if (edit) {
+      const w = getWid(edit); if (!w) return
+      const id = w.getAttribute('data-widget') || ''
+      const map = mdGetMap(pid)
+      const txt = map[id] || ''
+      const editor = w.querySelector('.md-editor') as HTMLElement | null
+      const ta = w.querySelector('.md-text') as HTMLTextAreaElement | null
+      editor?.classList.remove('hidden'); if (ta) ta.value = txt
+      return
+    }
+    const save = (e.target as HTMLElement).closest('.md-save') as HTMLElement | null
+    if (save) {
+      const w = getWid(save); if (!w) return
+      const id = w.getAttribute('data-widget') || ''
+      const ta = w.querySelector('.md-text') as HTMLTextAreaElement | null
+      const preview = w.querySelector('.md-preview') as HTMLElement | null
+      const val = (ta?.value || '').trim()
+      mdSet(pid, id, val)
+      if (preview) preview.innerHTML = mdRenderToHtml(val)
+      const editor = w.querySelector('.md-editor') as HTMLElement | null
+      editor?.classList.add('hidden')
+      return
+    }
+    const cancel = (e.target as HTMLElement).closest('.md-cancel') as HTMLElement | null
+    if (cancel) {
+      const w = getWid(cancel); if (!w) return
+      const editor = w.querySelector('.md-editor') as HTMLElement | null
+      editor?.classList.add('hidden')
+      return
+    }
+    // Links: add
+    const add = (e.target as HTMLElement).closest('.lnk-add') as HTMLElement | null
+    if (add) {
+      const w = getWid(add); if (!w) return
+      // simple prompt-based add
+      const title = (prompt('リンクのタイトル') || '').trim()
+      const url = (prompt('URL (https://...)') || '').trim()
+      if (!url) return
+      const id = w.getAttribute('data-widget') || ''
+      const list = mdGetLinks(pid, id)
+      list.push({ title, url })
+      mdSetLinks(pid, id, list)
+      refreshDynamicWidgets(root, pid)
+      return
+    }
+  })
+
+  // Initialize markdown previews from storage
+  const mdMap = mdGetMap(pid)
+  grid.querySelectorAll('.md-widget').forEach((wrap) => {
+    const w = (wrap as HTMLElement).closest('.widget') as HTMLElement | null
+    const id = w?.getAttribute('data-widget') || ''
+    const preview = (wrap as HTMLElement).querySelector('.md-preview') as HTMLElement | null
+    const txt = mdMap[id] || ''
+    if (preview) preview.innerHTML = mdRenderToHtml(txt || 'ここにMarkdownを書いてください')
+  })
+
+  // Render task summary
+  refreshDynamicWidgets(root, pid)
 }
 
 type WidgetSize = 'sm' | 'md' | 'lg'
@@ -296,7 +592,11 @@ function ensureWidgets(root: HTMLElement, pid: string): void {
     const t = document.createElement('template')
     t.innerHTML = node
     const card = t.content.firstElementChild
-    if (card) grid.insertBefore(card, grid.querySelector('#addWidget'))
+    if (card) {
+      const add = grid.querySelector('#addWidget')
+      if (add) grid.insertBefore(card, add)
+      else grid.appendChild(card)
+    }
   })
 }
 
@@ -304,21 +604,28 @@ function openWidgetPickerModal(root: HTMLElement, pid: string): void {
   const overlay = document.createElement('div')
   overlay.className = 'fixed inset-0 z-[66] bg-black/60 backdrop-blur-[1px] grid place-items-center'
   overlay.innerHTML = `
-    <div class="relative w-[min(1100px,96vw)] max-h-[88vh] overflow-hidden rounded-xl bg-neutral-900 ring-1 ring-neutral-700/70 shadow-2xl text-gray-100">
+    <div class="relative w-[min(1200px,96vw)] max-h-[90vh] overflow-hidden rounded-xl bg-neutral-900 ring-1 ring-neutral-700/70 shadow-2xl text-gray-100">
       <header class="h-12 flex items-center px-5 border-b border-neutral-800/70">
         <h3 class="text-lg font-semibold">ウィジェット一覧</h3>
         <button id="wp-close" class="ml-auto text-2xl text-neutral-300 hover:text-white">×</button>
       </header>
-      <div class="flex">
-        <aside class="w-64 shrink-0 p-4 border-r border-neutral-800/70">
-          <button class="w-full text-left px-3 py-2 rounded bg-neutral-800/70 ring-1 ring-neutral-700/60 text-sm">すべて</button>
+      <div class="flex h-[calc(90vh-3rem)]">
+        <aside class="w-56 shrink-0 p-4 border-r border-neutral-800/70 space-y-2">
+          <button class="wp-cat w-full text-left px-3 py-2 rounded bg-neutral-800/70 ring-1 ring-neutral-700/60 text-sm" data-cat="all">すべて</button>
+          <button class="wp-cat w-full text-left px-3 py-2 rounded hover:bg-neutral-800/40 text-sm" data-cat="github">GitHub</button>
+          <button class="wp-cat w-full text-left px-3 py-2 rounded hover:bg-neutral-800/40 text-sm" data-cat="text">テキスト</button>
+          <button class="wp-cat w-full text-left px-3 py-2 rounded hover:bg-neutral-800/40 text-sm" data-cat="manage">管理</button>
         </aside>
-        <section class="flex-1 p-8 overflow-y-auto">
-          <div class="grid grid-cols-3 lg:grid-cols-4 auto-rows-min gap-x-12 gap-y-10">
+        <section class="flex-1 p-8 overflow-y-auto h-full">
+          <div id="wp-grid" class="grid grid-cols-3 lg:grid-cols-4 auto-rows-min gap-x-12 gap-y-10 min-h-[28rem]">
             ${widgetCard('readme', 'README表示')}
             ${widgetCard('overview', 'オーバービュー')}
             ${widgetCard('contrib', 'コントリビューショングラフ')}
             ${widgetCard('committers', 'ユーザーコミットグラフ')}
+            ${widgetCard('markdown', 'Markdownブロック')}
+            ${widgetCard('tasksum', 'タスクサマリー')}
+            ${widgetCard('milestones', 'マイルストーン')}
+            ${widgetCard('links', 'クイックリンク')}
           </div>
         </section>
       </div>
@@ -327,19 +634,43 @@ function openWidgetPickerModal(root: HTMLElement, pid: string): void {
   const close = () => overlay.remove()
   overlay.addEventListener('click', (e) => { if (e.target === overlay) close() })
   overlay.querySelector('#wp-close')?.addEventListener('click', close)
-  overlay.querySelectorAll('[data-widget-type]')?.forEach((el) => {
-    el.addEventListener('click', () => {
-      const type = (el as HTMLElement).getAttribute('data-widget-type')!
-      addWidget(root, pid, type)
-      close()
-    })
+  // Robust delegated click to ensure closing after add
+  const gridEl = overlay.querySelector('#wp-grid') as HTMLElement | null
+  gridEl?.addEventListener('click', (ev) => {
+    const card = (ev.target as HTMLElement).closest('[data-widget-type]') as HTMLElement | null
+    if (!card || !gridEl.contains(card)) return
+    const type = card.getAttribute('data-widget-type')!
+    addWidget(root, pid, type)
+    close()
   })
+  // Category filtering
+  const cats = overlay.querySelectorAll('.wp-cat')
+  const getCat = (t: string): string => {
+    if (['readme','overview','contrib','committers'].includes(t)) return 'github'
+    if (['markdown'].includes(t)) return 'text'
+    if (['tasksum','milestones','links'].includes(t)) return 'manage'
+    return 'other'
+  }
+  const applyCat = (cat: string) => {
+    gridEl?.querySelectorAll('[data-widget-type]')?.forEach((n) => {
+      const t = (n as HTMLElement).getAttribute('data-widget-type') || ''
+      ;(n as HTMLElement).style.display = (cat === 'all' || getCat(t) === cat) ? '' : 'none'
+    })
+    cats.forEach((b) => {
+      const on = (b as HTMLElement).getAttribute('data-cat') === cat
+      b.classList.toggle('bg-neutral-800/70', on)
+      b.classList.toggle('ring-1', on)
+      b.classList.toggle('ring-neutral-700/60', on)
+    })
+  }
+  cats.forEach((b) => b.addEventListener('click', () => applyCat((b as HTMLElement).getAttribute('data-cat') || 'all')))
+  applyCat('all')
   document.body.appendChild(overlay)
 }
 
 function widgetCard(type: string, title: string): string {
   return `
-    <button data-widget-type="${type}" class="group block rounded-xl overflow-hidden ring-1 ring-neutral-700/60 hover:ring-emerald-600 transition">
+    <button type="button" data-widget-type="${type}" class="group block rounded-xl overflow-hidden ring-1 ring-neutral-700/60 hover:ring-emerald-600 transition">
       <div class="h-40 md:h-44 bg-neutral-800/80 grid place-items-center text-gray-300 relative px-2">
         ${widgetThumb(type)}
       </div>
@@ -349,10 +680,14 @@ function widgetCard(type: string, title: string): string {
 }
 
 function widgetThumb(type: string): string {
-  if (type === 'contrib') return `<div class=\"w-full h-24 overflow-hidden\"><div class=\"grid\" style=\"grid-template-columns: repeat(30, 0.5rem); gap: 2px;\">${Array.from({length:210}).map(()=>'<div class=\\"w-2 h-2 bg-emerald-700\\"></div>').join('')}</div></div>`
-  if (type === 'overview') return `<div class=\"w-full h-20 bg-neutral-900/60 ring-1 ring-neutral-700/60 rounded\"></div>`
-  if (type === 'committers') return `<div class=\"w-full h-24 flex items-end gap-1\">${[4,8,12,6,2].map(h=>`<div class=\\"w-5 bg-emerald-700\\" style=\\"height:${h * 6}px\\"></div>`).join('')}</div>`
-  if (type === 'readme') return `<div class=\"w-full h-24 bg-neutral-900/60 ring-1 ring-neutral-700/60 rounded\"></div>`
+  if (type === 'contrib') return `<div class=\"w-full h-24 overflow-hidden\"><div class=\"grid\" style=\"grid-template-columns: repeat(30, 0.5rem); gap: 2px;\">${Array.from({length:210}).map((_,i)=>`<div class=\\"w-2 h-2 ${i%5? 'bg-emerald-800':'bg-emerald-600'}\\"></div>`).join('')}</div></div>`
+  if (type === 'overview') return `<div class=\"w-full h-20 bg-neutral-900/60 ring-1 ring-neutral-600/60 rounded p-2\"><div class=\"h-2 bg-neutral-800 rounded mb-2\"><div class=\"h-2 bg-emerald-600 rounded w-2/3\"></div></div><div class=\"h-2 bg-neutral-800 rounded w-1/2\"></div></div>`
+  if (type === 'committers') return `<div class=\"w-full h-24 flex items-end gap-1 px-2\">${[4,8,12,6,2].map(h=>`<div class=\\"w-5 bg-emerald-700 rounded\\" style=\\"height:${h * 6}px\\"></div>`).join('')}</div>`
+  if (type === 'readme') return `<div class=\"w-full h-24 bg-neutral-900/60 ring-1 ring-neutral-600/60 rounded p-2 text-xs text-gray-400\"># README\n- Getting Started\n- Usage</div>`
+  if (type === 'markdown') return `<div class=\"w-full h-20 bg-neutral-900/60 ring-1 ring-neutral-600/60 rounded p-2 text-xs text-gray-400\">## Markdown\n- リスト\n- **強調**</div>`
+  if (type === 'tasksum') return `<div class=\"w-full h-20 bg-neutral-900/60 ring-1 ring-neutral-600/60 rounded p-2 grid grid-cols-3 gap-2 text-[10px] text-gray-300\"><div class=\"rounded bg-neutral-800/60 p-1 text-center\">TODO<br/><span class=\"text-emerald-400\">5</span></div><div class=\"rounded bg-neutral-800/60 p-1 text-center\">DOING<br/><span class=\"text-emerald-400\">3</span></div><div class=\"rounded bg-neutral-800/60 p-1 text-center\">DONE<br/><span class=\"text-emerald-400\">8</span></div></div>`
+  if (type === 'milestones') return `<div class=\"w-full h-20 bg-neutral-900/60 ring-1 ring-neutral-600/60 rounded p-2 text-xs text-gray-400\"><div>v1.0 リリース</div><div class=\"text-gray-500\">2025-01-31</div></div>`
+  if (type === 'links') return `<div class=\"w-full h-20 bg-neutral-900/60 ring-1 ring-neutral-600/60 rounded p-2 text-xs text-gray-400\">- PR一覧\n- 仕様書</div>`
   return `<div class=\"text-gray-400\">Widget</div>`
 }
 
@@ -363,7 +698,17 @@ function addWidget(root: HTMLElement, pid: string, type: string): void {
   const t = document.createElement('template')
   t.innerHTML = html
   const el = t.content.firstElementChild
-  if (el) grid.insertBefore(el, grid.querySelector('#addWidget'))
+  if (el) {
+    const add = grid.querySelector('#addWidget')
+    if (add) grid.insertBefore(el, add)
+    else grid.appendChild(el)
+    // ensure tools visibility matches current edit state
+    const on = grid.getAttribute('data-edit') === '1'
+    const tools = (el as HTMLElement).querySelector('.wg-tools') as HTMLElement | null
+    if (tools) tools.classList.toggle('hidden', !on)
+  }
+  // refresh dynamic contents after adding
+  try { refreshDynamicWidgets(root, pid) } catch {}
   // persist order
   const order = Array.from(grid.querySelectorAll('.widget')).map((w) => (w as HTMLElement).getAttribute('data-widget'))
   localStorage.setItem(`pj-widgets-${pid}`, JSON.stringify(order))
@@ -373,11 +718,50 @@ function addWidget(root: HTMLElement, pid: string, type: string): void {
   setWidgetMeta(pid, meta)
 }
 
+function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
+  // Task summary
+  const meta = getWidgetMeta(pid)
+  Object.entries(meta).forEach(([id, m]) => {
+    const w = root.querySelector(`[data-widget="${id}"]`) as HTMLElement | null
+    if (!w) return
+    if (m.type === 'tasksum') {
+      const box = w.querySelector('.tasksum-body') as HTMLElement | null
+      if (box) {
+        // load from Kanban storage
+        const tasks = loadTasks(pid)
+        const counts = { todo: 0, doing: 0, review: 0, done: 0 } as Record<string, number>
+        tasks.forEach(t => counts[t.status] = (counts[t.status] || 0) + 1)
+        box.innerHTML = `
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
+            ${[['todo','TODO'],['doing','DOING'],['review','REVIEW'],['done','DONE']].map(([k,label])=>`<div class=\"rounded ring-1 ring-neutral-700/60 bg-neutral-800/40 p-2 text-center\">${label}<div class=\"text-2xl text-emerald-400\">${counts[k]||0}</div></div>`).join('')}
+          </div>
+        `
+      }
+    }
+    if (m.type === 'links') {
+      const box = w.querySelector('.links-body') as HTMLElement | null
+      if (box) {
+        const links = mdGetLinks(pid, id)
+        box.innerHTML = links.length ? `<ul class=\"list-disc ml-5 space-y-1\">${links.map(l=>`<li><a href=\"${l.url}\" target=\"_blank\" class=\"text-sky-400 hover:text-sky-300\">${l.title||l.url}</a></li>`).join('')}</ul>` : '<p class="text-gray-400">リンクはまだありません。</p>'
+      }
+    }
+  })
+}
+
+type QuickLink = { title: string; url: string }
+function mdGetLinks(pid: string, id: string): QuickLink[] {
+  try { return JSON.parse(localStorage.getItem(`pj-links-${pid}-${id}`) || '[]') as QuickLink[] } catch { return [] }
+}
+function mdSetLinks(pid: string, id: string, list: QuickLink[]): void {
+  localStorage.setItem(`pj-links-${pid}-${id}`, JSON.stringify(list))
+}
+
 function widgetTitle(type: string): string {
   switch (type) {
     case 'readme': return 'README'
     case 'overview': return 'Overview'
     case 'contrib': return 'Contributions'
+    case 'markdown': return 'Markdown'
     case 'committers': return 'Top Committers'
     default: return 'Widget'
   }
@@ -388,9 +772,64 @@ function buildWidgetBody(type: string): string {
     case 'readme': return readmeSkeleton()
     case 'overview': return overviewSkeleton()
     case 'contrib': return contributionWidget()
+    case 'markdown': return markdownWidget()
+    case 'tasksum': return `<div class=\"tasksum-body text-sm text-gray-200\"></div>`
+    case 'milestones': return `<ul class=\"text-sm text-gray-200 space-y-2\"><li>企画 <span class=\"text-gray-400\">(完了)</span></li><li>実装 <span class=\"text-gray-400\">(進行中)</span></li><li>リリース <span class=\"text-gray-400\">(未着手)</span></li></ul>`
+    case 'links': return `<div class=\"links-body text-sm text-gray-200\"></div><div class=\"mt-2 text-xs\"><button class=\"lnk-add rounded ring-1 ring-neutral-700/60 px-2 py-0.5 hover:bg-neutral-800\">リンク追加</button></div>`
     case 'committers': return barSkeleton()
     default: return `<div class=\"h-40 grid place-items-center text-gray-400\">Mock</div>`
   }
+}
+
+// ------- Markdown widget -------
+function markdownWidget(): string {
+  return `
+    <div class="md-widget">
+      <div class="md-toolbar text-xs text-gray-400 flex gap-2">
+        <button class="md-edit rounded ring-1 ring-neutral-700/60 px-2 py-0.5 hover:bg-neutral-800">編集</button>
+        <span class="md-status text-gray-500"></span>
+      </div>
+      <div class="md-preview whitespace-pre-wrap text-sm text-gray-200 mt-2"></div>
+      <div class="md-editor hidden mt-3">
+        <textarea class="md-text w-full h-36 rounded-md bg-neutral-800/60 ring-1 ring-neutral-700/60 px-3 py-2 text-gray-100 placeholder:text-gray-500" placeholder="ここにMarkdownを書いてください"></textarea>
+        <div class="mt-2 flex gap-2">
+          <button class="md-save rounded bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-medium px-3 py-1.5">保存</button>
+          <button class="md-cancel rounded bg-neutral-800/60 ring-1 ring-neutral-700/60 text-gray-200 text-xs px-3 py-1.5">キャンセル</button>
+        </div>
+      </div>
+    </div>
+  `
+}
+
+function mdGetMap(pid: string): Record<string, string> {
+  try { return JSON.parse(localStorage.getItem(`pj-md-${pid}`) || '{}') as Record<string, string> } catch { return {} }
+}
+function mdSet(pid: string, id: string, text: string): void {
+  const m = mdGetMap(pid); m[id] = text; localStorage.setItem(`pj-md-${pid}`, JSON.stringify(m))
+}
+function mdRenderToHtml(src: string): string {
+  // Escape HTML
+  let s = (src || '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string))
+  // Code fences
+  s = s.replace(/```([\s\S]*?)```/g, (m, p1) => `<pre class=\"rounded bg-neutral-900 ring-1 ring-neutral-800/70 p-3 overflow-auto\"><code>${p1}</code></pre>`)
+  // Headings
+  s = s.replace(/^######\s?(.*)$/gm, '<h6 class=\"text-xs font-semibold mt-2\">$1</h6>')
+  s = s.replace(/^#####\s?(.*)$/gm, '<h5 class=\"text-sm font-semibold mt-2\">$1</h5>')
+  s = s.replace(/^####\s?(.*)$/gm, '<h4 class=\"text-base font-semibold mt-3\">$1</h4>')
+  s = s.replace(/^###\s?(.*)$/gm, '<h3 class=\"text-lg font-semibold mt-3\">$1</h3>')
+  s = s.replace(/^##\s?(.*)$/gm, '<h2 class=\"text-xl font-semibold mt-4\">$1</h2>')
+  s = s.replace(/^#\s?(.*)$/gm, '<h1 class=\"text-2xl font-semibold mt-4\">$1</h1>')
+  // Bold/italic/code/links
+  s = s.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+  s = s.replace(/\*(.*?)\*/g, '<em>$1</em>')
+  s = s.replace(/`([^`]+)`/g, '<code class=\"bg-neutral-900 px-1 rounded\">$1</code>')
+  s = s.replace(/\[([^\]]+)\]\(([^\)]+)\)/g, '<a href=\"$2\" target=\"_blank\" class=\"text-sky-400 hover:text-sky-300\">$1<\/a>')
+  // Lists
+  s = s.replace(/^\s*\*\s+(.*)$/gm, '<li>$1</li>')
+  s = s.replace(/(<li>.*<\/li>\n?)+/g, (m) => `<ul class=\"list-disc ml-5\">${m}</ul>`) // simple wrap
+  // Paragraphs
+  s = s.replace(/^(?!<h\d|<ul|<pre|<li|<\/li|<\/ul|<code|<strong|<em|<a)(.+)$/gm, '<p class=\"my-2\">$1</p>')
+  return s
 }
 
 // ---------- Fallback dummy detail ----------
@@ -445,13 +884,15 @@ function detailLayout(ctx: { id: number; name: string; fullName: string }): stri
       </div>
 
       <main class="p-8">
-        <section class="space-y-6" id="tab-summary" data-tab="summary">
-          <div class="grid gap-6 grid-cols-1 md:grid-cols-12" id="widgetGrid" data-pid="${ctx.id}">
+        <section class="space-y-3" id="tab-summary" data-tab="summary">
+          <div class="flex items-center">
+            <button id="wgEditToggle" class="ml-auto text-xs rounded-md bg-neutral-800/60 ring-1 ring-neutral-700/60 px-2 py-1 text-gray-200">編集</button>
+          </div>
+          <div class="grid gap-7 md:gap-8 grid-cols-1 md:grid-cols-12" id="widgetGrid" data-pid="${ctx.id}">
             ${widgetShell('contrib', 'Contributions', contributionWidget())}
             ${widgetShell('overview', 'Overview', overviewSkeleton())}
             ${widgetShell('committers', 'Top Committers', barSkeleton())}
             ${widgetShell('readme', 'README', readmeSkeleton())}
-            ${addWidgetCard()}
           </div>
         </section>
 
@@ -499,7 +940,7 @@ function addCustomTab(root: HTMLElement, pid: string, type: TabTemplate, persist
   const btn = document.createElement('button')
   btn.className = 'tab-btn text-gray-400 hover:text-gray-200 pr-5'
   btn.setAttribute('data-tab', id)
-  btn.textContent = type === 'kanban' ? 'カンバンボード' : type === 'blank' ? '空白のタブ' : 'モックアップタブ'
+  btn.textContent = tabTitle(type)
   const del = document.createElement('button')
   del.title = '削除'
   del.className = 'absolute right-0 -top-2 hidden group-hover:inline text-neutral-400 hover:text-rose-400 text-lg leading-none'
@@ -507,6 +948,7 @@ function addCustomTab(root: HTMLElement, pid: string, type: TabTemplate, persist
   wrap.appendChild(btn)
   wrap.appendChild(del)
   tabBar.insertBefore(wrap, newBtn)
+  wrap.setAttribute('draggable', 'true')
 
   const panel = document.createElement('section')
   panel.className = 'mt-8 hidden'
@@ -520,7 +962,7 @@ function addCustomTab(root: HTMLElement, pid: string, type: TabTemplate, persist
     panel.innerHTML = `<div class=\"rounded-xl ring-1 ring-neutral-800/70 bg-neutral-900/50 p-8 text-gray-300\">このタブは空白です。</div>`
     root.querySelector('main')?.appendChild(panel)
   } else {
-    panel.innerHTML = `<div class=\"rounded-xl ring-1 ring-neutral-800/70 bg-neutral-900/50 p-8 text-gray-300\">モックアップタブ</div>`
+    panel.innerHTML = `<div class=\"rounded-xl ring-1 ring-neutral-800/70 bg-neutral-900/50 p-8 text-gray-300\">${tabTitle(type)}（プレースホルダー）</div>`
     root.querySelector('main')?.appendChild(panel)
   }
 
@@ -560,6 +1002,63 @@ function addCustomTab(root: HTMLElement, pid: string, type: TabTemplate, persist
 function loadCustomTabs(root: HTMLElement, pid: string): void {
   const saved = JSON.parse(localStorage.getItem(`tabs-${pid}`) || '[]') as Array<{ id: string; type: TabTemplate }>
   saved.forEach((t) => addCustomTab(root, pid, t.type, false))
+}
+
+// Enable drag & drop reordering of custom tabs in the tab bar
+function enableTabDnD(root: HTMLElement, pid: string): void {
+  const bar = root.querySelector('#tabBar') as HTMLElement | null
+  if (!bar) return
+  let dragEl: HTMLElement | null = null
+
+  const isCustomWrap = (el: HTMLElement | null): el is HTMLElement => {
+    if (!el) return false
+    const btn = el.querySelector('.tab-btn') as HTMLElement | null
+    const id = btn?.getAttribute('data-tab') || ''
+    return id.startsWith('custom-')
+  }
+  const persistOrder = () => {
+    const saved = JSON.parse(localStorage.getItem(`tabs-${pid}`) || '[]') as Array<{ id: string; type: TabTemplate }>
+    const typeMap = new Map(saved.map((t) => [t.id, t.type]))
+    const order: Array<{ id: string; type: TabTemplate }> = []
+    bar.querySelectorAll('.tab-btn').forEach((b) => {
+      const id = (b as HTMLElement).getAttribute('data-tab') || ''
+      if (id.startsWith('custom-')) {
+        const t = typeMap.get(id) || 'blank'
+        order.push({ id, type: t })
+      }
+    })
+    localStorage.setItem(`tabs-${pid}`, JSON.stringify(order))
+  }
+
+  bar.addEventListener('dragstart', (e) => {
+    const wrap = (e.target as HTMLElement).closest('span') as HTMLElement | null
+    if (!isCustomWrap(wrap)) { (e as DragEvent).preventDefault(); return }
+    dragEl = wrap
+    // visual cue while dragging
+    dragEl.classList.add('opacity-60')
+  })
+  bar.addEventListener('dragover', (e) => {
+    if (!dragEl) return
+    e.preventDefault()
+    const t = (e.target as HTMLElement).closest('span') as HTMLElement | null
+    if (!t || !bar.contains(t) || !isCustomWrap(t) || t === dragEl) return
+    const rect = t.getBoundingClientRect()
+    const before = (e as DragEvent).clientX < rect.left + rect.width / 2
+    if (before) bar.insertBefore(dragEl, t)
+    else bar.insertBefore(dragEl, t.nextSibling)
+  })
+  bar.addEventListener('drop', () => {
+    if (!dragEl) return
+    dragEl.classList.remove('opacity-60')
+    dragEl = null
+    persistOrder()
+  })
+  bar.addEventListener('dragend', () => {
+    if (!dragEl) return
+    dragEl.classList.remove('opacity-60')
+    dragEl = null
+    persistOrder()
+  })
 }
 
 // ---------- Collaborators ----------

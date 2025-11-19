@@ -88,7 +88,9 @@ class ProjectController extends Controller
     {
         $user = $request->user();
         $data = $request->validate([
-            'name' => ['nullable', 'string', 'max:255'],
+            // GitHub repo-like naming: ASCII letters, numbers, hyphen/underscore/dot, 1-100 chars
+            // When linking an existing repo, name may be omitted (filled from meta)
+            'name' => ['nullable', 'string', 'max:100', 'regex:/^[A-Za-z0-9._-]{1,100}$/'],
             'description' => ['nullable', 'string'],
             'visibility' => ['nullable', 'in:public,private'],
             'start' => ['nullable', 'string', 'max:32'],

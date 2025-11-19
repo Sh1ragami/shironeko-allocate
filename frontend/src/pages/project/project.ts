@@ -585,16 +585,19 @@ function timeBox(text: string): string {
 
 // ---------------- Project Create Modal ----------------
 function openCreateProjectModal(root: HTMLElement): void {
+  // Prevent opening multiple overlays by rapid clicks
+  if (document.getElementById('pjOverlay')) return
   const me = (root as any)._me as { name?: string; github_id?: number } | undefined
 
   const overlay = document.createElement('div')
+  overlay.id = 'pjOverlay'
   overlay.className = 'fixed inset-0 z-[60] bg-black/60 backdrop-blur-[1px] grid place-items-center'
   overlay.innerHTML = `
     <div class="relative w-[min(1040px,95vw)] h-[82vh] overflow-hidden rounded-xl bg-neutral-900 ring-1 ring-neutral-700/70 shadow-2xl text-gray-100">
       <div class="flex items-center h-12 px-5 border-b border-neutral-800/70">
         <h3 class="text-lg font-semibold">プロジェクト</h3>
         <div class="ml-6 flex gap-6 text-sm">
-          <button class="pj-tab px-2 py-1 border-b-2 border-emerald-500" data-tab="new">新規</button>
+          <button class="pj-tab px-2 py-1 border-b-2 border-orange-500" data-tab="new">新規</button>
           <button class="pj-tab px-2 py-1 text-gray-400 hover:text-gray-200" data-tab="existing">既存</button>
         </div>
         <button class="ml-auto text-2xl text-neutral-300 hover:text-white" id="pj-close">×</button>
@@ -622,7 +625,18 @@ function openCreateProjectModal(root: HTMLElement): void {
   `
 
   // Close actions
-  const close = () => overlay.remove()
+  // Disable open triggers while modal is shown
+  const headerBtn = root.querySelector('#createBtn') as HTMLButtonElement | null
+  const cardBtn = root.querySelector('#createCard') as HTMLButtonElement | null
+  headerBtn && (headerBtn.disabled = true)
+  cardBtn && (cardBtn.disabled = true)
+
+  const close = () => {
+    overlay.remove()
+    // Re-enable triggers after close
+    headerBtn && (headerBtn.disabled = false)
+    cardBtn && (cardBtn.disabled = false)
+  }
   overlay.addEventListener('click', (e) => { if (e.target === overlay) close() })
   overlay.querySelector('#pj-close')?.addEventListener('click', close)
 
@@ -636,7 +650,8 @@ function openCreateProjectModal(root: HTMLElement): void {
       })
       overlay.querySelectorAll('.pj-tab').forEach((t) => {
         const active = t === tab
-        t.classList.toggle('border-emerald-500', active)
+        t.classList.toggle('border-b-2', active)
+        t.classList.toggle('border-orange-500', active)
         t.classList.toggle('text-gray-400', !active)
       })
     })
@@ -714,6 +729,13 @@ function openCreateProjectModal(root: HTMLElement): void {
         const repo = (overlay as any)._selectedRepo as string | undefined
         if (!repo) return alert('リポジトリを選択してください。')
         const extra = readExistingProjectForm(overlay)
+        // validate name if provided
+        if (extra.name && !/^[A-Za-z0-9._-]{1,100}$/.test(extra.name)) {
+          overlay.querySelector('#ex-err-namefmt')?.classList.remove('hidden')
+          const n = overlay.querySelector('#ex-name') as HTMLElement | null
+          n?.classList.add('ring-rose-600')
+          return
+        }
         const created = await createProject({ linkRepo: repo, ...extra })
         const id = Number(created?.id)
         const name = (created?.name ?? (repo.split('/')[1] || 'Repo')).toString()
@@ -818,6 +840,13 @@ function validateProjectForm(scope: HTMLElement, payload: any): boolean {
     nameEl?.classList.add('ring-rose-600')
     ok = false
   }
+  // Name format (GitHub-like): ASCII letters/numbers, hyphen, underscore, dot; <=100
+  const re = /^[A-Za-z0-9._-]{1,100}$/
+  if (payload.name && !re.test(payload.name)) {
+    scope.querySelector('#err-namefmt')?.classList.remove('hidden')
+    nameEl?.classList.add('ring-rose-600')
+    ok = false
+  }
   const start = payload.start ? new Date(payload.start) : null
   const end = payload.end ? new Date(payload.end) : null
   if (start && end && start.getTime() > end.getTime()) {
@@ -918,10 +947,11 @@ function renderNewProjectForm(me?: { name?: string }): string {
               <span>${owner}</span>
             </div>
             <span class="text-gray-500">/</span>
-            <input id="pj-name" type="text" placeholder="プロジェクト名" class="flex-1 rounded-md bg-neutral-800/60 ring-1 ring-neutral-700/60 px-3 py-2 text-gray-100 placeholder:text-gray-500" required />
+            <input id="pj-name" type="text" placeholder="プロジェクト名" class="flex-1 rounded-md bg-neutral-800/60 ring-1 ring-neutral-700/60 px-3 py-2 text-gray-100 placeholder:text-gray-500" required maxlength="100" />
           </div>
         </div>
         <p id="err-name" class="text-rose-400 text-sm hidden">プロジェクト名を入力してください。</p>
+        <p id="err-namefmt" class="text-rose-400 text-sm hidden">英数字・ハイフン・アンダースコア・ドットのみ、100文字以内で入力してください。</p>
 
         <div>
           <div class="text-sm text-gray-400 mb-1">プロジェクト概要</div>
@@ -982,8 +1012,9 @@ function renderExistingRepoPanel(): string {
           </div>
           <div class="flex items-center gap-4">
             <div class="text-sm text-gray-400 w-24">プロジェクト名</div>
-            <input id="ex-name" type="text" placeholder="プロジェクト名" class="flex-1 rounded-md bg-neutral-800/60 ring-1 ring-neutral-700/60 px-3 py-2 text-gray-100 placeholder:text-gray-500" />
+            <input id="ex-name" type="text" placeholder="プロジェクト名" class="flex-1 rounded-md bg-neutral-800/60 ring-1 ring-neutral-700/60 px-3 py-2 text-gray-100 placeholder:text-gray-500" maxlength="100" />
           </div>
+          <p id="ex-err-namefmt" class="text-rose-400 text-sm hidden">英数字・ハイフン・アンダースコア・ドットのみ、100文字以内で入力してください。</p>
           <div>
             <div class="text-sm text-gray-400 mb-1">プロジェクト概要</div>
             <textarea id="ex-desc" rows="4" class="w-full rounded-md bg-neutral-800/60 ring-1 ring-neutral-700/60 px-3 py-2 text-gray-100 placeholder:text-gray-500" placeholder="説明を入力"></textarea>
