@@ -28,7 +28,7 @@ export class Router {
     // 未定義のパスは 404 にリダイレクト
     if (!render) {
       if (path !== '/404' && this.routes['/404']) {
-        window.location.hash = '#/404'
+        this.routes['/404'](this.outlet)
         return
       }
       // 404 ルート自体が未定義の場合のフォールバック
