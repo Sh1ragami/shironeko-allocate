@@ -1,15 +1,36 @@
 import { apiFetch } from '../../utils/api'
 import { openTaskModal } from './task-modal'
 // Account modal helpers (duplicated to open over current page)
-function renderSkillSection(title: string): string {
-  const skills = ['COBOL','Dart','Java','C++','Ruby','Lisp','C','Julia','MATLAB','HTML','CSS','Python']
+type SkillGroup = 'owned' | 'want'
+const ALL_SKILLS = ['JavaScript','TypeScript','Python','Ruby','Go','Rust','Java','Kotlin','Swift','Dart','PHP','C','C++','C#','Scala','Elixir','Haskell','R','Julia','SQL','HTML','CSS','Sass','Tailwind','React','Vue','Svelte','Next.js','Nuxt','Node.js','Deno','Bun','Express','Rails','Laravel','Spring','Django','FastAPI','Flutter','React Native','iOS','Android','Unity','Unreal','AWS','GCP','Azure','Docker','Kubernetes','Terraform','Ansible','Git','GitHub Actions','Figma','Storybook','Jest','Playwright','Vitest','Grafana','Prometheus']
+const SKILL_ICON: Record<string, string> = {
+  JavaScript: '🟨', TypeScript: '🟦', Python: '🐍', Ruby: '💎', Go: '🌀', Rust: '🦀', Java: '☕', Kotlin: '🟪', Swift: '🟧', Dart: '🎯', PHP: '🐘', 'C#': '🎼', 'C++': '➕', C: '🧩', Scala: '📈', Elixir: '🧪', Haskell: 'λ', R: '📊', Julia: '💠', SQL: '🗄️', HTML: '📄', CSS: '🎨', Sass: '🧵', Tailwind: '🌬️', React: '⚛️', Vue: '🟩', Svelte: '🟠', 'Next.js': '⏭️', Nuxt: '🟢', 'Node.js': '🟢', Deno: '🦕', Bun: '🥯', Express: '🚂', Rails: '🛤️', Laravel: '🟥', Spring: '🌱', Django: '🟩', FastAPI: '⚡', Flutter: '💙', 'React Native': '📱', iOS: '📱', Android: '🤖', Unity: '🎮', Unreal: '🧰', AWS: '☁️', GCP: '☁️', Azure: '☁️', Docker: '🐳', Kubernetes: '☸️', Terraform: '🧱', Ansible: '📦', Git: '🔧', 'GitHub Actions': '🛠️', Figma: '🎨', Storybook: '📚', Jest: '🧪', Playwright: '🎭', Vitest: '🧪', Grafana: '📊', Prometheus: '🔥'
+}
+function slugSkill(name: string): string { return name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,'') }
+function skillIcon(name: string): string {
+  const slug = slugSkill(name)
+  return `<img src="/icons/${slug}.svg" alt="${name}" class="w-4 h-4 mr-1 inline-block align-[-2px]" onerror="this.style.display='none'" />`
+}
+function skillsKey(uid?: number, kind: SkillGroup = 'owned'): string { return `acct-skills-${uid ?? 'guest'}-${kind}` }
+function loadSkills(uid?: number, kind: SkillGroup = 'owned'): string[] {
+  try { return JSON.parse(localStorage.getItem(skillsKey(uid, kind)) || '[]') as string[] } catch { return [] }
+}
+function saveSkills(uid: number | undefined, kind: SkillGroup, list: string[]): void {
+  localStorage.setItem(skillsKey(uid, kind), JSON.stringify(Array.from(new Set(list))))
+}
+function renderSkillSection(kind: SkillGroup, title: string, uid?: number): string {
+  const selected = new Set(loadSkills(uid, kind).filter((s) => ALL_SKILLS.includes(s)))
+  const seed = ALL_SKILLS.slice(0, 12)
   return `
-    <section class="space-y-3">
+    <section class="space-y-3" data-skill-section="${kind}">
       <div class="text-sm text-gray-400">${title}</div>
       <div class="rounded-lg ring-1 ring-neutral-700/60 bg-neutral-900/40 p-3 flex flex-wrap gap-2">
-        ${skills.map((s, i) => `<button class="skill-pill px-3 py-1.5 rounded-full text-sm ring-1 ${i < 3 ? 'bg-emerald-700 text-white ring-emerald-600' : 'bg-neutral-800/60 text-gray-200 ring-neutral-700/60'}" data-skill="${s}">${s}</button>`).join('')}
+        ${seed.map((s) => `<button class=\"skill-pill px-3 py-1.5 rounded-full text-sm ring-1 ${selected.has(s)?'bg-emerald-700 text-white ring-emerald-600':'bg-neutral-800/60 text-gray-200 ring-neutral-700/60'}\" data-skill=\"${s}\">${skillIcon(s)}${s}</button>`).join('')}
       </div>
-      <p class="text-xs text-center text-gray-400">+ すべてみる</p>
+      <button class="see-all text-xs mx-auto block text-gray-400 hover:text-gray-200">+ すべてみる</button>
+      <div class="more-skills hidden rounded-lg ring-1 ring-neutral-700/60 bg-neutral-900/40 p-3 flex flex-wrap gap-2 max-h-48 overflow-auto">
+        ${ALL_SKILLS.map((s)=>`<button class=\"skill-pill px-3 py-1.5 rounded-full text-sm ring-1 ${selected.has(s)?'bg-emerald-700 text-white ring-emerald-600':'bg-neutral-800/60 text-gray-200 ring-neutral-700/60'}\" data-skill=\"${s}\">${skillIcon(s)}${s}</button>`).join('')}
+      </div>
     </section>
   `
 }
@@ -62,8 +83,8 @@ function openAccountModal(root: HTMLElement): void {
             <hr class="my-6 border-neutral-800/70"/>
             <h4 class="text-base font-medium">ユーザー設定</h4>
             <div class="space-y-6">
-              ${renderSkillSection('所有スキル一覧')}
-              ${renderSkillSection('希望スキル一覧')}
+              ${renderSkillSection('owned','所有スキル一覧', (root as any)._me?.id)}
+              ${renderSkillSection('want','希望スキル一覧', (root as any)._me?.id)}
             </div>
           </div>
           <div class="tab-panel hidden" data-tab="notify">
@@ -105,7 +126,7 @@ function openAccountModal(root: HTMLElement): void {
       </div>
     </div>
   `
-  const close = () => overlay.remove()
+  const close = () => { overlay.remove(); const c=+(document.body.getAttribute('data-lock')||'0'); const n=Math.max(0,c-1); if(n===0){ document.body.style.overflow=''; } document.body.setAttribute('data-lock', String(n)) }
   overlay.addEventListener('click', (e) => { if (e.target === overlay) close() })
   overlay.querySelector('#accountClose')?.addEventListener('click', close)
   overlay.querySelector('#logoutBtn')?.addEventListener('click', () => {
@@ -147,7 +168,33 @@ function openAccountModal(root: HTMLElement): void {
   }
   ntfToggle?.addEventListener('click', () => setTimeout(applyTimeLock, 0))
   applyTimeLock()
-  document.body.appendChild(overlay)
+  document.body.appendChild(overlay); (function(){ const c=+(document.body.getAttribute('data-lock')||'0'); if(c===0){ document.body.style.overflow='hidden' } document.body.setAttribute('data-lock', String(c+1)) })()
+  // Skills interactions
+  const meId = (root as any)._me?.id as number | undefined
+  const onToggle = (btn: HTMLElement, sec: HTMLElement) => {
+    const kind = (sec.getAttribute('data-skill-section') as SkillGroup) || 'owned'
+    const name = btn.getAttribute('data-skill') || ''
+    const sel = new Set(loadSkills(meId, kind))
+    if (sel.has(name)) sel.delete(name); else sel.add(name)
+    saveSkills(meId, kind, Array.from(sel))
+    btn.classList.toggle('bg-emerald-700')
+    btn.classList.toggle('text-white')
+    btn.classList.toggle('ring-emerald-600')
+    btn.classList.toggle('bg-neutral-800/60')
+    btn.classList.toggle('text-gray-200')
+    btn.classList.toggle('ring-neutral-700/60')
+  }
+  overlay.querySelectorAll('section[data-skill-section]')?.forEach((sec) => {
+    const section = sec as HTMLElement
+    section.querySelectorAll('.skill-pill')?.forEach((el)=>{
+      el.addEventListener('click', ()=> onToggle(el as HTMLElement, section))
+    })
+    const toggleMore = section.querySelector('.see-all') as HTMLElement | null
+    toggleMore?.addEventListener('click', ()=>{
+      const box = section.querySelector('.more-skills') as HTMLElement | null
+      box?.classList.toggle('hidden')
+    })
+  })
 }
 import { openTabPickerModal, type TabTemplate } from './tabs'
 
@@ -200,6 +247,7 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
   }
 
   const fullName = project.github_meta?.full_name || project.link_repo || ''
+  if (fullName) (container as HTMLElement).setAttribute('data-repo-full', fullName)
 
   container.innerHTML = detailLayout({ id: project.id, name: project.name, fullName })
 
@@ -209,7 +257,7 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
   // DnD (Summary widgets)
   enableDragAndDrop(container)
 
-  // Kanban board
+// Kanban board
 renderKanban(container, String(project.id))
 // After rendering base UI, refresh dynamic widgets (task summary, links, etc.)
 try { refreshDynamicWidgets(container, String(project.id)) } catch {}
@@ -295,20 +343,22 @@ try { refreshDynamicWidgets(container, String(project.id)) } catch {}
 
 function widgetShell(id: string, title: string, body: string): string {
   return `
-    <div class="widget group rounded-xl ring-1 ring-neutral-700/60 bg-neutral-900/50 p-4 md:col-span-6 min-h-[12rem]" draggable="false" data-widget="${id}">
+    <div class="widget group rounded-xl ring-1 ring-neutral-700/60 bg-neutral-900/50 p-4 md:col-span-6 flex flex-col overflow-hidden" draggable="false" data-widget="${id}">
       <div class="flex items-center pb-2 mb-3 border-b border-neutral-700/60">
         <div class="text-sm text-gray-300">${title}</div>
         <div class="wg-tools ml-auto opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 text-xs flex items-center gap-1">
-          <span class="hidden md:inline">サイズ:</span>
+          <span class="hidden md:inline">横:</span>
           <button class="w-size px-1 py-0.5 rounded ring-1 ring-neutral-700/60 hover:bg-neutral-800" data-size="sm">S</button>
           <button class="w-size px-1 py-0.5 rounded ring-1 ring-neutral-700/60 hover:bg-neutral-800" data-size="md">M</button>
           <button class="w-size px-1 py-0.5 rounded ring-1 ring-neutral-700/60 hover:bg-neutral-800" data-size="lg">L</button>
-          <span class="mx-2 text-neutral-600">|</span>
+          <span class="hidden md:inline ml-2">縦:</span>
+          <button class="w-h px-1 py-0.5 rounded ring-1 ring-neutral-700/60 hover:bg-neutral-800" data-h="sm">S</button>
+          <button class="w-h px-1 py-0.5 rounded ring-1 ring-neutral-700/60 hover:bg-neutral-800" data-h="md">M</button>
+          <button class="w-h px-1 py-0.5 rounded ring-1 ring-neutral-700/60 hover:bg-neutral-800" data-h="lg">L</button>
           <button class="w-del px-2 py-0.5 rounded ring-1 ring-rose-700/70 text-rose-400 hover:bg-rose-900/30">削除</button>
-          <span class="ml-2">ドラッグで並べ替え</span>
         </div>
       </div>
-      ${body}
+      <div class="wg-content min-h-0 flex-1 overflow-auto">${body}</div>
     </div>
   `
 }
@@ -341,7 +391,7 @@ function barSkeleton(): string {
 }
 
 function readmeSkeleton(): string {
-  return `<div class="h-72 overflow-auto rounded bg-neutral-950/40 ring-1 ring-neutral-800/70 p-4 text-gray-200 whitespace-pre-wrap">Loading README...</div>`
+  return `<div class="h-full overflow-auto rounded bg-neutral-950/40 ring-1 ring-neutral-800/70 p-4 text-gray-200 whitespace-pre-wrap">Loading README...</div>`
 }
 
 function hydrateOverview(root: HTMLElement, repo: any): void {
@@ -387,7 +437,7 @@ function hydrateCommitters(root: HTMLElement, list: any[]): void {
 function hydrateReadme(root: HTMLElement, text: string): void {
   const el = root.querySelector('[data-widget="readme"] .whitespace-pre-wrap') as HTMLElement | null
   if (!el) return
-  el.textContent = text || 'README not found'
+  el.innerHTML = mdRenderToHtml(text || 'README not found')
 }
 
 function enableDragAndDrop(root: HTMLElement): void {
@@ -489,18 +539,53 @@ function enableDragAndDrop(root: HTMLElement): void {
   applyWidgetSizes(root, pid)
   ensureWidgets(root, pid)
 
+  // Row size dynamic: make vertical S equal to horizontal S (span-4)
+  const adjustGridRowSize = () => {
+    try {
+      const probe = document.createElement('div')
+      probe.style.gridColumn = 'span 4'
+      probe.style.height = '1px'
+      probe.style.visibility = 'hidden'
+      grid.appendChild(probe)
+      const w = probe.getBoundingClientRect().width || 0
+      probe.remove()
+      const base = Math.max(72, Math.round(w)) // keep a reasonable minimum
+      ;(grid as HTMLElement).style.gridAutoRows = `${base}px`
+    } catch {}
+  }
+  adjustGridRowSize()
+  ;(function attachResize() {
+    try {
+      if ((grid as any)._rowSizerAttached) return
+      ;(grid as any)._rowSizerAttached = true
+      if ('ResizeObserver' in window) {
+        const ro = new (window as any).ResizeObserver(() => adjustGridRowSize())
+        ro.observe(grid)
+        ;(grid as any)._ro = ro
+      } else {
+        window.addEventListener('resize', adjustGridRowSize)
+      }
+    } catch {}
+  })()
+
   // Add widget button
   grid.querySelector('#addWidget')?.addEventListener('click', () => openWidgetPickerModal(root, pid))
 
   // Size change controls
   grid.addEventListener('click', (e) => {
     const btn = (e.target as HTMLElement).closest('.w-size') as HTMLElement | null
-    if (!btn) return
-    const size = btn.getAttribute('data-size') as 'sm' | 'md' | 'lg'
-    const widget = btn.closest('.widget') as HTMLElement | null
+    const hbtn = (e.target as HTMLElement).closest('.w-h') as HTMLElement | null
+    if (!btn && !hbtn) return
+    const widget = (btn || hbtn)!.closest('.widget') as HTMLElement | null
     if (!widget) return
     const id = widget.getAttribute('data-widget') || ''
-    setWidgetSize(root, pid, id, size)
+    if (btn) {
+      const size = btn.getAttribute('data-size') as 'sm'|'md'|'lg'
+      setWidgetSize(root, pid, id, size)
+    } else if (hbtn) {
+      const h = hbtn.getAttribute('data-h') as 'sm'|'md'|'lg'
+      setWidgetHeight(root, pid, id, h)
+    }
   })
 
   // Delete widget
@@ -590,7 +675,8 @@ function enableDragAndDrop(root: HTMLElement): void {
 
 type WidgetSize = 'sm' | 'md' | 'lg'
 
-type WidgetMeta = { size: WidgetSize; type?: string }
+type WidgetHeight = 'sm' | 'md' | 'lg'
+type WidgetMeta = { size: WidgetSize; h?: WidgetHeight; type?: string }
 
 function getWidgetMeta(pid: string): Record<string, WidgetMeta> {
   try { return JSON.parse(localStorage.getItem(`pj-widgets-meta-${pid}`) || '{}') as Record<string, WidgetMeta> } catch { return {} }
@@ -602,7 +688,14 @@ function setWidgetMeta(pid: string, meta: Record<string, WidgetMeta>): void {
 
 function setWidgetSize(root: HTMLElement, pid: string, id: string, size: WidgetSize): void {
   const meta = getWidgetMeta(pid)
-  meta[id] = { size }
+  meta[id] = { ...(meta[id]||{}), size }
+  setWidgetMeta(pid, meta)
+  applyWidgetSizes(root, pid)
+}
+
+function setWidgetHeight(root: HTMLElement, pid: string, id: string, h: WidgetHeight): void {
+  const meta = getWidgetMeta(pid)
+  meta[id] = { ...(meta[id]||{}), h }
   setWidgetMeta(pid, meta)
   applyWidgetSizes(root, pid)
 }
@@ -611,13 +704,37 @@ function applyWidgetSizes(root: HTMLElement, pid: string): void {
   const meta = getWidgetMeta(pid)
   root.querySelectorAll('.widget').forEach((w) => {
     const id = (w as HTMLElement).getAttribute('data-widget') || ''
-    const size = meta[id]?.size || 'md'
+    const size = (meta[id]?.size || 'md') as 'sm'|'md'|'lg'
+    const h = (meta[id]?.h || 'md') as 'sm'|'md'|'lg'
     const cls = (w as HTMLElement).classList
     // remove previous spans
-    cls.remove('md:col-span-4', 'md:col-span-6', 'md:col-span-12')
+    cls.remove('md:col-span-4','md:col-span-6','md:col-span-8','md:col-span-12')
     if (size === 'sm') cls.add('md:col-span-4')
-    else if (size === 'lg') cls.add('md:col-span-12')
-    else cls.add('md:col-span-6')
+    else if (size === 'md') cls.add('md:col-span-8')
+    else cls.add('md:col-span-12')
+    // apply grid row span for height units
+    const hUnits = h === 'sm' ? 1 : h === 'md' ? 2 : 3
+    ;(w as HTMLElement).style.gridRow = `span ${hUnits} / span ${hUnits}`
+
+    // Highlight active controls (size / height)
+    const markActive = (btns: NodeListOf<Element>, attr: 'data-size'|'data-h', val: string) => {
+      btns.forEach((b) => {
+        const el = b as HTMLElement
+        const isActive = el.getAttribute(attr) === val
+        el.classList.toggle('bg-emerald-700', isActive)
+        el.classList.toggle('text-white', isActive)
+        el.classList.toggle('ring-emerald-600', isActive)
+        // inactive style (subtle)
+        el.classList.toggle('bg-neutral-800/40', !isActive)
+        el.classList.toggle('text-gray-200', !isActive)
+        el.classList.toggle('ring-neutral-700/60', !isActive)
+        el.setAttribute('aria-pressed', isActive ? 'true' : 'false')
+      })
+    }
+    const sizeBtns = w.querySelectorAll('.w-size')
+    const hBtns = w.querySelectorAll('.w-h')
+    markActive(sizeBtns as NodeListOf<Element>, 'data-size', size)
+    markActive(hBtns as NodeListOf<Element>, 'data-h', h)
   })
 }
 
@@ -643,9 +760,9 @@ function ensureWidgets(root: HTMLElement, pid: string): void {
 
 function openWidgetPickerModal(root: HTMLElement, pid: string): void {
   const overlay = document.createElement('div')
-  overlay.className = 'fixed inset-0 z-[66] bg-black/60 backdrop-blur-[1px] grid place-items-center'
+  overlay.className = 'fixed inset-0 z-[66] bg-black/60 backdrop-blur-[1px] grid place-items-center fade-overlay'
   overlay.innerHTML = `
-    <div class="relative w-[min(1200px,96vw)] max-h-[90vh] overflow-hidden rounded-xl bg-neutral-900 ring-1 ring-neutral-700/70 shadow-2xl text-gray-100">
+    <div class="relative w-[min(1200px,96vw)] max-h-[90vh] overflow-hidden rounded-xl bg-neutral-900 ring-1 ring-neutral-700/70 shadow-2xl text-gray-100 pop-modal">
       <header class="h-12 flex items-center px-5 border-b border-neutral-800/70">
         <h3 class="text-lg font-semibold">ウィジェット一覧</h3>
         <button id="wp-close" class="ml-auto text-2xl text-neutral-300 hover:text-white">×</button>
@@ -672,7 +789,7 @@ function openWidgetPickerModal(root: HTMLElement, pid: string): void {
       </div>
     </div>
   `
-  const close = () => overlay.remove()
+  const close = () => { overlay.remove(); const c=+(document.body.getAttribute('data-lock')||'0'); const n=Math.max(0,c-1); if(n===0){ document.body.style.overflow=''; } document.body.setAttribute('data-lock', String(n)) }
   overlay.addEventListener('click', (e) => { if (e.target === overlay) close() })
   overlay.querySelector('#wp-close')?.addEventListener('click', close)
   // Robust delegated click to ensure closing after add
@@ -706,12 +823,12 @@ function openWidgetPickerModal(root: HTMLElement, pid: string): void {
   }
   cats.forEach((b) => b.addEventListener('click', () => applyCat((b as HTMLElement).getAttribute('data-cat') || 'all')))
   applyCat('all')
-  document.body.appendChild(overlay)
+  document.body.appendChild(overlay); (function(){ const c=+(document.body.getAttribute('data-lock')||'0'); if(c===0){ document.body.style.overflow='hidden' } document.body.setAttribute('data-lock', String(c+1)) })()
 }
 
 function widgetCard(type: string, title: string): string {
   return `
-    <button type="button" data-widget-type="${type}" class="group block rounded-xl overflow-hidden ring-1 ring-neutral-700/60 hover:ring-emerald-600 transition">
+    <button type="button" data-widget-type="${type}" class="group block rounded-xl overflow-hidden ring-1 ring-neutral-700/60 hover:ring-emerald-600 transition pop-card btn-press">
       <div class="h-40 md:h-44 bg-neutral-800/80 grid place-items-center text-gray-300 relative px-2">
         ${widgetThumb(type)}
       </div>
@@ -750,6 +867,12 @@ function addWidget(root: HTMLElement, pid: string, type: string): void {
     const on = grid.getAttribute('data-edit') === '1'
     const tools = (el as HTMLElement).querySelector('.wg-tools') as HTMLElement | null
     if (tools) tools.classList.toggle('hidden', !on)
+    // if in edit mode, immediately apply edit visuals and drag
+    if (on) {
+      const card = el as HTMLElement
+      card.setAttribute('draggable', 'true')
+      card.classList.add('cursor-move', 'border', 'border-dashed', 'border-amber-500/40')
+    }
   }
   // refresh dynamic contents after adding
   try { refreshDynamicWidgets(root, pid) } catch {}
@@ -758,7 +881,7 @@ function addWidget(root: HTMLElement, pid: string, type: string): void {
   localStorage.setItem(`pj-widgets-${pid}`, JSON.stringify(order))
   // persist meta (size default M and type)
   const meta = getWidgetMeta(pid)
-  meta[id] = { size: 'md', type }
+  meta[id] = { size: 'md', h: 'md', type }
   setWidgetMeta(pid, meta)
 }
 
@@ -1045,7 +1168,7 @@ function buildWidgetTab(panel: HTMLElement, pid: string, scope: string, defaults
       <div class="flex items-center">
         <button id="wgEditToggle" class="ml-auto text-xs rounded-md bg-neutral-800/60 ring-1 ring-neutral-700/60 px-2 py-1 text-gray-200">編集</button>
       </div>
-      <div class="grid gap-7 md:gap-8 grid-cols-1 md:grid-cols-12" id="widgetGrid" data-pid="${pid}:${scope}">
+      <div class="grid gap-7 md:gap-8 grid-cols-1 md:grid-cols-12" id="widgetGrid" data-pid="${pid}:${scope}" style="grid-auto-rows: 7rem;">
         ${addWidgetCard()}
       </div>
     </div>
@@ -1109,7 +1232,7 @@ function detailLayout(ctx: { id: number; name: string; fullName: string }): stri
           <div class="flex items-center">
             <button id="wgEditToggle" class="ml-auto text-xs rounded-md bg-neutral-800/60 ring-1 ring-neutral-700/60 px-2 py-1 text-gray-200">編集</button>
           </div>
-          <div class="grid gap-7 md:gap-8 grid-cols-1 md:grid-cols-12" id="widgetGrid" data-pid="${ctx.id}">
+          <div class="grid gap-7 md:gap-8 grid-cols-1 md:grid-cols-12" id="widgetGrid" data-pid="${ctx.id}" style="grid-auto-rows: 7rem;">
             ${widgetShell('contrib', 'Contributions', contributionWidget())}
             ${widgetShell('overview', 'Overview', overviewSkeleton())}
             ${widgetShell('committers', 'Top Committers', barSkeleton())}
@@ -1182,17 +1305,7 @@ function applyCoreTabs(root: HTMLElement, pid: string): void {
       e.preventDefault()
       openTabContextMenu(root, pid, { kind: 'core', id: key, btn })
     })
-    // rename on double click
-    btn.addEventListener('dblclick', (e) => {
-      e.stopPropagation()
-      const cur = btn.textContent || ''
-      const next = prompt('タブ名を入力', cur)
-      if (!next) return
-      const c = getCoreTabs(pid)
-      c[key].title = next
-      saveCoreTabs(pid, c)
-      applyCoreTabs(root, pid)
-    })
+    // Double-click rename disabled (use context menu instead)
   }
 
   const sumBtn = bar.querySelector('[data-tab="summary"]') as HTMLElement | null
@@ -1228,6 +1341,8 @@ function applyCoreTabs(root: HTMLElement, pid: string): void {
 // Context menu for tabs (rename/delete)
 function openTabContextMenu(root: HTMLElement, pid: string, arg: { kind: 'core'|'custom'; id: string; btn: HTMLElement; type?: TabTemplate }): void {
   const { kind, id, btn } = arg
+  // Close any open rename popover
+  document.getElementById('tabRenamePop')?.remove()
   // Close any existing tab context menu before opening a new one
   document.getElementById('tabCtxMenu')?.remove()
   const rect = btn.getBoundingClientRect()
@@ -1241,7 +1356,10 @@ function openTabContextMenu(root: HTMLElement, pid: string, arg: { kind: 'core'|
     <button data-act="delete" class="w-full text-left px-3 py-2 hover:bg-neutral-800 text-rose-400">削除</button>
   `
   const close = () => menu.remove()
-  setTimeout(() => document.addEventListener('click', (e) => { if (!menu.contains(e.target as Node)) close() }, { once: true }), 0)
+  const onDoc = (e: MouseEvent) => {
+    if (!menu.contains(e.target as Node)) { close(); document.removeEventListener('click', onDoc) }
+  }
+  setTimeout(() => document.addEventListener('click', onDoc), 0)
   document.body.appendChild(menu)
   const bar = root.querySelector('#tabBar') as HTMLElement
   const minCheck = (): boolean => {
@@ -1250,23 +1368,53 @@ function openTabContextMenu(root: HTMLElement, pid: string, arg: { kind: 'core'|
     return true
   }
   menu.querySelector('[data-act="rename"]')?.addEventListener('click', () => {
-    const cur = btn.textContent || ''
-    const next = prompt('タブ名を入力', cur)
-    if (!next) return
-    if (kind === 'core') {
-      const c = getCoreTabs(pid)
-      const k = id as 'summary'|'board'
-      c[k].title = next
-      saveCoreTabs(pid, c)
-      applyCoreTabs(root, pid)
-    } else {
-      btn.textContent = next
-      const saved = JSON.parse(localStorage.getItem(`tabs-${pid}`) || '[]') as Array<{ id: string; type: TabTemplate; title?: string }>
-      const idx = saved.findIndex(t => t.id === id)
-      if (idx >= 0) saved[idx].title = next
-      localStorage.setItem(`tabs-${pid}`, JSON.stringify(saved))
-    }
+    // Inline rename popover (no prompt)
     close()
+    const r = btn.getBoundingClientRect()
+    const pop = document.createElement('div')
+    document.getElementById('tabRenamePop')?.remove()
+    pop.id = 'tabRenamePop'
+    pop.className = 'fixed z-[81] w-[min(320px,92vw)] rounded-lg bg-neutral-900 ring-1 ring-neutral-700/70 shadow-xl p-2'
+    pop.style.top = `${r.bottom + 8}px`
+    pop.style.left = `${Math.max(12, Math.min(window.innerWidth - 340, r.left))}px`
+    const currentTitle = kind === 'core' ? (getCoreTabs(pid)[id as 'summary'|'board']?.title || '') : (btn.textContent || '')
+    const esc = (s: string) => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    pop.innerHTML = `
+      <div class="flex items-center gap-2">
+        <input id="tr-name" type="text" class="flex-1 min-w-0 rounded-md bg-neutral-800/60 ring-1 ring-neutral-700/60 px-2 py-1.5 text-gray-100" value="${esc(currentTitle)}" />
+        <button id="tr-save" class="rounded-md bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-medium px-3 py-1.5 whitespace-nowrap shrink-0">保存</button>
+        <button id="tr-cancel" class="rounded-md bg-neutral-800/60 ring-1 ring-neutral-700/60 text-gray-200 text-xs px-3 py-1.5 whitespace-nowrap shrink-0">取消</button>
+      </div>
+    `
+    const remove = () => pop.remove()
+    const onDoc = (e: MouseEvent) => {
+      if (!pop.contains(e.target as Node)) { remove(); document.removeEventListener('click', onDoc) }
+    }
+    setTimeout(() => document.addEventListener('click', onDoc), 0)
+    document.body.appendChild(pop)
+    const input = pop.querySelector('#tr-name') as HTMLInputElement | null
+    input?.focus(); input?.select()
+    const doSave = () => {
+      const val = (input?.value || '').trim()
+      if (!val) { remove(); return }
+      if (kind === 'core') {
+        const k = id as 'summary'|'board'
+        const c = getCoreTabs(pid)
+        c[k].title = val
+        saveCoreTabs(pid, c)
+        applyCoreTabs(root, pid)
+      } else {
+        btn.textContent = val
+        const saved = JSON.parse(localStorage.getItem(`tabs-${pid}`) || '[]') as Array<{ id: string; type: TabTemplate; title?: string }>
+        const idx = saved.findIndex((t) => t.id === id)
+        if (idx >= 0) saved[idx].title = val
+        localStorage.setItem(`tabs-${pid}`, JSON.stringify(saved))
+      }
+      remove()
+    }
+    pop.querySelector('#tr-save')?.addEventListener('click', doSave)
+    pop.querySelector('#tr-cancel')?.addEventListener('click', remove)
+    input?.addEventListener('keydown', (e) => { if (e.key === 'Enter') doSave(); if (e.key === 'Escape') remove() })
   })
   menu.querySelector('[data-act="delete"]')?.addEventListener('click', () => {
     if (!minCheck()) { close(); return }
@@ -1356,19 +1504,7 @@ function addCustomTab(root: HTMLElement, pid: string, type: TabTemplate, persist
     })
   })
 
-  // rename on double click (prompt-based for simplicity)
-  btn.addEventListener('dblclick', (e) => {
-    e.stopPropagation()
-    const cur = btn.textContent || tabTitle(type)
-    const next = prompt('タブ名を入力', cur || '')
-    if (!next) return
-    btn.textContent = next
-    // persist title
-    const saved = JSON.parse(localStorage.getItem(`tabs-${pid}`) || '[]') as Array<{ id: string; type: TabTemplate; title?: string }>
-    const idx = saved.findIndex((t) => t.id === id)
-    if (idx >= 0) { saved[idx].title = next } else { saved.push({ id, type, title: next }) }
-    localStorage.setItem(`tabs-${pid}`, JSON.stringify(saved))
-  })
+  // Double-click rename disabled (use context menu instead)
 
   // context menu
   btn.addEventListener('contextmenu', (e) => {
@@ -1599,12 +1735,34 @@ function kanbanShell(id = 'kb-board'): string {
   `
 }
 
-function renderKanban(root: HTMLElement, pid: string, targetId = 'kb-board'): void {
+async function renderKanban(root: HTMLElement, pid: string, targetId = 'kb-board'): Promise<void> {
   const board = root.querySelector(`#${targetId}`) as HTMLElement | null
   if (!board) return
+  // Load tasks: if linked to GitHub, merge issues into tasks
   const state = loadTasks(pid)
+  const repoFull = (root as HTMLElement).getAttribute('data-repo-full') || ''
+  let ghTasks: any[] = []
+  if (repoFull) {
+    try {
+      const issues = await apiFetch<any[]>(`/projects/${pid}/issues?state=all`)
+      ghTasks = (issues || []).map((it) => {
+        const labels: string[] = it.labels || []
+        const lane = labels.find((l) => l.startsWith('kanban:'))?.split(':')[1] || (it.state === 'closed' ? 'done' : 'todo')
+        return {
+          id: `gh-${it.number}`,
+          title: it.title,
+          description: '',
+          status: (lane === 'todo' || lane === 'doing' || lane === 'review' || lane === 'done') ? lane : (it.state === 'closed' ? 'done' : 'todo'),
+          priority: '中',
+          assignee: (it.assignees && it.assignees[0]) ? it.assignees[0] : '',
+          _gh: { number: it.number, url: it.html_url }
+        }
+      })
+    } catch {}
+  }
+  const merged = [...ghTasks, ...state.filter(t => !String(t.id).startsWith('gh-'))]
   board.innerHTML = ['todo', 'doing', 'review', 'done']
-    .map((st) => columnHtml(st as Status, state.filter((t) => t.status === st)))
+    .map((st) => columnHtml(st as Status, merged.filter((t) => t.status === st)))
     .join('')
 
   // DnD move（カード全体でドラッグ可。クリックはドラッグ時に抑止）
@@ -1630,15 +1788,39 @@ function renderKanban(root: HTMLElement, pid: string, targetId = 'kb-board'): vo
   })
   board.querySelectorAll('[data-col]')?.forEach((col) => {
     col.addEventListener('dragover', (e) => e.preventDefault())
-    col.addEventListener('drop', () => {
+    col.addEventListener('drop', async () => {
       if (!dragging) return
       const id = dragging.getAttribute('data-task') as string
-      const tasks = loadTasks(pid)
       const target = (col as HTMLElement).getAttribute('data-col') as Status
-      const idx = tasks.findIndex((t) => t.id === id)
-      if (idx >= 0) tasks[idx].status = target
-      saveTasks(pid, tasks)
+      if (id.startsWith('gh-')) {
+        // Update GitHub
+        const num = id.replace('gh-','')
+        try {
+          await apiFetch(`/projects/${pid}/issues/${num}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: target }) })
+          if (target === 'done') {
+            const login = dragging.getAttribute('data-assignee') || ''
+            if (login) {
+              await apiFetch(`/projects/${pid}/issues/assign-next`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ login }) })
+            }
+          }
+        } catch {}
+      } else {
+        const tasks = loadTasks(pid)
+        const idx = tasks.findIndex((t) => t.id === id)
+        if (idx >= 0) tasks[idx].status = target
+        saveTasks(pid, tasks)
+      }
       renderKanban(root, pid, targetId)
+    })
+  })
+
+  // Open in GitHub link handler
+  board.querySelectorAll('[data-open-gh]')?.forEach((a) => {
+    a.addEventListener('click', (e) => {
+      e.preventDefault()
+      const num = (a as HTMLElement).getAttribute('data-open-gh') || ''
+      const repo = (root as HTMLElement).getAttribute('data-repo-full') || ''
+      if (num && repo) window.open(`https://github.com/${repo}/issues/${num}`, '_blank')
     })
   })
 
@@ -1678,7 +1860,7 @@ function taskCard(t: Task): string {
   return `
     <div class="rounded-lg ring-1 ring-neutral-700/60 bg-neutral-800/80 p-3 cursor-grab shadow-sm" draggable="true" data-task="${t.id}">
       <div class="flex items-start justify-between">
-        <div class="text-xs text-gray-400">#${t.id}</div>
+        <div class="text-xs text-gray-400">${String(t.id).startsWith('gh-') ? '<span class=\\"text-white\\"></span> #'+String(t.id).slice(3) : '#'+t.id}</div>
         <div class="text-sm text-gray-300">${due}</div>
       </div>
       <div class="mt-1 font-semibold text-gray-100">${escapeHtml(t.title)}</div>
@@ -1689,6 +1871,7 @@ function taskCard(t: Task): string {
         </div>
         <div class="text-xs"><span class="text-gray-300 mr-1">優先度</span><span class="${prColor}">${pr}</span></div>
       </div>
+      ${String(t.id).startsWith('gh-') ? `<div class=\"mt-2 text-right\"><a href=\"#\" data-open-gh=\"${String(t.id).slice(3)}\" class=\"text-xs text-sky-400 hover:underline\">GitHubで開く</a></div>` : ''}
     </div>
   `
 }
@@ -1699,9 +1882,9 @@ function openNewTaskModal(root: HTMLElement, pid: string, status: Status, target
   if (old) old.remove()
   const overlay = document.createElement('div')
   overlay.id = 'newTaskOverlay'
-  overlay.className = 'fixed inset-0 z-[82] bg-black/60 grid place-items-center'
+  overlay.className = 'fixed inset-0 z-[82] bg-black/60 grid place-items-center fade-overlay'
   overlay.innerHTML = `
-    <div class="relative w-[min(980px,95vw)] h-[86vh] overflow-hidden rounded-xl bg-neutral-900 ring-1 ring-neutral-700/70 text-gray-100">
+    <div class="relative w-[min(980px,95vw)] h-[86vh] overflow-hidden rounded-xl bg-neutral-900 ring-1 ring-neutral-700/70 text-gray-100 pop-modal">
       <div class="flex items-center h-12 px-6 border-b border-neutral-800/70">
         <div class="text-lg font-semibold">新しいタスクを追加</div>
         <button class="ml-auto text-2xl text-neutral-300 hover:text-white" id="nt-close">×</button>

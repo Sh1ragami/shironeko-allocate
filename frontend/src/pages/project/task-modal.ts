@@ -67,7 +67,7 @@ export function openTaskModal(root: HTMLElement, pid: string, taskId: string): v
         </div>
       </div>
     </div>`
-  const close = () => overlay.remove()
+  const close = () => { overlay.remove(); const c=+(document.body.getAttribute('data-lock')||'0'); const n=Math.max(0,c-1); if(n===0){ document.body.style.overflow=''; } document.body.setAttribute('data-lock', String(n)) }
   overlay.addEventListener('click', (e) => { if (e.target === overlay) close() })
   overlay.querySelector('#tk-close')?.addEventListener('click', close)
   const save = () => { const arr = loadTasks(pid); const i = arr.findIndex(x=>x.id===t.id); if (i>=0){ arr[i]=t; saveTasks(pid, arr) } }
@@ -83,5 +83,5 @@ export function openTaskModal(root: HTMLElement, pid: string, taskId: string): v
     // 再描画
     const id = container.querySelector('#widgetGrid') ? pid : pid
   })
-  document.body.appendChild(overlay)
+  document.body.appendChild(overlay); (function(){ const c=+(document.body.getAttribute('data-lock')||'0'); if(c===0){ document.body.style.overflow='hidden' } document.body.setAttribute('data-lock', String(c+1)) })()
 }

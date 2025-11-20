@@ -29,4 +29,12 @@ Route::middleware('token.auth')->group(function () {
     Route::get('/projects/{id}/collaborators', [\App\Http\Controllers\Api\ProjectController::class, 'collaborators']);
     Route::post('/projects/{id}/collaborators', [\App\Http\Controllers\Api\ProjectController::class, 'inviteCollaborator']);
     Route::delete('/projects/{id}/collaborators/{login}', [\App\Http\Controllers\Api\ProjectController::class, 'deleteCollaborator']);
+
+    // GitHub Issues linkage
+    Route::get('/projects/{id}/issues', [\App\Http\Controllers\Api\ProjectController::class, 'listIssues']);
+    Route::patch('/projects/{id}/issues/{number}', [\App\Http\Controllers\Api\ProjectController::class, 'updateIssue']);
+    Route::post('/projects/{id}/issues/assign-next', [\App\Http\Controllers\Api\ProjectController::class, 'assignNext']);
+
+    // Auth
+    Route::post('/logout', [\App\Http\Controllers\Api\AuthController::class, 'logout']);
 });

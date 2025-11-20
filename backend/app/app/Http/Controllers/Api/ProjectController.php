@@ -153,18 +153,25 @@ class ProjectController extends Controller
                 $repoMeta = $res->json();
                 if (empty($data['name'])) $data['name'] = $repoMeta['name'] ?? $repo;
                 if (empty($data['description'])) $data['description'] = $repoMeta['description'] ?? null;
-                // Best-effort: create issues from AI tasks when linking existing repo
+                // Best-effort: ensure issues are enabled, then create issues from AI tasks when linking existing repo
                 $fullName = $repoMeta['full_name'] ?? $repo;
                 if ($fullName && is_array($aiTasks) && count($aiTasks) > 0) {
                     try {
+                        // Try enabling issues
+                        try {
+                            $en = Http::withHeaders($headers)->patch("https://api.github.com/repos/{$fullName}", ['has_issues' => true]);
+                            $metaFlags['gh_enable_issues_status'] = $en->status();
+                        } catch (\Throwable $e) {}
+                        // Prepare one-per-collaborator assignment plan
+                        $logins = $this->collaboratorLogins(null, $headers, $fullName);
+                        $i = 0; $n = count($logins);
                         foreach ($aiTasks as $t) {
                             $title = is_array($t) ? ($t['title'] ?? null) : null;
                             $body = is_array($t) ? ($t['body'] ?? '') : '';
                             if (!$title) continue;
-                            $resp = Http::withHeaders($headers)->post("https://api.github.com/repos/{$fullName}/issues", [
-                                'title' => $title,
-                                'body' => $body,
-                            ]);
+                            $payload = [ 'title' => $title, 'body' => $body ];
+                            if ($n > 0 && $i < $n) { $payload['assignees'] = [$logins[$i]]; $i++; }
+                            $resp = Http::withHeaders($headers)->post("https://api.github.com/repos/{$fullName}/issues", $payload);
                             $metaFlags['gh_issue_last_status'] = $resp->status();
                             if ($resp->ok()) $metaFlags['gh_issues_created']++;
                         }
@@ -228,16 +235,18 @@ class ProjectController extends Controller
                             ]);
                             $metaFlags['gh_readme_status'] = $put->status();
                             if ($put->ok()) $metaFlags['gh_readme_updated'] = true;
-                            // Create issues from AI tasks (best-effort)
+                            // Create issues from AI tasks (best-effort): enable issues then post
                             if (is_array($aiTasks) && count($aiTasks) > 0) {
+                                try { $en = Http::withHeaders($headers)->patch("https://api.github.com/repos/{$fullName}", ['has_issues' => true]); $metaFlags['gh_enable_issues_status'] = $en->status(); } catch (\Throwable $e) {}
+                                $logins = $this->collaboratorLogins($project ?? null, $headers, $fullName);
+                                $i = 0; $n = count($logins);
                                 foreach ($aiTasks as $t) {
                                     $title = is_array($t) ? ($t['title'] ?? null) : null;
                                     $body = is_array($t) ? ($t['body'] ?? '') : '';
                                     if (!$title) continue;
-                                    $ires = Http::withHeaders($headers)->post("https://api.github.com/repos/{$fullName}/issues", [
-                                        'title' => $title,
-                                        'body' => $body,
-                                    ]);
+                                    $payload = [ 'title' => $title, 'body' => $body ];
+                                    if ($n > 0 && $i < $n) { $payload['assignees'] = [$logins[$i]]; $i++; }
+                                    $ires = Http::withHeaders($headers)->post("https://api.github.com/repos/{$fullName}/issues", $payload);
                                     $metaFlags['gh_issue_last_status'] = $ires->status();
                                     if ($ires->ok()) $metaFlags['gh_issues_created']++;
                                 }
@@ -380,7 +389,7 @@ MD;
                 ]],
                 // Keep config minimal for broader compatibility
             ];
-            $url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key='.urlencode($key);
+            $url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key='.urlencode($key);
             $res = Http::asJson()->post($url, $payload);
             if (!$res->ok()) return null;
             $json = $res->json();
@@ -429,6 +438,39 @@ MD;
             ['title' => 'CIセットアップ', 'body' => 'テストとLintの自動実行を構築'],
         ];
         return $base;
+    }
+
+    private function collaboratorLogins($project, array $headers, ?string $fullName): array
+    {
+        $logins = [];
+        $meta = is_array($project) ? ($project['github_meta'] ?? []) : ($project->github_meta ?? []);
+        foreach (($meta['collaborators'] ?? []) as $c) { if (!empty($c['login'])) $logins[] = (string)$c['login']; }
+        $logins = array_values(array_unique($logins));
+        if (count($logins) === 0 && $fullName) {
+            try {
+                $res = Http::withHeaders($headers)->get("https://api.github.com/repos/{$fullName}/collaborators", ['affiliation' => 'direct', 'per_page' => 100]);
+                if ($res->ok()) {
+                    foreach ($res->json() as $u) { if (!empty($u['login'])) $logins[] = (string)$u['login']; }
+                }
+            } catch (\Throwable $e) {}
+        }
+        return array_values(array_unique($logins));
+    }
+
+    private function assignOneOpenIssue(Request $request, $project, string $login): void
+    {
+        $full = is_array($project) ? ($project['github_meta']['full_name'] ?? ($project['link_repo'] ?? null)) : ($project->github_meta['full_name'] ?? ($project->link_repo ?? null));
+        if (!$full) return;
+        $tokenEnc = $request->user()?->github_access_token; if (!$tokenEnc) return;
+        try { $gh = Crypt::decryptString($tokenEnc); } catch (\Throwable $e) { return; }
+        $headers = [ 'User-Agent' => 'shironeko-allocate', 'Authorization' => 'Bearer '.$gh, 'Accept' => 'application/vnd.github+json' ];
+        try {
+            @Http::withHeaders($headers)->patch("https://api.github.com/repos/{$full}", ['has_issues' => true]);
+            $res = Http::withHeaders($headers)->get("https://api.github.com/repos/{$full}/issues", ['state' => 'open', 'assignee' => 'none', 'per_page' => 100]);
+            if (!$res->ok()) return; $arr = $res->json(); if (!is_array($arr) || count($arr)===0) return;
+            $num = $arr[0]['number'] ?? null; if (!$num) return;
+            Http::withHeaders($headers)->patch("https://api.github.com/repos/{$full}/issues/{$num}", ['assignees' => [$login]]);
+        } catch (\Throwable $e) {}
     }
 
     public function show(Request $request, int $id)
@@ -520,6 +562,11 @@ MD;
             $this->writeAll($all);
         }
 
+        // Assign one open unassigned issue to this collaborator (best-effort)
+        try {
+            $this->assignOneOpenIssue($request, $project, $login);
+        } catch (\Throwable $e) {}
+
         return response()->json(['ok' => true, 'login' => $login, 'avatar_url' => $avatar]);
     }
 
@@ -563,6 +610,83 @@ MD;
             }
             $this->writeAll($all);
         }
+        return response()->json(['ok' => true]);
+    }
+
+    // ---- Issues linkage ----
+    public function listIssues(Request $request, int $id)
+    {
+        $project = $this->findByIdForUser($request, $id);
+        if (!$project) return response()->json([]);
+        $full = is_array($project) ? ($project['github_meta']['full_name'] ?? ($project['link_repo'] ?? null)) : ($project->github_meta['full_name'] ?? ($project->link_repo ?? null));
+        if (!$full) return response()->json([]);
+        $tokenEnc = $request->user()?->github_access_token; if (!$tokenEnc) return response()->json([]);
+        try { $gh = Crypt::decryptString($tokenEnc); } catch (\Throwable $e) { return response()->json([]); }
+        $headers = [ 'User-Agent' => 'shironeko-allocate', 'Authorization' => 'Bearer '.$gh, 'Accept' => 'application/vnd.github+json' ];
+        $state = $request->query('state', 'all');
+        try {
+            $res = Http::withHeaders($headers)->get("https://api.github.com/repos/{$full}/issues", [ 'state' => $state, 'per_page' => 100 ]);
+            if (!$res->ok()) return response()->json([]);
+            $issues = array_values(array_filter($res->json(), fn($x) => empty($x['pull_request'])));
+            // normalize
+            $out = array_map(function($i){
+                return [
+                    'number' => $i['number'] ?? null,
+                    'title' => $i['title'] ?? '',
+                    'state' => $i['state'] ?? 'open',
+                    'labels' => array_map(fn($l)=> $l['name'] ?? '', ($i['labels'] ?? [])),
+                    'assignees' => array_map(fn($a)=> $a['login'] ?? '', ($i['assignees'] ?? [])),
+                    'html_url' => $i['html_url'] ?? null,
+                ];
+            }, $issues);
+            return response()->json($out);
+        } catch (\Throwable $e) { return response()->json([]); }
+    }
+
+    public function updateIssue(Request $request, int $id, int $number)
+    {
+        $project = $this->findByIdForUser($request, $id);
+        if (!$project) return response()->json(['message' => 'Not found'], 404);
+        $full = is_array($project) ? ($project['github_meta']['full_name'] ?? ($project['link_repo'] ?? null)) : ($project->github_meta['full_name'] ?? ($project->link_repo ?? null));
+        if (!$full) return response()->json(['message' => 'Not linked'], 400);
+        $tokenEnc = $request->user()?->github_access_token; if (!$tokenEnc) return response()->json(['message' => 'No token'], 400);
+        try { $gh = Crypt::decryptString($tokenEnc); } catch (\Throwable $e) { return response()->json(['message' => 'Invalid token'], 400); }
+        $headers = [ 'User-Agent' => 'shironeko-allocate', 'Authorization' => 'Bearer '.$gh, 'Accept' => 'application/vnd.github+json' ];
+        $data = $request->validate([
+            'status' => ['nullable', 'in:todo,doing,review,done'],
+            'title' => ['nullable', 'string', 'max:256'],
+            'body' => ['nullable', 'string'],
+        ]);
+        $patch = [];
+        // status: done => close, others => open + label kanban:*
+        if (!empty($data['status'])) {
+            $st = $data['status'];
+            if ($st === 'done') $patch['state'] = 'closed'; else $patch['state'] = 'open';
+            // labels: add or replace kanban:* label
+            try {
+                $get = Http::withHeaders($headers)->get("https://api.github.com/repos/{$full}/issues/{$number}");
+                if ($get->ok()) {
+                    $labels = array_map(fn($l)=> $l['name'] ?? '', ($get->json()['labels'] ?? []));
+                    $labels = array_values(array_filter($labels, fn($l)=> !str_starts_with((string)$l, 'kanban:')));
+                    if ($st !== 'done') $labels[] = 'kanban:'.$st; else $labels[] = 'kanban:done';
+                    $patch['labels'] = $labels;
+                }
+            } catch (\Throwable $e) {}
+        }
+        if (!empty($data['title'])) $patch['title'] = $data['title'];
+        if (!empty($data['body'])) $patch['body'] = $data['body'];
+        if (empty($patch)) return response()->json(['ok' => true]);
+        $res = Http::withHeaders($headers)->patch("https://api.github.com/repos/{$full}/issues/{$number}", $patch);
+        if (!$res->ok()) return response()->json(['message' => 'Failed', 'upstream' => $res->json()], 400);
+        return response()->json(['ok' => true]);
+    }
+
+    public function assignNext(Request $request, int $id)
+    {
+        $data = $request->validate(['login' => ['required','string']]);
+        $project = $this->findByIdForUser($request, $id);
+        if (!$project) return response()->json(['message' => 'Not found'], 404);
+        try { $this->assignOneOpenIssue($request, $project, $data['login']); } catch (\Throwable $e) {}
         return response()->json(['ok' => true]);
     }
 

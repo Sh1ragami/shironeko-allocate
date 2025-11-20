@@ -15,9 +15,9 @@ type PickerOptions = {
 
 export function openTabPickerModal(root: HTMLElement, opts: PickerOptions): void {
   const overlay = document.createElement('div')
-  overlay.className = 'fixed inset-0 z-[65] bg-black/60 backdrop-blur-[1px] grid place-items-center'
+  overlay.className = 'fixed inset-0 z-[65] bg-black/60 backdrop-blur-[1px] grid place-items-center fade-overlay'
   overlay.innerHTML = `
-    <div class="relative w-[min(1200px,96vw)] max-h-[90vh] overflow-hidden rounded-xl bg-neutral-900 ring-1 ring-neutral-700/70 shadow-2xl text-gray-100">
+    <div class="relative w-[min(1200px,96vw)] max-h-[90vh] overflow-hidden rounded-xl bg-neutral-900 ring-1 ring-neutral-700/70 shadow-2xl text-gray-100 pop-modal">
       <header class="h-12 flex items-center px-5 border-b border-neutral-800/70">
         <h3 class="text-lg font-semibold">タブ一覧</h3>
         <button id="tp-close" class="ml-auto text-2xl text-neutral-300 hover:text-white">×</button>
@@ -46,7 +46,7 @@ export function openTabPickerModal(root: HTMLElement, opts: PickerOptions): void
       </div>
     </div>
   `
-  const close = () => overlay.remove()
+  const close = () => { overlay.remove(); const c=+(document.body.getAttribute('data-lock')||'0'); const n=Math.max(0,c-1); if(n===0){ document.body.style.overflow=''; } document.body.setAttribute('data-lock', String(n)) }
   overlay.addEventListener('click', (e) => { if (e.target === overlay) close() })
   overlay.querySelector('#tp-close')?.addEventListener('click', close)
 
@@ -84,13 +84,13 @@ export function openTabPickerModal(root: HTMLElement, opts: PickerOptions): void
   cats.forEach((b) => b.addEventListener('click', () => applyCat((b as HTMLElement).getAttribute('data-cat') || 'all')))
   applyCat('all')
 
-  document.body.appendChild(overlay)
+  document.body.appendChild(overlay); (function(){ const c=+(document.body.getAttribute('data-lock')||'0'); if(c===0){ document.body.style.overflow='hidden' } document.body.setAttribute('data-lock', String(c+1)) })()
 }
 
 function templateCard(type: TabTemplate, title: string, highlight = false): string {
   const ring = highlight ? 'ring-emerald-700/70' : 'ring-neutral-700/60'
   return `
-    <button data-tpl="${type}" class="group block rounded-xl overflow-hidden ring-1 ${ring} hover:ring-emerald-600 transition">
+    <button data-tpl="${type}" class="group block rounded-xl overflow-hidden ring-1 ${ring} hover:ring-emerald-600 transition pop-card btn-press">
       <div class="h-40 md:h-44 bg-neutral-800/80 grid place-items-center text-gray-300 relative">
         ${thumb(type)}
       </div>

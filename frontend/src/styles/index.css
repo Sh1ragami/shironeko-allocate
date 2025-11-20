@@ -2,8 +2,18 @@
 @tailwind components;
 @tailwind utilities;
 
-html, body, #root {
+html, body {
   height: 100%;
+  overflow: hidden;              /* prevent body bounce */
+  overscroll-behavior: none;     /* block viewport overscroll */
+  background-color: var(--gh-canvas);
+}
+
+#app {
+  height: 100dvh;                /* lock to viewport height, safe on mobile */
+  overflow-y: auto;              /* scroll inside app container */
+  overscroll-behavior: contain;  /* prevent bubbling to viewport */
+  -webkit-overflow-scrolling: touch;
 }
 
 /* Dark theme tokens (GitHub-inspired, subtle) */
@@ -45,3 +55,30 @@ button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visib
 body { color: var(--gh-contrast); }
 
 /* Keep defaults subtle and aligned with existing tabs */
+
+/* ---- Animations (tasteful, motion-safe) ---- */
+@keyframes viewFadeUp {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes overlayFade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes popIn {
+  from { opacity: 0; transform: scale(0.98); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  /* Page transition animation disabled per request */
+  .fade-overlay { animation: overlayFade .18s ease-out both; }
+  .pop-card { transition: transform .18s ease, box-shadow .18s ease; }
+  .pop-card:hover { transform: translateY(-2px); }
+  .pop-modal { animation: popIn .18s ease-out both; }
+  .btn-press { transition: transform .08s ease; }
+  .btn-press:active { transform: translateY(1px); }
+}
+
+/* Make overflow containers scroll smoothly on iOS */
+.overflow-y-auto, .overflow-auto { -webkit-overflow-scrolling: touch; }

@@ -30,7 +30,7 @@ function projectCard(p: Project): string {
     : 'bg-sky-900/40 hover:bg-sky-900/55 ring-sky-900/50 hover:ring-sky-700/60'
   const title = (p.alias && String(p.alias).trim() !== '' ? p.alias : p.name)
   return `
-    <button data-id="${p.id}" class="group relative w-full h-40 rounded-xl ring-1 ${style} shadow-sm text-left p-5 transition-colors">
+    <button data-id="${p.id}" class="group relative w-full h-40 rounded-xl ring-1 ${style} shadow-sm text-left p-5 transition-colors pop-card btn-press">
       <div class="text-base font-medium text-gray-100/90">${title}</div>
       <div class="mt-2 text-xs text-gray-400">${p.start ? `${p.start} ~ ${p.end ?? ''}` : '&nbsp;'}</div>
       <div class="absolute bottom-3 right-3 flex gap-2 items-center opacity-0 group-hover:opacity-80 pointer-events-none group-hover:pointer-events-auto transition-opacity">
@@ -46,7 +46,7 @@ function projectCard(p: Project): string {
 
 function createProjectCard(): string {
   return `
-    <button id="createCard" class="w-full h-40 rounded-xl bg-neutral-800/40 ring-1 ring-neutral-700/60 hover:ring-neutral-500/60 transition-colors grid place-items-center text-gray-300">
+    <button id="createCard" class="w-full h-40 rounded-xl bg-neutral-800/40 ring-1 ring-neutral-700/60 hover:ring-neutral-500/60 transition-colors grid place-items-center text-gray-300 pop-card btn-press">
       <div class="text-center">
         <div class="text-sm mb-2">プロジェクト作成</div>
         <div class="text-3xl">＋</div>
@@ -204,6 +204,7 @@ function openCreateProgress(msg: string) {
     </div>
   `
   document.body.appendChild(overlay)
+  ;(function(){ const c=+(document.body.getAttribute('data-lock')||'0'); if(c===0){ document.body.style.overflow='hidden' } document.body.setAttribute('data-lock', String(c+1)) })()
   const set = (text: string) => { const el = overlay.querySelector('#pjProgMsg'); if (el) el.textContent = text }
   const showError = (text: string) => {
     const body = overlay.querySelector('#pjProgBody') as HTMLElement | null
@@ -212,7 +213,7 @@ function openCreateProgress(msg: string) {
     actions?.classList.remove('hidden')
     const spinner = overlay.querySelector('#pjProgSpin') as HTMLElement | null
     if (spinner) spinner.classList.add('hidden')
-    overlay.querySelector('#pjProgClose')?.addEventListener('click', () => overlay.remove())
+    overlay.querySelector('#pjProgClose')?.addEventListener('click', () => { overlay.remove(); const c=+(document.body.getAttribute('data-lock')||'0'); const n=Math.max(0,c-1); if(n===0){ document.body.style.overflow=''; } document.body.setAttribute('data-lock', String(n)) })
   }
   const showSuccess = (id?: number) => {
     set('プロジェクトの準備が完了しました。')
@@ -223,7 +224,7 @@ function openCreateProgress(msg: string) {
       openBtn.classList.remove('hidden')
       openBtn.addEventListener('click', () => {
         window.location.hash = `#/project/detail?id=${id}`
-        overlay.remove()
+        overlay.remove(); const c=+(document.body.getAttribute('data-lock')||'0'); const n=Math.max(0,c-1); if(n===0){ document.body.style.overflow=''; } document.body.setAttribute('data-lock', String(n))
       })
     }
     const spinner = overlay.querySelector('#pjProgSpin') as HTMLElement | null
@@ -249,7 +250,9 @@ function openCreateProgress(msg: string) {
     // issues
     const cnt = Number(meta?.gh_issues_created ?? 0)
     const is = meta?.gh_issue_last_status
-    mark('issues', cnt > 0, cnt > 0 ? `${cnt}件` : (is ? `status ${is}` : '0件'))
+    const en = meta?.gh_enable_issues_status
+    const note = cnt > 0 ? `${cnt}件` : (is ? `status ${is}` : (en ? `enable ${en}` : '0件'))
+    mark('issues', cnt > 0, note)
     // tasks
     mark('tasks', true, (Array.isArray(meta?.initial_tasks) ? meta.initial_tasks.length : 0) + '件')
   }
@@ -545,9 +548,9 @@ function openAccountModal(root: HTMLElement): void {
 
   const overlay = document.createElement('div')
   overlay.id = 'accountOverlay'
-  overlay.className = 'fixed inset-0 z-50 bg-black/60 backdrop-blur-[1px] grid place-items-center'
+  overlay.className = 'fixed inset-0 z-50 bg-black/60 backdrop-blur-[1px] grid place-items-center fade-overlay'
   overlay.innerHTML = `
-    <div class="relative w-[min(960px,92vw)] h-[80vh] max-h-[86vh] overflow-hidden rounded-xl bg-neutral-900 ring-1 ring-neutral-700/70 shadow-2xl text-gray-100">
+    <div class="relative w-[min(960px,92vw)] h-[80vh] max-h-[86vh] overflow-hidden rounded-xl bg-neutral-900 ring-1 ring-neutral-700/70 shadow-2xl text-gray-100 pop-modal">
       <div class="flex items-center h-12 px-5 border-b border-neutral-800/70">
         <h3 class="text-lg font-semibold">マイページ</h3>
         <button id="accountClose" class="ml-auto text-2xl text-neutral-300 hover:text-white">×</button>
@@ -579,8 +582,8 @@ function openAccountModal(root: HTMLElement): void {
             <h4 class="text-base font-medium">ユーザー設定</h4>
 
             <div class="space-y-6">
-              ${renderSkillSection('所有スキル一覧')}
-              ${renderSkillSection('希望スキル一覧')}
+              ${renderSkillSection('owned','所有スキル一覧', (root as any)._me?.id)}
+              ${renderSkillSection('want','希望スキル一覧', (root as any)._me?.id)}
             </div>
           </div>
           <div class="tab-panel hidden" data-tab="notify">
@@ -621,13 +624,15 @@ function openAccountModal(root: HTMLElement): void {
     </div>
   `
 
-  const close = () => overlay.remove()
+  const close = () => { overlay.remove(); const c=+(document.body.getAttribute('data-lock')||'0'); const n=Math.max(0,c-1); if(n===0){ document.body.style.overflow=''; } document.body.setAttribute('data-lock', String(n)) }
   overlay.addEventListener('click', (e) => {
     if (e.target === overlay) close()
   })
   overlay.querySelector('#accountClose')?.addEventListener('click', close)
-  overlay.querySelector('#logoutBtn')?.addEventListener('click', () => {
+  overlay.querySelector('#logoutBtn')?.addEventListener('click', async () => {
+    try { await apiFetch('/logout', { method: 'POST' }) } catch {}
     localStorage.removeItem('apiToken')
+    localStorage.setItem('justLoggedOut', '1')
     close()
     window.location.hash = '#/login'
   })
@@ -658,24 +663,65 @@ function openAccountModal(root: HTMLElement): void {
     })
   })
 
-  document.body.appendChild(overlay)
+  document.body.appendChild(overlay); (function(){ const c=+(document.body.getAttribute('data-lock')||'0'); if(c===0){ document.body.style.overflow='hidden' } document.body.setAttribute('data-lock', String(c+1)) })()
+  // Skills interactions (toggle/select + see-all)
+  const meId = (root as any)._me?.id as number | undefined
+  const onToggle = (btn: HTMLElement, sec: HTMLElement) => {
+    const kind = (sec.getAttribute('data-skill-section') as SkillGroup) || 'owned'
+    const name = btn.getAttribute('data-skill') || ''
+    const sel = new Set(loadSkills(meId, kind))
+    if (sel.has(name)) sel.delete(name); else sel.add(name)
+    saveSkills(meId, kind, Array.from(sel))
+    btn.classList.toggle('bg-emerald-700')
+    btn.classList.toggle('text-white')
+    btn.classList.toggle('ring-emerald-600')
+    btn.classList.toggle('bg-neutral-800/60')
+    btn.classList.toggle('text-gray-200')
+    btn.classList.toggle('ring-neutral-700/60')
+  }
+  overlay.querySelectorAll('section[data-skill-section]')?.forEach((sec) => {
+    const section = sec as HTMLElement
+    section.querySelectorAll('.skill-pill')?.forEach((el)=>{
+      el.addEventListener('click', ()=> onToggle(el as HTMLElement, section))
+    })
+    const toggleMore = section.querySelector('.see-all') as HTMLElement | null
+    toggleMore?.addEventListener('click', ()=>{
+      const box = section.querySelector('.more-skills') as HTMLElement | null
+      box?.classList.toggle('hidden')
+    })
+  })
 }
 
-function renderSkillSection(title: string): string {
-  const skills = ['COBOL','Dart','Java','C++','Ruby','Lisp','C','Julia','MATLAB','HTML','CSS','Python']
+type SkillGroup = 'owned' | 'want'
+const ALL_SKILLS = ['JavaScript','TypeScript','Python','Ruby','Go','Rust','Java','Kotlin','Swift','Dart','PHP','C','C++','C#','Scala','Elixir','Haskell','R','Julia','SQL','HTML','CSS','Sass','Tailwind','React','Vue','Svelte','Next.js','Nuxt','Node.js','Deno','Bun','Express','Rails','Laravel','Spring','Django','FastAPI','Flutter','React Native','iOS','Android','Unity','Unreal','AWS','GCP','Azure','Docker','Kubernetes','Terraform','Ansible','Git','GitHub Actions','Figma','Storybook','Jest','Playwright','Vitest','Grafana','Prometheus']
+const SKILL_ICON: Record<string, string> = {
+  JavaScript: '🟨', TypeScript: '🟦', Python: '🐍', Ruby: '💎', Go: '🌀', Rust: '🦀', Java: '☕', Kotlin: '🟪', Swift: '🟧', Dart: '🎯', PHP: '🐘', 'C#': '🎼', 'C++': '➕', C: '🧩', Scala: '📈', Elixir: '🧪', Haskell: 'λ', R: '📊', Julia: '💠', SQL: '🗄️', HTML: '📄', CSS: '🎨', Sass: '🧵', Tailwind: '🌬️', React: '⚛️', Vue: '🟩', Svelte: '🟠', 'Next.js': '⏭️', Nuxt: '🟢', 'Node.js': '🟢', Deno: '🦕', Bun: '🥯', Express: '🚂', Rails: '🛤️', Laravel: '🟥', Spring: '🌱', Django: '🟩', FastAPI: '⚡', Flutter: '💙', 'React Native': '📱', iOS: '📱', Android: '🤖', Unity: '🎮', Unreal: '🧰', AWS: '☁️', GCP: '☁️', Azure: '☁️', Docker: '🐳', Kubernetes: '☸️', Terraform: '🧱', Ansible: '📦', Git: '🔧', 'GitHub Actions': '🛠️', Figma: '🎨', Storybook: '📚', Jest: '🧪', Playwright: '🎭', Vitest: '🧪', Grafana: '📊', Prometheus: '🔥'
+}
+function slugSkill(name: string): string { return name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,'') }
+function skillIcon(name: string): string {
+  const slug = slugSkill(name)
+  return `<img src="/icons/${slug}.svg" alt="${name}" class="w-4 h-4 mr-1 inline-block align-[-2px]" onerror="this.style.display='none'" />`
+}
+function skillsKey(uid?: number, kind: SkillGroup = 'owned'): string { return `acct-skills-${uid ?? 'guest'}-${kind}` }
+function loadSkills(uid?: number, kind: SkillGroup = 'owned'): string[] {
+  try { return JSON.parse(localStorage.getItem(skillsKey(uid, kind)) || '[]') as string[] } catch { return [] }
+}
+function saveSkills(uid: number | undefined, kind: SkillGroup, list: string[]): void {
+  localStorage.setItem(skillsKey(uid, kind), JSON.stringify(Array.from(new Set(list))))
+}
+function renderSkillSection(kind: SkillGroup, title: string, uid?: number): string {
+  const selected = new Set(loadSkills(uid, kind).filter((s) => ALL_SKILLS.includes(s)))
+  const seed = ALL_SKILLS.slice(0, 12)
   return `
-    <section class="space-y-3">
+    <section class="space-y-3" data-skill-section="${kind}">
       <div class="text-sm text-gray-400">${title}</div>
       <div class="rounded-lg ring-1 ring-neutral-700/60 bg-neutral-900/40 p-3 flex flex-wrap gap-2">
-        ${skills
-          .map(
-            (s, i) => `
-            <button class="skill-pill px-3 py-1.5 rounded-full text-sm ring-1 ${i < 3 ? 'bg-emerald-700 text-white ring-emerald-600' : 'bg-neutral-800/60 text-gray-200 ring-neutral-700/60'}" data-skill="${s}">${s}</button>
-          `,
-          )
-          .join('')}
+        ${seed.map((s) => `<button class=\"skill-pill px-3 py-1.5 rounded-full text-sm ring-1 ${selected.has(s)?'bg-emerald-700 text-white ring-emerald-600':'bg-neutral-800/60 text-gray-200 ring-neutral-700/60'}\" data-skill=\"${s}\">${skillIcon(s)}${s}</button>`).join('')}
       </div>
-      <p class="text-xs text-center text-gray-400">+ すべてみる</p>
+      <button class="see-all text-xs mx-auto block text-gray-400 hover:text-gray-200">+ すべてみる</button>
+      <div class="more-skills hidden rounded-lg ring-1 ring-neutral-700/60 bg-neutral-900/40 p-3 flex flex-wrap gap-2 max-h-48 overflow-auto">
+        ${ALL_SKILLS.map((s)=>`<button class=\"skill-pill px-3 py-1.5 rounded-full text-sm ring-1 ${selected.has(s)?'bg-emerald-700 text-white ring-emerald-600':'bg-neutral-800/60 text-gray-200 ring-neutral-700/60'}\" data-skill=\"${s}\">${skillIcon(s)}${s}</button>`).join('')}
+      </div>
     </section>
   `
 }
@@ -708,6 +754,7 @@ function openCreateProjectModal(root: HTMLElement): void {
   const overlay = document.createElement('div')
   overlay.id = 'pjOverlay'
   overlay.className = 'fixed inset-0 z-[60] bg-black/60 backdrop-blur-[1px] grid place-items-center'
+  overlay.classList.add('fade-overlay')
   overlay.innerHTML = `
     <div class="relative w-[min(1040px,95vw)] h-[82vh] overflow-hidden rounded-xl bg-neutral-900 ring-1 ring-neutral-700/70 shadow-2xl text-gray-100">
       <div class="flex items-center h-12 px-5 border-b border-neutral-800/70">
@@ -749,12 +796,14 @@ function openCreateProjectModal(root: HTMLElement): void {
 
   const close = () => {
     overlay.remove()
+    const c = +(document.body.getAttribute('data-lock')||'0'); const n=Math.max(0,c-1); if(n===0){ document.body.style.overflow=''; } document.body.setAttribute('data-lock', String(n))
     // Re-enable triggers after close
     headerBtn && (headerBtn.disabled = false)
     cardBtn && (cardBtn.disabled = false)
   }
   overlay.addEventListener('click', (e) => { if (e.target === overlay) close() })
   overlay.querySelector('#pj-close')?.addEventListener('click', close)
+  ;(function(){ const c=+(document.body.getAttribute('data-lock')||'0'); if(c===0){ document.body.style.overflow='hidden' } document.body.setAttribute('data-lock', String(c+1)) })()
 
   // Tab switching
   overlay.querySelectorAll('.pj-tab').forEach((tab) => {
