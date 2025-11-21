@@ -1,12 +1,13 @@
 import { apiFetch } from '../../utils/api'
 import { openTaskModal } from './task-modal'
+// (no component-level imports; keep in-page implementations)
 // Account modal helpers (duplicated to open over current page)
 type SkillGroup = 'owned' | 'want'
-const ALL_SKILLS = ['JavaScript','TypeScript','Python','Ruby','Go','Rust','Java','Kotlin','Swift','Dart','PHP','C','C++','C#','Scala','Elixir','Haskell','R','Julia','SQL','HTML','CSS','Sass','Tailwind','React','Vue','Svelte','Next.js','Nuxt','Node.js','Deno','Bun','Express','Rails','Laravel','Spring','Django','FastAPI','Flutter','React Native','iOS','Android','Unity','Unreal','AWS','GCP','Azure','Docker','Kubernetes','Terraform','Ansible','Git','GitHub Actions','Figma','Storybook','Jest','Playwright','Vitest','Grafana','Prometheus']
+const ALL_SKILLS = ['JavaScript', 'TypeScript', 'Python', 'Ruby', 'Go', 'Rust', 'Java', 'Kotlin', 'Swift', 'Dart', 'PHP', 'C', 'C++', 'C#', 'Scala', 'Elixir', 'Haskell', 'R', 'Julia', 'SQL', 'HTML', 'CSS', 'Sass', 'Tailwind', 'React', 'Vue', 'Svelte', 'Next.js', 'Nuxt', 'Node.js', 'Deno', 'Bun', 'Express', 'Rails', 'Laravel', 'Spring', 'Django', 'FastAPI', 'Flutter', 'React Native', 'iOS', 'Android', 'Unity', 'Unreal', 'AWS', 'GCP', 'Azure', 'Docker', 'Kubernetes', 'Terraform', 'Ansible', 'Git', 'GitHub Actions', 'Figma', 'Storybook', 'Jest', 'Playwright', 'Vitest', 'Grafana', 'Prometheus']
 const SKILL_ICON: Record<string, string> = {
   JavaScript: '🟨', TypeScript: '🟦', Python: '🐍', Ruby: '💎', Go: '🌀', Rust: '🦀', Java: '☕', Kotlin: '🟪', Swift: '🟧', Dart: '🎯', PHP: '🐘', 'C#': '🎼', 'C++': '➕', C: '🧩', Scala: '📈', Elixir: '🧪', Haskell: 'λ', R: '📊', Julia: '💠', SQL: '🗄️', HTML: '📄', CSS: '🎨', Sass: '🧵', Tailwind: '🌬️', React: '⚛️', Vue: '🟩', Svelte: '🟠', 'Next.js': '⏭️', Nuxt: '🟢', 'Node.js': '🟢', Deno: '🦕', Bun: '🥯', Express: '🚂', Rails: '🛤️', Laravel: '🟥', Spring: '🌱', Django: '🟩', FastAPI: '⚡', Flutter: '💙', 'React Native': '📱', iOS: '📱', Android: '🤖', Unity: '🎮', Unreal: '🧰', AWS: '☁️', GCP: '☁️', Azure: '☁️', Docker: '🐳', Kubernetes: '☸️', Terraform: '🧱', Ansible: '📦', Git: '🔧', 'GitHub Actions': '🛠️', Figma: '🎨', Storybook: '📚', Jest: '🧪', Playwright: '🎭', Vitest: '🧪', Grafana: '📊', Prometheus: '🔥'
 }
-function slugSkill(name: string): string { return name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,'') }
+function slugSkill(name: string): string { return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') }
 function skillIcon(name: string): string {
   const slug = slugSkill(name)
   return `<img src="/icons/${slug}.svg" alt="${name}" class="w-4 h-4 mr-1 inline-block align-[-2px]" onerror="this.style.display='none'" />`
@@ -25,11 +26,11 @@ function renderSkillSection(kind: SkillGroup, title: string, uid?: number): stri
     <section class="space-y-3" data-skill-section="${kind}">
       <div class="text-sm text-gray-400">${title}</div>
       <div class="rounded-lg ring-1 ring-neutral-700/60 bg-neutral-900/40 p-3 flex flex-wrap gap-2">
-        ${seed.map((s) => `<button class=\"skill-pill px-3 py-1.5 rounded-full text-sm ring-1 ${selected.has(s)?'bg-emerald-700 text-white ring-emerald-600':'bg-neutral-800/60 text-gray-200 ring-neutral-700/60'}\" data-skill=\"${s}\">${skillIcon(s)}${s}</button>`).join('')}
+        ${seed.map((s) => `<button class=\"skill-pill px-3 py-1.5 rounded-full text-sm ring-1 ${selected.has(s) ? 'bg-emerald-700 text-white ring-emerald-600' : 'bg-neutral-800/60 text-gray-200 ring-neutral-700/60'}\" data-skill=\"${s}\">${skillIcon(s)}${s}</button>`).join('')}
       </div>
       <button class="see-all text-xs mx-auto block text-gray-400 hover:text-gray-200">+ すべてみる</button>
       <div class="more-skills hidden rounded-lg ring-1 ring-neutral-700/60 bg-neutral-900/40 p-3 flex flex-wrap gap-2 max-h-48 overflow-auto">
-        ${ALL_SKILLS.map((s)=>`<button class=\"skill-pill px-3 py-1.5 rounded-full text-sm ring-1 ${selected.has(s)?'bg-emerald-700 text-white ring-emerald-600':'bg-neutral-800/60 text-gray-200 ring-neutral-700/60'}\" data-skill=\"${s}\">${skillIcon(s)}${s}</button>`).join('')}
+        ${ALL_SKILLS.map((s) => `<button class=\"skill-pill px-3 py-1.5 rounded-full text-sm ring-1 ${selected.has(s) ? 'bg-emerald-700 text-white ring-emerald-600' : 'bg-neutral-800/60 text-gray-200 ring-neutral-700/60'}\" data-skill=\"${s}\">${skillIcon(s)}${s}</button>`).join('')}
       </div>
     </section>
   `
@@ -83,8 +84,8 @@ function openAccountModal(root: HTMLElement): void {
             <hr class="my-6 border-neutral-800/70"/>
             <h4 class="text-base font-medium">ユーザー設定</h4>
             <div class="space-y-6">
-              ${renderSkillSection('owned','所有スキル一覧', (root as any)._me?.id)}
-              ${renderSkillSection('want','希望スキル一覧', (root as any)._me?.id)}
+              ${renderSkillSection('owned', '所有スキル一覧', (root as any)._me?.id)}
+              ${renderSkillSection('want', '希望スキル一覧', (root as any)._me?.id)}
             </div>
           </div>
           <div class="tab-panel hidden" data-tab="notify">
@@ -126,7 +127,7 @@ function openAccountModal(root: HTMLElement): void {
       </div>
     </div>
   `
-  const close = () => { overlay.remove(); const c=+(document.body.getAttribute('data-lock')||'0'); const n=Math.max(0,c-1); if(n===0){ document.body.style.overflow=''; } document.body.setAttribute('data-lock', String(n)) }
+  const close = () => { overlay.remove(); const c = +(document.body.getAttribute('data-lock') || '0'); const n = Math.max(0, c - 1); if (n === 0) { document.body.style.overflow = ''; } document.body.setAttribute('data-lock', String(n)) }
   overlay.addEventListener('click', (e) => { if (e.target === overlay) close() })
   overlay.querySelector('#accountClose')?.addEventListener('click', close)
   overlay.querySelector('#logoutBtn')?.addEventListener('click', () => {
@@ -168,7 +169,7 @@ function openAccountModal(root: HTMLElement): void {
   }
   ntfToggle?.addEventListener('click', () => setTimeout(applyTimeLock, 0))
   applyTimeLock()
-  document.body.appendChild(overlay); (function(){ const c=+(document.body.getAttribute('data-lock')||'0'); if(c===0){ document.body.style.overflow='hidden' } document.body.setAttribute('data-lock', String(c+1)) })()
+  document.body.appendChild(overlay); (function () { const c = +(document.body.getAttribute('data-lock') || '0'); if (c === 0) { document.body.style.overflow = 'hidden' } document.body.setAttribute('data-lock', String(c + 1)) })()
   // Skills interactions
   const meId = (root as any)._me?.id as number | undefined
   const onToggle = (btn: HTMLElement, sec: HTMLElement) => {
@@ -186,11 +187,11 @@ function openAccountModal(root: HTMLElement): void {
   }
   overlay.querySelectorAll('section[data-skill-section]')?.forEach((sec) => {
     const section = sec as HTMLElement
-    section.querySelectorAll('.skill-pill')?.forEach((el)=>{
-      el.addEventListener('click', ()=> onToggle(el as HTMLElement, section))
+    section.querySelectorAll('.skill-pill')?.forEach((el) => {
+      el.addEventListener('click', () => onToggle(el as HTMLElement, section))
     })
     const toggleMore = section.querySelector('.see-all') as HTMLElement | null
-    toggleMore?.addEventListener('click', ()=>{
+    toggleMore?.addEventListener('click', () => {
       const box = section.querySelector('.more-skills') as HTMLElement | null
       box?.classList.toggle('hidden')
     })
@@ -257,18 +258,18 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
   // DnD (Summary widgets)
   enableDragAndDrop(container)
 
-// Kanban board
-renderKanban(container, String(project.id))
-// After rendering base UI, refresh dynamic widgets (task summary, links, etc.)
-try { refreshDynamicWidgets(container, String(project.id)) } catch {}
+  // Kanban board
+  renderKanban(container, String(project.id))
+  // After rendering base UI, refresh dynamic widgets (task summary, links, etc.)
+  try { refreshDynamicWidgets(container, String(project.id)) } catch { }
   // Load saved custom tabs
   loadCustomTabs(container, String(project.id))
   // Apply saved tab order (core + custom)
-  try { applySavedTabOrder(container, String(project.id)) } catch {}
+  try { applySavedTabOrder(container, String(project.id)) } catch { }
   // Enable DnD for tabs
-  try { enableTabDnD(container, String(project.id)) } catch {}
+  try { enableTabDnD(container, String(project.id)) } catch { }
   // Enable tab drag & drop reordering for custom tabs
-  try { enableTabDnD(container, String(project.id)) } catch {}
+  try { enableTabDnD(container, String(project.id)) } catch { }
 
   // Activate the leftmost visible tab (excluding the "+ 新規タブ")
   try {
@@ -282,7 +283,7 @@ try { refreshDynamicWidgets(container, String(project.id)) } catch {}
       })
       first?.click()
     }
-  } catch {}
+  } catch { }
 
   // Account avatar click: open account modal on the current page
   container.querySelector('#accountTopBtn')?.addEventListener('click', () => {
@@ -302,12 +303,18 @@ try { refreshDynamicWidgets(container, String(project.id)) } catch {}
     try {
       const repo = await apiFetch<any>(`/github/repo?full_name=${encodeURIComponent(fullName)}`)
       hydrateOverview(container, repo)
-    } catch {}
+    } catch { }
     // Top committers
     try {
-      const contr = await apiFetch<any[]>(`/github/contributors?full_name=${encodeURIComponent(fullName)}`)
-      hydrateCommitters(container, contr)
-    } catch {}
+      const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString()
+      const commits = await apiFetch<any[]>(`/github/commits?full_name=${encodeURIComponent(fullName)}&since=${encodeURIComponent(since)}&per_page=100`)
+      hydrateCommittersFromCommits(container, commits)
+    } catch {
+      try {
+        const contr = await apiFetch<any[]>(`/github/contributors?full_name=${encodeURIComponent(fullName)}`)
+        hydrateCommittersFromContributors(container, contr)
+      } catch { }
+    }
     // README text (do not depend on repo call)
     try {
       const token = localStorage.getItem('apiToken')
@@ -316,7 +323,7 @@ try { refreshDynamicWidgets(container, String(project.id)) } catch {}
       })
       const readmeText = res.ok ? await res.text() : 'README not found'
       hydrateReadme(container, readmeText)
-    } catch {}
+    } catch { }
   }
 
   // Top header: path + account avatar
@@ -335,8 +342,8 @@ try { refreshDynamicWidgets(container, String(project.id)) } catch {}
       const url = `https://avatars.githubusercontent.com/u/${me.github_id}?s=96`
       if (accImg) { accImg.src = url; accImg.classList.remove('hidden') }
     }
-    ;(container as any)._me = me
-  } catch {}
+    ; (container as any)._me = me
+  } catch { }
 }
 
 // ---------- Widgets helpers ----------
@@ -373,7 +380,7 @@ function contributionWidget(): string {
   const rows = 7, cols = 52
   const cells = Array.from({ length: rows * cols }, () => {
     const v = Math.floor(Math.random() * 5)
-    const color = ['bg-neutral-800','bg-emerald-900','bg-emerald-800','bg-emerald-700','bg-emerald-600'][v]
+    const color = ['bg-neutral-800', 'bg-emerald-900', 'bg-emerald-800', 'bg-emerald-700', 'bg-emerald-600'][v]
     return `<div class="w-3 h-3 ${color} rounded-sm"></div>`
   }).join('')
   return `<div class="h-72 overflow-x-auto"><div class="inline-grid" style="grid-template-columns: repeat(${cols}, 0.75rem); gap: 4px;">${cells}</div></div>`
@@ -395,9 +402,11 @@ function readmeSkeleton(): string {
 }
 
 function hydrateOverview(root: HTMLElement, repo: any): void {
-  const el = root.querySelector('[data-widget="overview"]') as HTMLElement | null
-  if (!el) return
-  el.innerHTML = widgetShell('overview', 'Overview', `
+  const widget = root.querySelector('[data-widget="overview"]') as HTMLElement | null
+  if (!widget) return
+  const body = widget.querySelector('.wg-content') as HTMLElement | null
+  if (!body) return
+  body.innerHTML = `
     <div class="grid gap-6 md:grid-cols-2">
       <div>
         <div class="text-sm text-gray-300 mb-2">Open issues</div>
@@ -411,27 +420,67 @@ function hydrateOverview(root: HTMLElement, repo: any): void {
       </div>
     </div>
     <div class="mt-4 text-xs text-gray-400">Language: ${repo.language || 'N/A'} / Stars: ${repo.stargazers_count || 0}</div>
-  `)
+  `
 }
 
-function hydrateCommitters(root: HTMLElement, list: any[]): void {
-  const el = root.querySelector('[data-widget="committers"] .h-60') as HTMLElement | null
-  if (!el) return
-  const top = list.slice(0, 6)
-  const bars = top.map((c) => c.contributions || 0)
-  const max = Math.max(1, ...bars)
-  el.innerHTML = `
-    <div class="grid grid-cols-${Math.max(3, top.length)} gap-3 w-full h-full items-end">
-      ${top
-        .map(
-          (c) => `
-        <div class="flex flex-col items-center gap-2">
-          <div class="w-10 bg-emerald-700 rounded" style="height:${(100 * (c.contributions || 0)) / max}%"></div>
-          <img src="${c.avatar_url}" class="w-8 h-8 rounded-full"/>
-        </div>`,
-        )
-        .join('')}
+function committersRender(root: HTMLElement, stats: Array<{ login: string; avatar_url?: string; count: number }>): void {
+  let wrap = root.querySelector('[data-widget="committers"] .h-60') as HTMLElement | null
+  if (!wrap) wrap = root.querySelector('[data-widget="committers"] .wg-content') as HTMLElement | null
+  if (!wrap) return
+  // Ensure the container follows the widget height (do not keep fixed 15rem)
+  if (wrap.classList.contains('h-60')) {
+    wrap.classList.remove('h-60')
+      ; (wrap as HTMLElement).style.height = '100%'
+  }
+  const top = stats.slice(0, 6)
+  const max = Math.max(1, ...top.map((s) => s.count))
+  const cols = Math.max(3, top.length)
+  const h = Math.max(0, Math.round(wrap.getBoundingClientRect().height || 0))
+  // Adaptive sizing for tiny heights
+  const avatarSize = h <= 72 ? 20 : h <= 110 ? 24 : 32
+  const labelSpace = 12 // approx label height
+  const reserve = Math.min(Math.max(avatarSize + 12, 28), Math.max(28, Math.round(h * 0.55))) + labelSpace
+  const gapClass = h <= 110 ? 'gap-2' : 'gap-4'
+  wrap.innerHTML = `
+    <div class="relative w-full h-full">
+      <div class="absolute inset-0 grid" style="grid-template-rows: repeat(4, 1fr)">
+        ${[0, 1, 2, 3].map(() => '<div class=\"border-t border-dotted border-neutral-700/60\"></div>').join('')}
+      </div>
+      <div class="absolute inset-0 flex items-end ${gapClass} justify-evenly px-2 md:px-4">
+        ${top
+      .map(
+        (s) => `
+          <div class=\"flex flex-col items-center h-full\" style=\"width:${Math.floor(100 / cols)}%\">
+            <div class=\"w-5 md:w-8\" style=\"height: calc(100% - ${reserve}px); display: flex; align-items: flex-end;\">
+              <div class=\"w-full bg-emerald-600 rounded\" style=\"height:${Math.round((100 * s.count) / max)}%\"></div>
+            </div>
+            <img src=\"${s.avatar_url || ''}\" class=\"mt-1 md:mt-2 rounded-full ring-1 ring-neutral-700/60 object-cover\" style=\"width:${avatarSize}px; height:${avatarSize}px;\"/>
+            <div class=\"mt-1 text-[10px] md:text-xs text-gray-300 truncate max-w-[72px]\">${s.login}</div>
+          </div>`
+      )
+      .join('')}
+      </div>
     </div>`
+}
+
+function hydrateCommittersFromContributors(root: HTMLElement, list: any[]): void {
+  const stats = (list || []).map(c => ({ login: c.login || '', avatar_url: c.avatar_url || '', count: c.contributions || 0 }))
+  committersRender(root, stats)
+}
+
+function hydrateCommittersFromCommits(root: HTMLElement, commits: any[]): void {
+  const map = new Map<string, { login: string; avatar_url?: string; count: number }>()
+    (commits || []).forEach(c => {
+      const author = (c.author && c.author.login) || (c.commit && c.commit.author && c.commit.author.name) || ''
+      if (!author) return
+      const avatar = c.author && c.author.avatar_url
+      const cur = map.get(author) || { login: author, avatar_url: avatar, count: 0 }
+      cur.count += 1
+      if (!cur.avatar_url && avatar) cur.avatar_url = avatar
+      map.set(author, cur)
+    })
+  const stats = Array.from(map.values()).sort((a, b) => b.count - a.count)
+  committersRender(root, stats)
 }
 
 function hydrateReadme(root: HTMLElement, text: string): void {
@@ -445,6 +494,7 @@ function enableDragAndDrop(root: HTMLElement): void {
   if (!grid) return
   const pid = grid.getAttribute('data-pid') || '0'
   let dragEl: HTMLElement | null = null
+  let bgMenuEl: HTMLElement | null = null
 
   const save = () => {
     const order = Array.from(grid.querySelectorAll('.widget')).map((w) => w.getAttribute('data-widget'))
@@ -460,7 +510,7 @@ function enableDragAndDrop(root: HTMLElement): void {
         const node = grid.querySelector(`[data-widget="${id}"]`)
         if (node) grid.appendChild(node)
       })
-    } catch {}
+    } catch { }
   }
 
   const isEdit = () => grid.getAttribute('data-edit') === '1'
@@ -494,12 +544,74 @@ function enableDragAndDrop(root: HTMLElement): void {
     dragEl = null
   })
 
+  // Context menu: background color picker (edit mode only)
+  const closeBgMenu = () => { bgMenuEl?.remove(); bgMenuEl = null }
+  const openBgMenu = (x: number, y: number, widget: HTMLElement) => {
+    closeBgMenu()
+    const menu = document.createElement('div')
+    menu.className = 'fixed rounded-md ring-1 ring-neutral-700/70 bg-neutral-900 shadow-lg p-2 text-xs text-gray-200'
+    menu.style.left = `${Math.max(8, Math.min(window.innerWidth - 180, x))}px`
+    menu.style.top = `${Math.max(8, Math.min(window.innerHeight - 200, y))}px`
+    menu.style.zIndex = '70'
+    const opts: Array<{ label: string; val: string }> = [
+      { label: 'デフォルト', val: '' },
+      { label: 'ダーク(控えめ)', val: 'rgba(23,23,23,0.50)' },
+      { label: 'エメラルド', val: 'rgba(16,185,129,0.18)' },
+      { label: 'ブルー', val: 'rgba(56,189,248,0.18)' },
+      { label: 'ローズ', val: 'rgba(244,63,94,0.18)' },
+      { label: 'アンバー', val: 'rgba(245,158,11,0.18)' },
+    ]
+    menu.innerHTML = `<div class="mb-1 text-[11px] text-gray-400 px-1">背景色を選択</div>` +
+      opts.map(o => `
+        <button class=\"w-full flex items-center gap-2 px-2 py-1 rounded hover:bg-neutral-800/60\" data-bg=\"${o.val}\">
+          <span class=\"inline-block w-4 h-4 rounded ring-1 ring-neutral-700/60\" style=\"background:${o.val || 'transparent'}\"></span>
+          <span>${o.label}</span>
+        </button>
+      `).join('')
+    document.body.appendChild(menu)
+    bgMenuEl = menu
+    const id = widget.getAttribute('data-widget') || ''
+    menu.addEventListener('click', (e) => {
+      const btn = (e.target as HTMLElement).closest('[data-bg]') as HTMLElement | null
+      if (!btn) return
+      const bg = btn.getAttribute('data-bg') || ''
+      // persist
+      const meta = getWidgetMeta(pid)
+      meta[id] = { ...(meta[id] || {}), bg }
+      setWidgetMeta(pid, meta)
+      applyWidgetSizes(root, pid)
+      closeBgMenu()
+    })
+  }
+  grid.addEventListener('contextmenu', (e) => {
+    if (!isEdit()) return
+    const widget = (e.target as HTMLElement).closest('.widget') as HTMLElement | null
+    if (!widget) return
+    e.preventDefault()
+    openBgMenu((e as MouseEvent).clientX, (e as MouseEvent).clientY, widget)
+  })
+  // Close menu on outside click / escape / scroll / navigation
+  if (!(grid as any)._bgMenuBound) {
+    (grid as any)._bgMenuBound = true
+    document.addEventListener('click', (e) => {
+      if (!bgMenuEl) return
+      const t = e.target as Node
+      if (bgMenuEl && !bgMenuEl.contains(t)) closeBgMenu()
+    })
+    document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeBgMenu() })
+    document.addEventListener('scroll', () => closeBgMenu(), true)
+    window.addEventListener('hashchange', closeBgMenu)
+    window.addEventListener('popstate', closeBgMenu)
+    window.addEventListener('beforeunload', closeBgMenu)
+  }
+
   // Edit mode toggle
   const setEdit = (on: boolean) => {
     grid.setAttribute('data-edit', on ? '1' : '0')
     grid.querySelectorAll('.widget').forEach((w) => (w as HTMLElement).setAttribute('draggable', on ? 'true' : 'false'))
     const btn = root.querySelector('#wgEditToggle') as HTMLElement | null
     if (btn) btn.textContent = on ? '完了' : '編集'
+    if (!on) closeBgMenu()
     localStorage.setItem(`wg-edit-${pid}`, on ? '1' : '0')
     // Show "add widget" card only in edit mode
     const add = grid.querySelector('#addWidget') as HTMLElement | null
@@ -535,9 +647,10 @@ function enableDragAndDrop(root: HTMLElement): void {
   const toggleBtn = root.querySelector('#wgEditToggle') as HTMLElement | null
   toggleBtn?.addEventListener('click', () => setEdit(grid.getAttribute('data-edit') !== '1'))
 
+  // Initialize: ensure all meta-defined widgets exist, then apply saved order, then sizes
+  ensureWidgets(root, pid)
   load()
   applyWidgetSizes(root, pid)
-  ensureWidgets(root, pid)
 
   // Row size dynamic: make vertical S equal to horizontal S (span-4)
   const adjustGridRowSize = () => {
@@ -550,23 +663,23 @@ function enableDragAndDrop(root: HTMLElement): void {
       const w = probe.getBoundingClientRect().width || 0
       probe.remove()
       const base = Math.max(72, Math.round(w)) // keep a reasonable minimum
-      ;(grid as HTMLElement).style.gridAutoRows = `${base}px`
-    } catch {}
+        ; (grid as HTMLElement).style.gridAutoRows = `${Math.round(base / 2)}px`
+    } catch { }
   }
   adjustGridRowSize()
-  ;(function attachResize() {
-    try {
-      if ((grid as any)._rowSizerAttached) return
-      ;(grid as any)._rowSizerAttached = true
-      if ('ResizeObserver' in window) {
-        const ro = new (window as any).ResizeObserver(() => adjustGridRowSize())
-        ro.observe(grid)
-        ;(grid as any)._ro = ro
-      } else {
-        window.addEventListener('resize', adjustGridRowSize)
-      }
-    } catch {}
-  })()
+    ; (function attachResize() {
+      try {
+        if ((grid as any)._rowSizerAttached) return
+          ; (grid as any)._rowSizerAttached = true
+        if ('ResizeObserver' in window) {
+          const ro = new (window as any).ResizeObserver(() => adjustGridRowSize())
+          ro.observe(grid)
+            ; (grid as any)._ro = ro
+        } else {
+          window.addEventListener('resize', adjustGridRowSize)
+        }
+      } catch { }
+    })()
 
   // Add widget button
   grid.querySelector('#addWidget')?.addEventListener('click', () => openWidgetPickerModal(root, pid))
@@ -580,10 +693,10 @@ function enableDragAndDrop(root: HTMLElement): void {
     if (!widget) return
     const id = widget.getAttribute('data-widget') || ''
     if (btn) {
-      const size = btn.getAttribute('data-size') as 'sm'|'md'|'lg'
+      const size = btn.getAttribute('data-size') as 'sm' | 'md' | 'lg'
       setWidgetSize(root, pid, id, size)
     } else if (hbtn) {
-      const h = hbtn.getAttribute('data-h') as 'sm'|'md'|'lg'
+      const h = hbtn.getAttribute('data-h') as 'sm' | 'md' | 'lg'
       setWidgetHeight(root, pid, id, h)
     }
   })
@@ -676,7 +789,7 @@ function enableDragAndDrop(root: HTMLElement): void {
 type WidgetSize = 'sm' | 'md' | 'lg'
 
 type WidgetHeight = 'sm' | 'md' | 'lg'
-type WidgetMeta = { size: WidgetSize; h?: WidgetHeight; type?: string }
+type WidgetMeta = { size: WidgetSize; h?: WidgetHeight; type?: string; bg?: string }
 
 function getWidgetMeta(pid: string): Record<string, WidgetMeta> {
   try { return JSON.parse(localStorage.getItem(`pj-widgets-meta-${pid}`) || '{}') as Record<string, WidgetMeta> } catch { return {} }
@@ -688,14 +801,14 @@ function setWidgetMeta(pid: string, meta: Record<string, WidgetMeta>): void {
 
 function setWidgetSize(root: HTMLElement, pid: string, id: string, size: WidgetSize): void {
   const meta = getWidgetMeta(pid)
-  meta[id] = { ...(meta[id]||{}), size }
+  meta[id] = { ...(meta[id] || {}), size }
   setWidgetMeta(pid, meta)
   applyWidgetSizes(root, pid)
 }
 
 function setWidgetHeight(root: HTMLElement, pid: string, id: string, h: WidgetHeight): void {
   const meta = getWidgetMeta(pid)
-  meta[id] = { ...(meta[id]||{}), h }
+  meta[id] = { ...(meta[id] || {}), h }
   setWidgetMeta(pid, meta)
   applyWidgetSizes(root, pid)
 }
@@ -704,20 +817,20 @@ function applyWidgetSizes(root: HTMLElement, pid: string): void {
   const meta = getWidgetMeta(pid)
   root.querySelectorAll('.widget').forEach((w) => {
     const id = (w as HTMLElement).getAttribute('data-widget') || ''
-    const size = (meta[id]?.size || 'md') as 'sm'|'md'|'lg'
-    const h = (meta[id]?.h || 'md') as 'sm'|'md'|'lg'
+    const size = (meta[id]?.size || 'md') as 'sm' | 'md' | 'lg'
+    const h = (meta[id]?.h || 'md') as 'sm' | 'md' | 'lg'
     const cls = (w as HTMLElement).classList
     // remove previous spans
-    cls.remove('md:col-span-4','md:col-span-6','md:col-span-8','md:col-span-12')
+    cls.remove('md:col-span-4', 'md:col-span-6', 'md:col-span-8', 'md:col-span-12')
     if (size === 'sm') cls.add('md:col-span-4')
     else if (size === 'md') cls.add('md:col-span-8')
     else cls.add('md:col-span-12')
     // apply grid row span for height units
     const hUnits = h === 'sm' ? 1 : h === 'md' ? 2 : 3
-    ;(w as HTMLElement).style.gridRow = `span ${hUnits} / span ${hUnits}`
+      ; (w as HTMLElement).style.gridRow = `span ${hUnits} / span ${hUnits}`
 
     // Highlight active controls (size / height)
-    const markActive = (btns: NodeListOf<Element>, attr: 'data-size'|'data-h', val: string) => {
+    const markActive = (btns: NodeListOf<Element>, attr: 'data-size' | 'data-h', val: string) => {
       btns.forEach((b) => {
         const el = b as HTMLElement
         const isActive = el.getAttribute(attr) === val
@@ -735,6 +848,10 @@ function applyWidgetSizes(root: HTMLElement, pid: string): void {
     const hBtns = w.querySelectorAll('.w-h')
     markActive(sizeBtns as NodeListOf<Element>, 'data-size', size)
     markActive(hBtns as NodeListOf<Element>, 'data-h', h)
+
+    // Apply custom background if set
+    const bg = meta[id]?.bg || ''
+      ; (w as HTMLElement).style.background = bg
   })
 }
 
@@ -754,6 +871,15 @@ function ensureWidgets(root: HTMLElement, pid: string): void {
       const add = grid.querySelector('#addWidget')
       if (add) grid.insertBefore(card, add)
       else grid.appendChild(card)
+      // Ensure toolbar visibility matches current edit state
+      const on = grid.getAttribute('data-edit') === '1'
+      const tools = (card as HTMLElement).querySelector('.wg-tools') as HTMLElement | null
+      if (tools) tools.classList.toggle('hidden', !on)
+      const el = card as HTMLElement
+      el.classList.toggle('cursor-move', on)
+      el.classList.toggle('border', on)
+      el.classList.toggle('border-dashed', on)
+      el.classList.toggle('border-amber-500/40', on)
     }
   })
 }
@@ -789,7 +915,7 @@ function openWidgetPickerModal(root: HTMLElement, pid: string): void {
       </div>
     </div>
   `
-  const close = () => { overlay.remove(); const c=+(document.body.getAttribute('data-lock')||'0'); const n=Math.max(0,c-1); if(n===0){ document.body.style.overflow=''; } document.body.setAttribute('data-lock', String(n)) }
+  const close = () => { overlay.remove(); const c = +(document.body.getAttribute('data-lock') || '0'); const n = Math.max(0, c - 1); if (n === 0) { document.body.style.overflow = ''; } document.body.setAttribute('data-lock', String(n)) }
   overlay.addEventListener('click', (e) => { if (e.target === overlay) close() })
   overlay.querySelector('#wp-close')?.addEventListener('click', close)
   // Robust delegated click to ensure closing after add
@@ -804,15 +930,15 @@ function openWidgetPickerModal(root: HTMLElement, pid: string): void {
   // Category filtering
   const cats = overlay.querySelectorAll('.wp-cat')
   const getCat = (t: string): string => {
-    if (['readme','overview','contrib','committers'].includes(t)) return 'github'
+    if (['readme', 'overview', 'contrib', 'committers'].includes(t)) return 'github'
     if (['markdown'].includes(t)) return 'text'
-    if (['tasksum','milestones','links'].includes(t)) return 'manage'
+    if (['tasksum', 'milestones', 'links'].includes(t)) return 'manage'
     return 'other'
   }
   const applyCat = (cat: string) => {
     gridEl?.querySelectorAll('[data-widget-type]')?.forEach((n) => {
       const t = (n as HTMLElement).getAttribute('data-widget-type') || ''
-      ;(n as HTMLElement).style.display = (cat === 'all' || getCat(t) === cat) ? '' : 'none'
+        ; (n as HTMLElement).style.display = (cat === 'all' || getCat(t) === cat) ? '' : 'none'
     })
     cats.forEach((b) => {
       const on = (b as HTMLElement).getAttribute('data-cat') === cat
@@ -823,7 +949,7 @@ function openWidgetPickerModal(root: HTMLElement, pid: string): void {
   }
   cats.forEach((b) => b.addEventListener('click', () => applyCat((b as HTMLElement).getAttribute('data-cat') || 'all')))
   applyCat('all')
-  document.body.appendChild(overlay); (function(){ const c=+(document.body.getAttribute('data-lock')||'0'); if(c===0){ document.body.style.overflow='hidden' } document.body.setAttribute('data-lock', String(c+1)) })()
+  document.body.appendChild(overlay); (function () { const c = +(document.body.getAttribute('data-lock') || '0'); if (c === 0) { document.body.style.overflow = 'hidden' } document.body.setAttribute('data-lock', String(c + 1)) })()
 }
 
 function widgetCard(type: string, title: string): string {
@@ -838,18 +964,31 @@ function widgetCard(type: string, title: string): string {
 }
 
 function widgetThumb(type: string): string {
-  if (type === 'contrib') return `<div class=\"w-full h-24 overflow-hidden\"><div class=\"grid\" style=\"grid-template-columns: repeat(30, 0.5rem); gap: 2px;\">${Array.from({length:210}).map((_,i)=>`<div class=\\"w-2 h-2 ${i%5? 'bg-emerald-800':'bg-emerald-600'}\\"></div>`).join('')}</div></div>`
-  if (type === 'overview') return `<div class=\"w-full h-20 bg-neutral-900/60 ring-1 ring-neutral-600/60 rounded p-2\"><div class=\"h-2 bg-neutral-800 rounded mb-2\"><div class=\"h-2 bg-emerald-600 rounded w-2/3\"></div></div><div class=\"h-2 bg-neutral-800 rounded w-1/2\"></div></div>`
-  if (type === 'committers') return `<div class=\"w-full h-24 flex items-end gap-1 px-2\">${[4,8,12,6,2].map(h=>`<div class=\\"w-5 bg-emerald-700 rounded\\" style=\\"height:${h * 6}px\\"></div>`).join('')}</div>`
-  if (type === 'readme') return `<div class=\"w-full h-24 bg-neutral-900/60 ring-1 ring-neutral-600/60 rounded p-2 text-xs text-gray-400\"># README\n- Getting Started\n- Usage</div>`
-  if (type === 'markdown') return `<div class=\"w-full h-20 bg-neutral-900/60 ring-1 ring-neutral-600/60 rounded p-2 text-xs text-gray-400\">## Markdown\n- リスト\n- **強調**</div>`
-  if (type === 'tasksum') return `<div class=\"w-full h-20 bg-neutral-900/60 ring-1 ring-neutral-600/60 rounded p-2 grid grid-cols-3 gap-2 text-[10px] text-gray-300\"><div class=\"rounded bg-neutral-800/60 p-1 text-center\">TODO<br/><span class=\"text-emerald-400\">5</span></div><div class=\"rounded bg-neutral-800/60 p-1 text-center\">DOING<br/><span class=\"text-emerald-400\">3</span></div><div class=\"rounded bg-neutral-800/60 p-1 text-center\">DONE<br/><span class=\"text-emerald-400\">8</span></div></div>`
-  if (type === 'milestones') return `<div class=\"w-full h-20 bg-neutral-900/60 ring-1 ring-neutral-600/60 rounded p-2 text-xs text-gray-400\"><div>v1.0 リリース</div><div class=\"text-gray-500\">2025-01-31</div></div>`
-  if (type === 'links') return `<div class=\"w-full h-20 bg-neutral-900/60 ring-1 ring-neutral-600/60 rounded p-2 text-xs text-gray-400\">- PR一覧\n- 仕様書</div>`
-  if (type === 'progress') return `<div class=\"w-full h-20 bg-neutral-900/60 ring-1 ring-neutral-600/60 rounded p-2\"><div class=\"h-2 bg-neutral-800 rounded\"><div class=\"h-2 bg-emerald-600 rounded w-1/2\"></div></div><div class=\"text-[10px] text-gray-400 mt-1\">50%</div></div>`
-  if (type === 'team') return `<div class=\"w-full h-20 bg-neutral-900/60 ring-1 ring-neutral-600/60 rounded p-2 text-xs text-gray-400\">👥 メンバー</div>`
-  if (type === 'todo') return `<div class=\"w-full h-20 bg-neutral-900/60 ring-1 ring-neutral-600/60 rounded p-2 text-xs text-gray-400\">- [ ] 項目</div>`
-  return `<div class=\"text-gray-400\">Widget</div>`
+  // All class names are explicit to be kept by Tailwind JIT
+  if (type === 'contrib') {
+    const palette = ['bg-neutral-800', 'bg-emerald-900', 'bg-emerald-800', 'bg-emerald-700', 'bg-emerald-600']
+    const cells = Array.from({ length: 210 }).map((_, i) => {
+      const c = palette[i % palette.length]
+      return `<div class="w-2 h-2 ${c} rounded-sm"></div>`
+    }).join('')
+    return `<div class="w-full h-24 overflow-hidden"><div class="grid grid-cols-12 gap-1">${cells}</div></div>`
+  }
+  if (type === 'overview') return `<div class="w-full h-20 bg-neutral-900/60 ring-1 ring-neutral-600/60 rounded p-2"><div class="h-2 bg-neutral-800 rounded mb-2"><div class="h-2 bg-emerald-600 rounded w-2/3"></div></div><div class="h-2 bg-neutral-800 rounded w-1/2"></div></div>`
+  if (type === 'committers') {
+    const bars = ['h-6', 'h-10', 'h-14', 'h-8', 'h-5']
+      .map((h) => `<div class="w-4 md:w-5 ${h} bg-emerald-700 rounded"></div>`)
+      .join('')
+    return `<div class="w-full h-24 flex items-end gap-1 px-2">${bars}</div>`
+  }
+  if (type === 'readme') return `<div class="w-full h-24 bg-neutral-900/60 ring-1 ring-neutral-600/60 rounded p-2 text-xs text-gray-400"># README\n- Getting Started\n- Usage</div>`
+  if (type === 'markdown') return `<div class="w-full h-20 bg-neutral-900/60 ring-1 ring-neutral-600/60 rounded p-2 text-xs text-gray-400">## Markdown\n- リスト\n- **強調**</div>`
+  if (type === 'tasksum') return `<div class="w-full h-20 bg-neutral-900/60 ring-1 ring-neutral-600/60 rounded p-2 grid grid-cols-3 gap-2 text-[10px] text-gray-300"><div class="rounded bg-neutral-800/60 p-1 text-center">TODO<br/><span class="text-emerald-400">5</span></div><div class="rounded bg-neutral-800/60 p-1 text-center">DOING<br/><span class="text-emerald-400">3</span></div><div class="rounded bg-neutral-800/60 p-1 text-center">DONE<br/><span class="text-emerald-400">8</span></div></div>`
+  if (type === 'milestones') return `<div class="w-full h-20 bg-neutral-900/60 ring-1 ring-neutral-600/60 rounded p-2 text-xs text-gray-400"><div>v1.0 リリース</div><div class="text-gray-500">2025-01-31</div></div>`
+  if (type === 'links') return `<div class="w-full h-20 bg-neutral-900/60 ring-1 ring-neutral-600/60 rounded p-2 text-xs text-gray-400">- PR一覧\n- 仕様書</div>`
+  if (type === 'progress') return `<div class="w-full h-20 bg-neutral-900/60 ring-1 ring-neutral-600/60 rounded p-2"><div class="h-2 bg-neutral-800 rounded"><div class="h-2 bg-emerald-600 rounded w-1/2"></div></div><div class="text-[10px] text-gray-400 mt-1">50%</div></div>`
+  if (type === 'team') return `<div class="w-full h-20 bg-neutral-900/60 ring-1 ring-neutral-600/60 rounded p-2 text-xs text-gray-400">👥 メンバー</div>`
+  if (type === 'todo') return `<div class="w-full h-20 bg-neutral-900/60 ring-1 ring-neutral-600/60 rounded p-2 text-xs text-gray-400">- [ ] 項目</div>`
+  return `<div class="text-gray-400">Widget</div>`
 }
 
 function addWidget(root: HTMLElement, pid: string, type: string): void {
@@ -875,7 +1014,7 @@ function addWidget(root: HTMLElement, pid: string, type: string): void {
     }
   }
   // refresh dynamic contents after adding
-  try { refreshDynamicWidgets(root, pid) } catch {}
+  try { refreshDynamicWidgets(root, pid) } catch { }
   // persist order
   const order = Array.from(grid.querySelectorAll('.widget')).map((w) => (w as HTMLElement).getAttribute('data-widget'))
   localStorage.setItem(`pj-widgets-${pid}`, JSON.stringify(order))
@@ -900,7 +1039,7 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
         tasks.forEach(t => counts[t.status] = (counts[t.status] || 0) + 1)
         box.innerHTML = `
           <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
-            ${[['todo','TODO'],['doing','DOING'],['review','REVIEW'],['done','DONE']].map(([k,label])=>`<div class=\"rounded ring-1 ring-neutral-700/60 bg-neutral-800/40 p-2 text-center\">${label}<div class=\"text-2xl text-emerald-400\">${counts[k]||0}</div></div>`).join('')}
+            ${[['todo', 'TODO'], ['doing', 'DOING'], ['review', 'REVIEW'], ['done', 'DONE']].map(([k, label]) => `<div class=\"rounded ring-1 ring-neutral-700/60 bg-neutral-800/40 p-2 text-center\">${label}<div class=\"text-2xl text-emerald-400\">${counts[k] || 0}</div></div>`).join('')}
           </div>
         `
       }
@@ -909,7 +1048,7 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
       const box = w.querySelector('.links-body') as HTMLElement | null
       if (box) {
         const links = mdGetLinks(pid, id)
-        box.innerHTML = links.length ? `<ul class=\"list-disc ml-5 space-y-1\">${links.map(l=>`<li><a href=\"${l.url}\" target=\"_blank\" class=\"text-sky-400 hover:text-sky-300\">${l.title||l.url}</a></li>`).join('')}</ul>` : '<p class="text-gray-400">リンクはまだありません。</p>'
+        box.innerHTML = links.length ? `<ul class=\"list-disc ml-5 space-y-1\">${links.map(l => `<li><a href=\"${l.url}\" target=\"_blank\" class=\"text-sky-400 hover:text-sky-300\">${l.title || l.url}</a></li>`).join('')}</ul>` : '<p class="text-gray-400">リンクはまだありません。</p>'
       }
     }
   })
@@ -1029,7 +1168,7 @@ function buildNotesTab(panel: HTMLElement, pid: string, id: string): void {
   const key = `tab-notes-${pid}-${id}`
   const txt = panel.querySelector('#nt-text') as HTMLTextAreaElement
   const prev = panel.querySelector('#nt-preview') as HTMLElement
-  try { txt.value = localStorage.getItem(key) || '' } catch {}
+  try { txt.value = localStorage.getItem(key) || '' } catch { }
   const render = () => { prev.innerHTML = mdRenderToHtml(txt.value || '') }
   render()
   txt.addEventListener('input', render)
@@ -1066,36 +1205,36 @@ function buildDocsTab(panel: HTMLElement, pid: string, id: string): void {
   const title = panel.querySelector('#dc-title') as HTMLInputElement
   const body = panel.querySelector('#dc-body') as HTMLTextAreaElement
   const renderList = () => {
-    list.innerHTML = (state.pages || []).map(p => `<button data-id="${p.id}" class="w-full text-left px-2 py-1 rounded hover:bg-neutral-800/60 ${state.sel===p.id?'bg-neutral-800/60':''}">${p.title||'Untitled'}</button>`).join('') || '<p class="text-xs text-gray-400">ページがありません。</p>'
-    list.querySelectorAll('[data-id]')?.forEach((el)=> el.addEventListener('click', ()=>{ state.sel = (el as HTMLElement).getAttribute('data-id')||''; save(state); loadPage() }))
+    list.innerHTML = (state.pages || []).map(p => `<button data-id="${p.id}" class="w-full text-left px-2 py-1 rounded hover:bg-neutral-800/60 ${state.sel === p.id ? 'bg-neutral-800/60' : ''}">${p.title || 'Untitled'}</button>`).join('') || '<p class="text-xs text-gray-400">ページがありません。</p>'
+    list.querySelectorAll('[data-id]')?.forEach((el) => el.addEventListener('click', () => { state.sel = (el as HTMLElement).getAttribute('data-id') || ''; save(state); loadPage() }))
   }
   const loadPage = () => {
-    const p = state.pages.find(x=>x.id===state.sel)
+    const p = state.pages.find(x => x.id === state.sel)
     title.value = p?.title || ''
     body.value = p?.body || ''
     renderList()
   }
-  panel.querySelector('#dc-add')?.addEventListener('click', ()=>{ const p: Page = { id: String(Date.now()), title: '新規ページ', body: '' }; state.pages.push(p); state.sel=p.id; save(state); renderList(); loadPage() })
-  panel.querySelector('#dc-save')?.addEventListener('click', ()=>{ const p = state.pages.find(x=>x.id===state.sel); if (!p) return; p.title=title.value; p.body=body.value; save(state); renderList() })
-  if (!state.pages.length) { state.pages=[{id:String(Date.now()), title:'はじめに', body:''}]; state.sel=state.pages[0].id; save(state) }
+  panel.querySelector('#dc-add')?.addEventListener('click', () => { const p: Page = { id: String(Date.now()), title: '新規ページ', body: '' }; state.pages.push(p); state.sel = p.id; save(state); renderList(); loadPage() })
+  panel.querySelector('#dc-save')?.addEventListener('click', () => { const p = state.pages.find(x => x.id === state.sel); if (!p) return; p.title = title.value; p.body = body.value; save(state); renderList() })
+  if (!state.pages.length) { state.pages = [{ id: String(Date.now()), title: 'はじめに', body: '' }]; state.sel = state.pages[0].id; save(state) }
   renderList(); loadPage()
 }
 
 function buildReportTab(panel: HTMLElement, pid: string): void {
   const tasks = loadTasks(pid)
-  const counts = { todo:0, doing:0, review:0, done:0 } as Record<string, number>
-  tasks.forEach(t=> counts[t.status] = (counts[t.status]||0)+1)
-  const today = new Date().toISOString().slice(0,10)
-  const overdue = tasks.filter(t => t.due && t.due < today && t.status!=='done')
+  const counts = { todo: 0, doing: 0, review: 0, done: 0 } as Record<string, number>
+  tasks.forEach(t => counts[t.status] = (counts[t.status] || 0) + 1)
+  const today = new Date().toISOString().slice(0, 10)
+  const overdue = tasks.filter(t => t.due && t.due < today && t.status !== 'done')
   panel.innerHTML = `
     <div class="rounded-xl ring-1 ring-neutral-800/70 bg-neutral-900/50 p-4 text-gray-200">
       <div class="text-sm text-gray-300 mb-2">タスクサマリー</div>
       <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
-        ${[['TODO','todo'],['DOING','doing'],['REVIEW','review'],['DONE','done']].map(([label,k])=>`<div class=\"rounded ring-1 ring-neutral-700/60 bg-neutral-800/40 p-3 text-center\">${label}<div class=\"text-2xl text-emerald-400\">${counts[k]||0}</div></div>`).join('')}
+        ${[['TODO', 'todo'], ['DOING', 'doing'], ['REVIEW', 'review'], ['DONE', 'done']].map(([label, k]) => `<div class=\"rounded ring-1 ring-neutral-700/60 bg-neutral-800/40 p-3 text-center\">${label}<div class=\"text-2xl text-emerald-400\">${counts[k] || 0}</div></div>`).join('')}
       </div>
       <div class="mt-4">
         <div class="text-sm text-gray-300 mb-1">期限切れ</div>
-        ${overdue.length ? `<ul class=\"list-disc ml-6 space-y-1\">${overdue.map(t=>`<li>${t.title} <span class=\\"text-xs text-rose-400\\">${t.due}</span></li>`).join('')}</ul>` : '<p class="text-gray-400 text-sm">ありません。</p>'}
+        ${overdue.length ? `<ul class=\"list-disc ml-6 space-y-1\">${overdue.map(t => `<li>${t.title} <span class=\\"text-xs text-rose-400\\">${t.due}</span></li>`).join('')}</ul>` : '<p class="text-gray-400 text-sm">ありません。</p>'}
       </div>
     </div>
   `
@@ -1118,16 +1257,16 @@ function buildRoadmapTab(panel: HTMLElement, pid: string, id: string): void {
   const save = (list: Item[]) => localStorage.setItem(key, JSON.stringify(list))
   const list = panel.querySelector('#rd-list') as HTMLElement
   const render = () => {
-    const data = load().sort((a,b)=> (a.date||'').localeCompare(b.date||''))
-    list.innerHTML = data.length ? data.map(i=>`<div class=\"rounded ring-1 ring-neutral-700/60 bg-neutral-800/40 p-2 flex items-center\"><div class=\"text-sm\">${i.title}</div><div class=\"ml-auto text-xs text-gray-400\">${i.date||'-'}</div></div>`).join('') : '<p class="text-sm text-gray-400">項目がありません。</p>'
+    const data = load().sort((a, b) => (a.date || '').localeCompare(b.date || ''))
+    list.innerHTML = data.length ? data.map(i => `<div class=\"rounded ring-1 ring-neutral-700/60 bg-neutral-800/40 p-2 flex items-center\"><div class=\"text-sm\">${i.title}</div><div class=\"ml-auto text-xs text-gray-400\">${i.date || '-'}</div></div>`).join('') : '<p class="text-sm text-gray-400">項目がありません。</p>'
   }
-  panel.querySelector('#rd-add')?.addEventListener('click', ()=>{
+  panel.querySelector('#rd-add')?.addEventListener('click', () => {
     const t = (panel.querySelector('#rd-title') as HTMLInputElement).value.trim()
     const d = (panel.querySelector('#rd-date') as HTMLInputElement).value
     if (!t) return
     const cur = load(); cur.push({ title: t, date: d }); save(cur); render()
-    ;(panel.querySelector('#rd-title') as HTMLInputElement).value = ''
-    ;(panel.querySelector('#rd-date') as HTMLInputElement).value = ''
+      ; (panel.querySelector('#rd-title') as HTMLInputElement).value = ''
+      ; (panel.querySelector('#rd-date') as HTMLInputElement).value = ''
   })
   render()
 }
@@ -1135,13 +1274,13 @@ function buildRoadmapTab(panel: HTMLElement, pid: string, id: string): void {
 function buildBurndownTab(panel: HTMLElement, pid: string): void {
   const days = 14
   const tasks = loadTasks(pid)
-  const remaining = tasks.filter(t=> t.status!=='done').length
-  const series = Array.from({length: days}, (_,i)=> remaining - Math.floor((remaining/days)*i))
+  const remaining = tasks.filter(t => t.status !== 'done').length
+  const series = Array.from({ length: days }, (_, i) => remaining - Math.floor((remaining / days) * i))
   panel.innerHTML = `
     <div class="rounded-xl ring-1 ring-neutral-800/70 bg-neutral-900/50 p-4 text-gray-200">
       <div class="text-sm text-gray-300 mb-2">簡易バーンダウン（${days}日）</div>
       <div class="h-40 flex items-end gap-1">
-        ${series.map(v=>`<div class=\"w-4 bg-emerald-700\" style=\"height:${Math.max(4, v*6)}px\"></div>`).join('')}
+        ${series.map(v => `<div class=\"w-4 bg-emerald-700\" style=\"height:${Math.max(4, v * 6)}px\"></div>`).join('')}
       </div>
       <p class="text-xs text-gray-400 mt-2">実データ連携は未実装。タスク残数ベースの簡易表示です。</p>
     </div>
@@ -1151,12 +1290,12 @@ function buildBurndownTab(panel: HTMLElement, pid: string): void {
 function buildTimelineTab(panel: HTMLElement, pid: string): void {
   const tasks = loadTasks(pid)
   const events: Array<{ at: string; text: string; title: string }> = []
-  tasks.forEach(t=> (t.history||[]).forEach(h=> events.push({ at: h.at, text: h.text, title: t.title })))
-  events.sort((a,b)=> (b.at||'').localeCompare(a.at||''))
+  tasks.forEach(t => (t.history || []).forEach(h => events.push({ at: h.at, text: h.text, title: t.title })))
+  events.sort((a, b) => (b.at || '').localeCompare(a.at || ''))
   panel.innerHTML = `
     <div class="rounded-xl ring-1 ring-neutral-800/70 bg-neutral-900/50 p-4 text-gray-200">
       <div class="text-sm text-gray-300 mb-2">最近のアクティビティ</div>
-      ${events.length ? `<ul class=\"space-y-2\">${events.slice(0,30).map(e=>`<li class=\\"text-sm\\"><span class=\\"text-xs text-gray-400\\">${e.at}</span> - ${e.text} <span class=\\"text-xs text-gray-400\\">(${e.title})</span></li>`).join('')}</ul>` : '<p class="text-sm text-gray-400">記録がありません。</p>'}
+      ${events.length ? `<ul class=\"space-y-2\">${events.slice(0, 30).map(e => `<li class=\\"text-sm\\"><span class=\\"text-xs text-gray-400\\">${e.at}</span> - ${e.text} <span class=\\"text-xs text-gray-400\\">(${e.title})</span></li>`).join('')}</ul>` : '<p class="text-sm text-gray-400">記録がありません。</p>'}
     </div>
   `
 }
@@ -1168,7 +1307,7 @@ function buildWidgetTab(panel: HTMLElement, pid: string, scope: string, defaults
       <div class="flex items-center">
         <button id="wgEditToggle" class="ml-auto text-xs rounded-md bg-neutral-800/60 ring-1 ring-neutral-700/60 px-2 py-1 text-gray-200">編集</button>
       </div>
-      <div class="grid gap-7 md:gap-8 grid-cols-1 md:grid-cols-12" id="widgetGrid" data-pid="${pid}:${scope}" style="grid-auto-rows: 7rem;">
+      <div class="grid gap-7 md:gap-8 grid-cols-1 md:grid-cols-12" id="widgetGrid" data-pid="${pid}:${scope}" style="grid-auto-rows: 3.5rem;">
         ${addWidgetCard()}
       </div>
     </div>
@@ -1181,8 +1320,9 @@ function buildWidgetTab(panel: HTMLElement, pid: string, scope: string, defaults
   if (Object.keys(meta).length === 0 && defaults.length) {
     defaults.forEach((t) => addWidget(panel, scoped, t))
   } else {
-    applyWidgetSizes(panel, scoped)
+    // Ensure widgets exist before applying sizes; ordering is handled by enableDragAndDrop's initializer
     ensureWidgets(panel, scoped)
+    applyWidgetSizes(panel, scoped)
   }
 }
 
@@ -1232,7 +1372,7 @@ function detailLayout(ctx: { id: number; name: string; fullName: string }): stri
           <div class="flex items-center">
             <button id="wgEditToggle" class="ml-auto text-xs rounded-md bg-neutral-800/60 ring-1 ring-neutral-700/60 px-2 py-1 text-gray-200">編集</button>
           </div>
-          <div class="grid gap-7 md:gap-8 grid-cols-1 md:grid-cols-12" id="widgetGrid" data-pid="${ctx.id}" style="grid-auto-rows: 7rem;">
+          <div class="grid gap-7 md:gap-8 grid-cols-1 md:grid-cols-12" id="widgetGrid" data-pid="${ctx.id}" style="grid-auto-rows: 3.5rem;">
             ${widgetShell('contrib', 'Contributions', contributionWidget())}
             ${widgetShell('overview', 'Overview', overviewSkeleton())}
             ${widgetShell('committers', 'Top Committers', barSkeleton())}
@@ -1280,7 +1420,7 @@ function getCoreTabs(pid: string): CoreTabs {
   try {
     const raw = localStorage.getItem(coreKey(pid))
     if (raw) return JSON.parse(raw) as CoreTabs
-  } catch {}
+  } catch { }
   return { summary: { title: '概要', visible: true }, board: { title: 'カンバンボード', visible: true } }
 }
 function saveCoreTabs(pid: string, v: CoreTabs): void { localStorage.setItem(coreKey(pid), JSON.stringify(v)) }
@@ -1289,7 +1429,7 @@ function applyCoreTabs(root: HTMLElement, pid: string): void {
   const bar = root.querySelector('#tabBar') as HTMLElement | null
   if (!bar) return
   const core = getCoreTabs(pid)
-  const ensureWrap = (btn: HTMLElement, key: 'summary'|'board') => {
+  const ensureWrap = (btn: HTMLElement, key: 'summary' | 'board') => {
     let wrap = btn.parentElement as HTMLElement
     if (!wrap || wrap.tagName.toLowerCase() !== 'span') {
       const span = document.createElement('span')
@@ -1339,7 +1479,7 @@ function applyCoreTabs(root: HTMLElement, pid: string): void {
 }
 
 // Context menu for tabs (rename/delete)
-function openTabContextMenu(root: HTMLElement, pid: string, arg: { kind: 'core'|'custom'; id: string; btn: HTMLElement; type?: TabTemplate }): void {
+function openTabContextMenu(root: HTMLElement, pid: string, arg: { kind: 'core' | 'custom'; id: string; btn: HTMLElement; type?: TabTemplate }): void {
   const { kind, id, btn } = arg
   // Close any open rename popover
   document.getElementById('tabRenamePop')?.remove()
@@ -1377,8 +1517,8 @@ function openTabContextMenu(root: HTMLElement, pid: string, arg: { kind: 'core'|
     pop.className = 'fixed z-[81] w-[min(320px,92vw)] rounded-lg bg-neutral-900 ring-1 ring-neutral-700/70 shadow-xl p-2'
     pop.style.top = `${r.bottom + 8}px`
     pop.style.left = `${Math.max(12, Math.min(window.innerWidth - 340, r.left))}px`
-    const currentTitle = kind === 'core' ? (getCoreTabs(pid)[id as 'summary'|'board']?.title || '') : (btn.textContent || '')
-    const esc = (s: string) => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    const currentTitle = kind === 'core' ? (getCoreTabs(pid)[id as 'summary' | 'board']?.title || '') : (btn.textContent || '')
+    const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     pop.innerHTML = `
       <div class="flex items-center gap-2">
         <input id="tr-name" type="text" class="flex-1 min-w-0 rounded-md bg-neutral-800/60 ring-1 ring-neutral-700/60 px-2 py-1.5 text-gray-100" value="${esc(currentTitle)}" />
@@ -1398,7 +1538,7 @@ function openTabContextMenu(root: HTMLElement, pid: string, arg: { kind: 'core'|
       const val = (input?.value || '').trim()
       if (!val) { remove(); return }
       if (kind === 'core') {
-        const k = id as 'summary'|'board'
+        const k = id as 'summary' | 'board'
         const c = getCoreTabs(pid)
         c[k].title = val
         saveCoreTabs(pid, c)
@@ -1420,7 +1560,7 @@ function openTabContextMenu(root: HTMLElement, pid: string, arg: { kind: 'core'|
     if (!minCheck()) { close(); return }
     if (kind === 'core') {
       const c = getCoreTabs(pid)
-      const k = id as 'summary'|'board'
+      const k = id as 'summary' | 'board'
       c[k].visible = false
       saveCoreTabs(pid, c)
       applyCoreTabs(root, pid)
@@ -1475,7 +1615,7 @@ function addCustomTab(root: HTMLElement, pid: string, type: TabTemplate, persist
     buildWidgetTab(panel, pid, id, ['markdown'])
     root.querySelector('main')?.appendChild(panel)
   } else if (type === 'docs') {
-    buildWidgetTab(panel, pid, id, ['markdown','links'])
+    buildWidgetTab(panel, pid, id, ['markdown', 'links'])
     root.querySelector('main')?.appendChild(panel)
   } else if (type === 'report') {
     buildWidgetTab(panel, pid, id, ['tasksum'])
@@ -1594,12 +1734,12 @@ async function loadCollaborators(root: HTMLElement, projectId: number): Promise<
     const wrap = root.querySelector('#collabAvatars') as HTMLElement | null
     if (!wrap) return
     wrap.innerHTML = list
-      .map((u) => `<img title="${u.login}${u.status==='pending'?'（招待中）':''}" data-login="${u.login}" src="${u.avatar_url || ''}" class="w-9 h-9 rounded-full ring-1 ring-neutral-700/60 object-cover cursor-pointer"/>`)
+      .map((u) => `<img title="${u.login}${u.status === 'pending' ? '（招待中）' : ''}" data-login="${u.login}" src="${u.avatar_url || ''}" class="w-9 h-9 rounded-full ring-1 ring-neutral-700/60 object-cover cursor-pointer"/>`)
       .join('')
     wrap.querySelectorAll('img[data-login]')?.forEach((el) => {
       el.addEventListener('click', (e) => openCollabMenu(root, projectId, e.currentTarget as HTMLElement))
     })
-  } catch {}
+  } catch { }
 }
 
 function openCollaboratorPopover(root: HTMLElement, projectId: number, anchor: HTMLElement): void {
@@ -1675,7 +1815,7 @@ function openCollabMenu(root: HTMLElement, projectId: number, anchor: HTMLElemen
       <div class="text-sm text-gray-300 mb-2">${login}</div>
       <div class="text-xs text-gray-400 mb-1">権限</div>
       <div class="grid grid-cols-3 gap-2 mb-2">
-        ${['pull','push','admin'].map(p => `<button data-perm="${p}" class="perm-btn px-2 py-1 rounded bg-neutral-800/60 hover:bg-neutral-700/60 text-gray-200 text-xs">${p}</button>`).join('')}
+        ${['pull', 'push', 'admin'].map(p => `<button data-perm="${p}" class="perm-btn px-2 py-1 rounded bg-neutral-800/60 hover:bg-neutral-700/60 text-gray-200 text-xs">${p}</button>`).join('')}
       </div>
       <button id="removeCollab" class="w-full text-left px-2 py-2 rounded text-rose-400 hover:bg-neutral-800/60 text-sm">削除</button>
     </div>
@@ -1758,7 +1898,7 @@ async function renderKanban(root: HTMLElement, pid: string, targetId = 'kb-board
           _gh: { number: it.number, url: it.html_url }
         }
       })
-    } catch {}
+    } catch { }
   }
   const merged = [...ghTasks, ...state.filter(t => !String(t.id).startsWith('gh-'))]
   board.innerHTML = ['todo', 'doing', 'review', 'done']
@@ -1794,7 +1934,7 @@ async function renderKanban(root: HTMLElement, pid: string, targetId = 'kb-board
       const target = (col as HTMLElement).getAttribute('data-col') as Status
       if (id.startsWith('gh-')) {
         // Update GitHub
-        const num = id.replace('gh-','')
+        const num = id.replace('gh-', '')
         try {
           await apiFetch(`/projects/${pid}/issues/${num}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: target }) })
           if (target === 'done') {
@@ -1803,9 +1943,9 @@ async function renderKanban(root: HTMLElement, pid: string, targetId = 'kb-board
               await apiFetch(`/projects/${pid}/issues/assign-next`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ login }) })
             }
           }
-        } catch {}
+        } catch { }
       } else {
-        const tasks = loadTasks(pid)
+  const tasks = loadTasks(pid)
         const idx = tasks.findIndex((t) => t.id === id)
         if (idx >= 0) tasks[idx].status = target
         saveTasks(pid, tasks)
@@ -1860,7 +2000,7 @@ function taskCard(t: Task): string {
   return `
     <div class="rounded-lg ring-1 ring-neutral-700/60 bg-neutral-800/80 p-3 cursor-grab shadow-sm" draggable="true" data-task="${t.id}">
       <div class="flex items-start justify-between">
-        <div class="text-xs text-gray-400">${String(t.id).startsWith('gh-') ? '<span class=\\"text-white\\"></span> #'+String(t.id).slice(3) : '#'+t.id}</div>
+        <div class="text-xs text-gray-400">${String(t.id).startsWith('gh-') ? '<span class=\\"text-white\\"></span> #' + String(t.id).slice(3) : '#' + t.id}</div>
         <div class="text-sm text-gray-300">${due}</div>
       </div>
       <div class="mt-1 font-semibold text-gray-100">${escapeHtml(t.title)}</div>
@@ -1935,7 +2075,7 @@ function openNewTaskModal(root: HTMLElement, pid: string, status: Status, target
             </div>
             <div class="rounded-lg ring-1 ring-neutral-700/60 bg-neutral-900/40 p-4 space-y-3">
               <div class="text-sm text-gray-300">スキル要件を選択</div>
-              <div id="nt-skills" class="flex flex-wrap gap-2">${['Ruby','Python','Dart','Java','JavaScript','HTML','CSS'].map((s,i)=>`<button class=\"nt-skill px-3 py-1.5 rounded-full text-sm ring-1 ${i===0?'bg-emerald-700 text-white ring-emerald-600':'bg-neutral-800/60 text-gray-200 ring-neutral-700/60'}\" data-skill=\"${s}\">${s}</button>`).join('')}</div>
+              <div id="nt-skills" class="flex flex-wrap gap-2">${['Ruby', 'Python', 'Dart', 'Java', 'JavaScript', 'HTML', 'CSS'].map((s, i) => `<button class=\"nt-skill px-3 py-1.5 rounded-full text-sm ring-1 ${i === 0 ? 'bg-emerald-700 text-white ring-emerald-600' : 'bg-neutral-800/60 text-gray-200 ring-neutral-700/60'}\" data-skill=\"${s}\">${s}</button>`).join('')}</div>
               <p class="text-xs text-center text-gray-400">+ すべてみる</p>
             </div>
           </section>
@@ -1946,12 +2086,12 @@ function openNewTaskModal(root: HTMLElement, pid: string, status: Status, target
       </div>
     </div>`
   const close = () => overlay.remove()
-  ;(overlay as any).onclick = (e: MouseEvent) => { if (e.target === overlay) close() }
+    ; (overlay as any).onclick = (e: MouseEvent) => { if (e.target === overlay) close() }
   (overlay.querySelector('#nt-close') as HTMLElement | null)?.addEventListener('click', close)
 
   // Toggle skills selection
-  overlay.querySelectorAll('.nt-skill').forEach((chip)=>{
-    chip.addEventListener('click', ()=>{
+  overlay.querySelectorAll('.nt-skill').forEach((chip) => {
+    chip.addEventListener('click', () => {
       chip.classList.toggle('bg-emerald-700')
       chip.classList.toggle('text-white')
       chip.classList.toggle('ring-emerald-600')
@@ -1984,7 +2124,7 @@ function openNewTaskModal(root: HTMLElement, pid: string, status: Status, target
   }
   fetchCollabs();
 
-  (overlay.querySelector('#nt-submit') as HTMLElement | null)?.addEventListener('click', ()=>{
+  (overlay.querySelector('#nt-submit') as HTMLElement | null)?.addEventListener('click', () => {
     const title = (overlay.querySelector('#nt-title') as HTMLInputElement).value.trim()
     if (!title) { (overlay.querySelector('#nt-err-title') as HTMLElement).classList.remove('hidden'); return }
     const due = (overlay.querySelector('#nt-due') as HTMLInputElement).value || undefined
@@ -1993,7 +2133,7 @@ function openNewTaskModal(root: HTMLElement, pid: string, status: Status, target
     const asg = (auto && auto.checked) ? 'あなた' : (sel || (assignee?.value.trim() || 'Sh1ragami'))
     const desc = (overlay.querySelector('#nt-desc') as HTMLTextAreaElement).value.trim()
     const tasks = loadTasks(pid)
-    const t: Task = { id: String(Date.now()), title, due, status, priority: pr==='自動設定'?'中':pr, assignee: asg, description: desc, comments: [], history: [{ at: new Date().toLocaleString(), by: 'あなた', text: 'タスクを作成しました。' }] }
+    const t: Task = { id: String(Date.now()), title, due, status, priority: pr === '自動設定' ? '中' : pr, assignee: asg, description: desc, comments: [], history: [{ at: new Date().toLocaleString(), by: 'あなた', text: 'タスクを作成しました。' }] }
     tasks.push(t); saveTasks(pid, tasks)
     close(); renderKanban(root, pid, targetId || 'kb-board')
   })
@@ -2003,7 +2143,7 @@ function openNewTaskModal(root: HTMLElement, pid: string, status: Status, target
 function loadTasks(pid: string): Task[] {
   const raw = localStorage.getItem(`kb-${pid}`)
   if (raw) {
-    try { return JSON.parse(raw) as Task[] } catch {}
+    try { return JSON.parse(raw) as Task[] } catch { }
   }
   // default sample
   return [

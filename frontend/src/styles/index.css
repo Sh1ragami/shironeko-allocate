@@ -2,17 +2,23 @@
 @tailwind components;
 @tailwind utilities;
 
-html, body {
+html,
+body {
   height: 100%;
-  overflow: hidden;              /* prevent body bounce */
-  overscroll-behavior: none;     /* block viewport overscroll */
+  overflow: hidden;
+  /* prevent body bounce */
+  overscroll-behavior: none;
+  /* block viewport overscroll */
   background-color: var(--gh-canvas);
 }
 
 #app {
-  height: 100dvh;                /* lock to viewport height, safe on mobile */
-  overflow-y: auto;              /* scroll inside app container */
-  overscroll-behavior: contain;  /* prevent bubbling to viewport */
+  height: 100dvh;
+  /* lock to viewport height, safe on mobile */
+  overflow-y: auto;
+  /* scroll inside app container */
+  overscroll-behavior: contain;
+  /* prevent bubbling to viewport */
   -webkit-overflow-scrolling: touch;
 }
 
@@ -29,56 +35,122 @@ html, body {
 }
 
 /* Theme helpers */
-.gh-canvas { background-color: var(--gh-canvas); }
-.gh-canvas-subtle { background-color: var(--gh-canvas-subtle); }
-.gh-border { border-color: var(--gh-border); }
-.gh-text-muted { color: var(--gh-muted); }
-.gh-title { color: var(--gh-contrast); }
+.gh-canvas {
+  background-color: var(--gh-canvas);
+}
+
+.gh-canvas-subtle {
+  background-color: var(--gh-canvas-subtle);
+}
+
+.gh-border {
+  border-color: var(--gh-border);
+}
+
+.gh-text-muted {
+  color: var(--gh-muted);
+}
+
+.gh-title {
+  color: var(--gh-contrast);
+}
+
 .gh-card {
   background-color: var(--gh-canvas-subtle);
   border: 1px solid var(--gh-border);
   border-radius: 0.75rem;
 }
+
 .btn-primary {
   background-color: var(--gh-green);
   color: white;
 }
-.btn-primary:hover { background-color: var(--gh-green-hover); }
+
+.btn-primary:hover {
+  background-color: var(--gh-green-hover);
+}
 
 /* Improve default focus visibility */
-button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible {
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible {
   outline: 2px solid var(--gh-accent);
   outline-offset: 1px;
 }
 
 /* Slightly brighten default text */
-body { color: var(--gh-contrast); }
+body {
+  color: var(--gh-contrast);
+}
 
 /* Keep defaults subtle and aligned with existing tabs */
 
 /* ---- Animations (tasteful, motion-safe) ---- */
 @keyframes viewFadeUp {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
+
 @keyframes overlayFade {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
 }
+
 @keyframes popIn {
-  from { opacity: 0; transform: scale(0.98); }
-  to { opacity: 1; transform: scale(1); }
+  from {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 @media (prefers-reduced-motion: no-preference) {
+
   /* Page transition animation disabled per request */
-  .fade-overlay { animation: overlayFade .18s ease-out both; }
-  .pop-card { transition: transform .18s ease, box-shadow .18s ease; }
-  .pop-card:hover { transform: translateY(-2px); }
-  .pop-modal { animation: popIn .18s ease-out both; }
-  .btn-press { transition: transform .08s ease; }
-  .btn-press:active { transform: translateY(1px); }
+  .fade-overlay {
+    animation: overlayFade .18s ease-out both;
+  }
+
+  .pop-card {
+    transition: transform .18s ease, box-shadow .18s ease;
+  }
+
+  .pop-card:hover {
+    transform: translateY(-2px);
+  }
+
+  .pop-modal {
+    animation: popIn .18s ease-out both;
+  }
+
+  .btn-press {
+    transition: transform .08s ease;
+  }
+
+  .btn-press:active {
+    transform: translateY(1px);
+  }
 }
 
 /* Make overflow containers scroll smoothly on iOS */
-.overflow-y-auto, .overflow-auto { -webkit-overflow-scrolling: touch; }
+.overflow-y-auto,
+.overflow-auto {
+  -webkit-overflow-scrolling: touch;
+}

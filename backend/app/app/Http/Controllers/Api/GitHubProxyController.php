@@ -104,13 +104,32 @@ class GitHubProxyController extends Controller
 
     public function searchUsers(Request $request)
     {
-        $q = (string) $request->query('query', '');
-        if ($q === '') return response()->json(['items' => []]);
-        $headers = ['User-Agent' => 'shironeko-allocate'];
+        $q = $request->string('q')->toString();
+        if (!$q) return response()->json(['items' => []]);
+        $headers = ['User-Agent' => 'shironeko-allocate', 'Accept' => 'application/vnd.github+json'];
         $tokenEnc = $request->user()?->github_access_token;
-        if ($tokenEnc) { try { $headers['Authorization'] = 'Bearer '.Crypt::decryptString($tokenEnc); } catch (\Throwable $e) {} }
+        if ($tokenEnc) {
+            try { $headers['Authorization'] = 'Bearer '.Crypt::decryptString($tokenEnc); } catch (\Throwable $e) {}
+        }
         $res = Http::withHeaders($headers)->get('https://api.github.com/search/users', ['q' => $q, 'per_page' => 10]);
-        if (!$res->ok()) return response()->json(['items' => []]);
+        return $res->json();
+    }
+
+    public function commits(Request $request)
+    {
+        $full = $request->string('full_name')->toString();
+        if (!$full) return response()->json([]);
+        $headers = ['User-Agent' => 'shironeko-allocate', 'Accept' => 'application/vnd.github+json'];
+        $tokenEnc = $request->user()?->github_access_token;
+        if ($tokenEnc) {
+            try { $headers['Authorization'] = 'Bearer '.Crypt::decryptString($tokenEnc); } catch (\Throwable $e) {}
+        }
+        $params = [ 'per_page' => min(100, (int)$request->query('per_page', 100)) ];
+        if ($request->has('since')) $params['since'] = $request->query('since');
+        if ($request->has('until')) $params['until'] = $request->query('until');
+        if ($request->has('sha')) $params['sha'] = $request->query('sha');
+        $res = Http::withHeaders($headers)->get("https://api.github.com/repos/{$full}/commits", $params);
+        if (!$res->ok()) return response()->json([]);
         return response()->json($res->json());
     }
 }

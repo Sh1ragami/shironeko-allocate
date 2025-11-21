@@ -9,7 +9,7 @@ type Project = {
   color?: 'blue' | 'red' | 'green' | 'black' | 'white' | 'purple' | 'orange' | 'yellow' | 'gray'
 }
 
-const CARD_COLORS: Project['color'][] = ['blue','green','red','purple','orange','yellow','gray','black','white']
+const CARD_COLORS: Project['color'][] = ['blue', 'green', 'red', 'purple', 'orange', 'yellow', 'gray', 'black', 'white']
 function randomCardColor(): Project['color'] {
   return CARD_COLORS[Math.floor(Math.random() * CARD_COLORS.length)]
 }
@@ -20,14 +20,14 @@ function projectCard(p: Project): string {
   const color = p.color || 'blue'
   const style =
     color === 'red' ? 'bg-rose-900/40 hover:bg-rose-900/55 ring-rose-900/50 hover:ring-rose-700/60'
-    : color === 'green' ? 'bg-emerald-900/40 hover:bg-emerald-900/55 ring-emerald-900/50 hover:ring-emerald-700/60'
-    : color === 'black' ? 'bg-black/60 hover:bg-black/70 ring-black/60 hover:ring-black/70'
-    : color === 'white' ? 'bg-white/10 hover:bg-white/15 ring-white/30 hover:ring-white/40'
-    : color === 'purple' ? 'bg-fuchsia-900/40 hover:bg-fuchsia-900/55 ring-fuchsia-900/50 hover:ring-fuchsia-700/60'
-    : color === 'orange' ? 'bg-orange-900/40 hover:bg-orange-900/55 ring-orange-900/50 hover:ring-orange-700/60'
-    : color === 'yellow' ? 'bg-yellow-900/40 hover:bg-yellow-900/55 ring-yellow-900/50 hover:ring-yellow-700/60'
-    : color === 'gray' ? 'bg-neutral-800/60 hover:bg-neutral-800/70 ring-neutral-700/60 hover:ring-neutral-500/60'
-    : 'bg-sky-900/40 hover:bg-sky-900/55 ring-sky-900/50 hover:ring-sky-700/60'
+      : color === 'green' ? 'bg-emerald-900/40 hover:bg-emerald-900/55 ring-emerald-900/50 hover:ring-emerald-700/60'
+        : color === 'black' ? 'bg-black/60 hover:bg-black/70 ring-black/60 hover:ring-black/70'
+          : color === 'white' ? 'bg-white/10 hover:bg-white/15 ring-white/30 hover:ring-white/40'
+            : color === 'purple' ? 'bg-fuchsia-900/40 hover:bg-fuchsia-900/55 ring-fuchsia-900/50 hover:ring-fuchsia-700/60'
+              : color === 'orange' ? 'bg-orange-900/40 hover:bg-orange-900/55 ring-orange-900/50 hover:ring-orange-700/60'
+                : color === 'yellow' ? 'bg-yellow-900/40 hover:bg-yellow-900/55 ring-yellow-900/50 hover:ring-yellow-700/60'
+                  : color === 'gray' ? 'bg-neutral-800/60 hover:bg-neutral-800/70 ring-neutral-700/60 hover:ring-neutral-500/60'
+                    : 'bg-sky-900/40 hover:bg-sky-900/55 ring-sky-900/50 hover:ring-sky-700/60'
   const title = (p.alias && String(p.alias).trim() !== '' ? p.alias : p.name)
   return `
     <button data-id="${p.id}" class="group relative w-full h-40 rounded-xl ring-1 ${style} shadow-sm text-left p-5 transition-colors pop-card btn-press">
@@ -109,7 +109,7 @@ export function renderProject(container: HTMLElement): void {
       } else if (fallback) {
         fallback.textContent = (me.name || 'Me').slice(0, 2)
       }
-      ;(container as any)._me = me
+      ; (container as any)._me = me
       // render group sidebar now that we have user
       renderGroupSidebar(container, me)
       // apply current filter and reload
@@ -120,7 +120,7 @@ export function renderProject(container: HTMLElement): void {
     })
 
   // interactions
-  const onCreate = () => {/* noop: modal implemented below */}
+  const onCreate = () => {/* noop: modal implemented below */ }
   const openCreate = () => openCreateProjectModal(container)
   container.querySelector('#createBtn')?.addEventListener('click', openCreate)
   container.querySelector('#createCard')?.addEventListener('click', openCreate)
@@ -132,12 +132,12 @@ export function renderProject(container: HTMLElement): void {
       const id = (el as HTMLElement).getAttribute('data-id')
       if (id) window.location.hash = `#/project/detail?id=${encodeURIComponent(id)}`
     })
-    // stop propagation for menu
-    ;(el as HTMLElement).querySelector('.card-menu')?.addEventListener('click', (ev) => {
-      ev.stopPropagation()
-      const id = (el as HTMLElement).getAttribute('data-id')
-      if (id) openCardMenu(container, el as HTMLElement, Number(id))
-    })
+      // stop propagation for menu
+      ; (el as HTMLElement).querySelector('.card-menu')?.addEventListener('click', (ev) => {
+        ev.stopPropagation()
+        const id = (el as HTMLElement).getAttribute('data-id')
+        if (id) openCardMenu(container, el as HTMLElement, Number(id))
+      })
   })
 
   // Account modal
@@ -204,7 +204,7 @@ function openCreateProgress(msg: string) {
     </div>
   `
   document.body.appendChild(overlay)
-  ;(function(){ const c=+(document.body.getAttribute('data-lock')||'0'); if(c===0){ document.body.style.overflow='hidden' } document.body.setAttribute('data-lock', String(c+1)) })()
+    ; (function () { const c = +(document.body.getAttribute('data-lock') || '0'); if (c === 0) { document.body.style.overflow = 'hidden' } document.body.setAttribute('data-lock', String(c + 1)) })()
   const set = (text: string) => { const el = overlay.querySelector('#pjProgMsg'); if (el) el.textContent = text }
   const showError = (text: string) => {
     const body = overlay.querySelector('#pjProgBody') as HTMLElement | null
@@ -213,7 +213,7 @@ function openCreateProgress(msg: string) {
     actions?.classList.remove('hidden')
     const spinner = overlay.querySelector('#pjProgSpin') as HTMLElement | null
     if (spinner) spinner.classList.add('hidden')
-    overlay.querySelector('#pjProgClose')?.addEventListener('click', () => { overlay.remove(); const c=+(document.body.getAttribute('data-lock')||'0'); const n=Math.max(0,c-1); if(n===0){ document.body.style.overflow=''; } document.body.setAttribute('data-lock', String(n)) })
+    overlay.querySelector('#pjProgClose')?.addEventListener('click', () => { overlay.remove(); const c = +(document.body.getAttribute('data-lock') || '0'); const n = Math.max(0, c - 1); if (n === 0) { document.body.style.overflow = ''; } document.body.setAttribute('data-lock', String(n)) })
   }
   const showSuccess = (id?: number) => {
     set('プロジェクトの準備が完了しました。')
@@ -224,7 +224,7 @@ function openCreateProgress(msg: string) {
       openBtn.classList.remove('hidden')
       openBtn.addEventListener('click', () => {
         window.location.hash = `#/project/detail?id=${id}`
-        overlay.remove(); const c=+(document.body.getAttribute('data-lock')||'0'); const n=Math.max(0,c-1); if(n===0){ document.body.style.overflow=''; } document.body.setAttribute('data-lock', String(n))
+        overlay.remove(); const c = +(document.body.getAttribute('data-lock') || '0'); const n = Math.max(0, c - 1); if (n === 0) { document.body.style.overflow = ''; } document.body.setAttribute('data-lock', String(n))
       })
     }
     const spinner = overlay.querySelector('#pjProgSpin') as HTMLElement | null
@@ -281,7 +281,7 @@ function loadProjects(root: HTMLElement): void {
           const gid = map[String(p.id)] || 'user'
           return !selected || selected === 'all' ? true : gid === selected
         })
-      const ids = new Set(filtered.map((p)=> String(p.id)))
+      const ids = new Set(filtered.map((p) => String(p.id)))
       const html = filtered
         .map((p) => projectCard(toCard(p)))
         .join('')
@@ -291,7 +291,7 @@ function loadProjects(root: HTMLElement): void {
       bindGridInteractions(root)
       sanitizeProjectGrid(grid)
       // remove any card not in current ids (stale/unknown)
-      Array.from(grid.querySelectorAll('[data-id]')).forEach((el)=>{
+      Array.from(grid.querySelectorAll('[data-id]')).forEach((el) => {
         const id = (el as HTMLElement).getAttribute('data-id') || ''
         if (!ids.has(id)) (el as HTMLElement).remove()
       })
@@ -319,11 +319,11 @@ function bindGridInteractions(root: HTMLElement): void {
       const id = (el as HTMLElement).getAttribute('data-id')
       if (id) openCardMenu(root, el as HTMLElement, Number(id))
     })
-    ;(el as HTMLElement).querySelector('.card-menu')?.addEventListener('click', (ev) => {
-      ev.stopPropagation()
-      const id = (el as HTMLElement).getAttribute('data-id')
-      if (id) openCardMenu(root, el as HTMLElement, Number(id))
-    })
+      ; (el as HTMLElement).querySelector('.card-menu')?.addEventListener('click', (ev) => {
+        ev.stopPropagation()
+        const id = (el as HTMLElement).getAttribute('data-id')
+        if (id) openCardMenu(root, el as HTMLElement, Number(id))
+      })
   })
   // create card
   const openCreate = () => openCreateProjectModal(root)
@@ -582,8 +582,8 @@ function openAccountModal(root: HTMLElement): void {
             <h4 class="text-base font-medium">ユーザー設定</h4>
 
             <div class="space-y-6">
-              ${renderSkillSection('owned','所有スキル一覧', (root as any)._me?.id)}
-              ${renderSkillSection('want','希望スキル一覧', (root as any)._me?.id)}
+              ${renderSkillSection('owned', '所有スキル一覧', (root as any)._me?.id)}
+              ${renderSkillSection('want', '希望スキル一覧', (root as any)._me?.id)}
             </div>
           </div>
           <div class="tab-panel hidden" data-tab="notify">
@@ -624,13 +624,13 @@ function openAccountModal(root: HTMLElement): void {
     </div>
   `
 
-  const close = () => { overlay.remove(); const c=+(document.body.getAttribute('data-lock')||'0'); const n=Math.max(0,c-1); if(n===0){ document.body.style.overflow=''; } document.body.setAttribute('data-lock', String(n)) }
+  const close = () => { overlay.remove(); const c = +(document.body.getAttribute('data-lock') || '0'); const n = Math.max(0, c - 1); if (n === 0) { document.body.style.overflow = ''; } document.body.setAttribute('data-lock', String(n)) }
   overlay.addEventListener('click', (e) => {
     if (e.target === overlay) close()
   })
   overlay.querySelector('#accountClose')?.addEventListener('click', close)
   overlay.querySelector('#logoutBtn')?.addEventListener('click', async () => {
-    try { await apiFetch('/logout', { method: 'POST' }) } catch {}
+    try { await apiFetch('/logout', { method: 'POST' }) } catch { }
     localStorage.removeItem('apiToken')
     localStorage.setItem('justLoggedOut', '1')
     close()
@@ -663,7 +663,7 @@ function openAccountModal(root: HTMLElement): void {
     })
   })
 
-  document.body.appendChild(overlay); (function(){ const c=+(document.body.getAttribute('data-lock')||'0'); if(c===0){ document.body.style.overflow='hidden' } document.body.setAttribute('data-lock', String(c+1)) })()
+  document.body.appendChild(overlay); (function () { const c = +(document.body.getAttribute('data-lock') || '0'); if (c === 0) { document.body.style.overflow = 'hidden' } document.body.setAttribute('data-lock', String(c + 1)) })()
   // Skills interactions (toggle/select + see-all)
   const meId = (root as any)._me?.id as number | undefined
   const onToggle = (btn: HTMLElement, sec: HTMLElement) => {
@@ -681,11 +681,11 @@ function openAccountModal(root: HTMLElement): void {
   }
   overlay.querySelectorAll('section[data-skill-section]')?.forEach((sec) => {
     const section = sec as HTMLElement
-    section.querySelectorAll('.skill-pill')?.forEach((el)=>{
-      el.addEventListener('click', ()=> onToggle(el as HTMLElement, section))
+    section.querySelectorAll('.skill-pill')?.forEach((el) => {
+      el.addEventListener('click', () => onToggle(el as HTMLElement, section))
     })
     const toggleMore = section.querySelector('.see-all') as HTMLElement | null
-    toggleMore?.addEventListener('click', ()=>{
+    toggleMore?.addEventListener('click', () => {
       const box = section.querySelector('.more-skills') as HTMLElement | null
       box?.classList.toggle('hidden')
     })
@@ -693,11 +693,11 @@ function openAccountModal(root: HTMLElement): void {
 }
 
 type SkillGroup = 'owned' | 'want'
-const ALL_SKILLS = ['JavaScript','TypeScript','Python','Ruby','Go','Rust','Java','Kotlin','Swift','Dart','PHP','C','C++','C#','Scala','Elixir','Haskell','R','Julia','SQL','HTML','CSS','Sass','Tailwind','React','Vue','Svelte','Next.js','Nuxt','Node.js','Deno','Bun','Express','Rails','Laravel','Spring','Django','FastAPI','Flutter','React Native','iOS','Android','Unity','Unreal','AWS','GCP','Azure','Docker','Kubernetes','Terraform','Ansible','Git','GitHub Actions','Figma','Storybook','Jest','Playwright','Vitest','Grafana','Prometheus']
+const ALL_SKILLS = ['JavaScript', 'TypeScript', 'Python', 'Ruby', 'Go', 'Rust', 'Java', 'Kotlin', 'Swift', 'Dart', 'PHP', 'C', 'C++', 'C#', 'Scala', 'Elixir', 'Haskell', 'R', 'Julia', 'SQL', 'HTML', 'CSS', 'Sass', 'Tailwind', 'React', 'Vue', 'Svelte', 'Next.js', 'Nuxt', 'Node.js', 'Deno', 'Bun', 'Express', 'Rails', 'Laravel', 'Spring', 'Django', 'FastAPI', 'Flutter', 'React Native', 'iOS', 'Android', 'Unity', 'Unreal', 'AWS', 'GCP', 'Azure', 'Docker', 'Kubernetes', 'Terraform', 'Ansible', 'Git', 'GitHub Actions', 'Figma', 'Storybook', 'Jest', 'Playwright', 'Vitest', 'Grafana', 'Prometheus']
 const SKILL_ICON: Record<string, string> = {
   JavaScript: '🟨', TypeScript: '🟦', Python: '🐍', Ruby: '💎', Go: '🌀', Rust: '🦀', Java: '☕', Kotlin: '🟪', Swift: '🟧', Dart: '🎯', PHP: '🐘', 'C#': '🎼', 'C++': '➕', C: '🧩', Scala: '📈', Elixir: '🧪', Haskell: 'λ', R: '📊', Julia: '💠', SQL: '🗄️', HTML: '📄', CSS: '🎨', Sass: '🧵', Tailwind: '🌬️', React: '⚛️', Vue: '🟩', Svelte: '🟠', 'Next.js': '⏭️', Nuxt: '🟢', 'Node.js': '🟢', Deno: '🦕', Bun: '🥯', Express: '🚂', Rails: '🛤️', Laravel: '🟥', Spring: '🌱', Django: '🟩', FastAPI: '⚡', Flutter: '💙', 'React Native': '📱', iOS: '📱', Android: '🤖', Unity: '🎮', Unreal: '🧰', AWS: '☁️', GCP: '☁️', Azure: '☁️', Docker: '🐳', Kubernetes: '☸️', Terraform: '🧱', Ansible: '📦', Git: '🔧', 'GitHub Actions': '🛠️', Figma: '🎨', Storybook: '📚', Jest: '🧪', Playwright: '🎭', Vitest: '🧪', Grafana: '📊', Prometheus: '🔥'
 }
-function slugSkill(name: string): string { return name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,'') }
+function slugSkill(name: string): string { return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') }
 function skillIcon(name: string): string {
   const slug = slugSkill(name)
   return `<img src="/icons/${slug}.svg" alt="${name}" class="w-4 h-4 mr-1 inline-block align-[-2px]" onerror="this.style.display='none'" />`
@@ -716,11 +716,11 @@ function renderSkillSection(kind: SkillGroup, title: string, uid?: number): stri
     <section class="space-y-3" data-skill-section="${kind}">
       <div class="text-sm text-gray-400">${title}</div>
       <div class="rounded-lg ring-1 ring-neutral-700/60 bg-neutral-900/40 p-3 flex flex-wrap gap-2">
-        ${seed.map((s) => `<button class=\"skill-pill px-3 py-1.5 rounded-full text-sm ring-1 ${selected.has(s)?'bg-emerald-700 text-white ring-emerald-600':'bg-neutral-800/60 text-gray-200 ring-neutral-700/60'}\" data-skill=\"${s}\">${skillIcon(s)}${s}</button>`).join('')}
+        ${seed.map((s) => `<button class=\"skill-pill px-3 py-1.5 rounded-full text-sm ring-1 ${selected.has(s) ? 'bg-emerald-700 text-white ring-emerald-600' : 'bg-neutral-800/60 text-gray-200 ring-neutral-700/60'}\" data-skill=\"${s}\">${skillIcon(s)}${s}</button>`).join('')}
       </div>
       <button class="see-all text-xs mx-auto block text-gray-400 hover:text-gray-200">+ すべてみる</button>
       <div class="more-skills hidden rounded-lg ring-1 ring-neutral-700/60 bg-neutral-900/40 p-3 flex flex-wrap gap-2 max-h-48 overflow-auto">
-        ${ALL_SKILLS.map((s)=>`<button class=\"skill-pill px-3 py-1.5 rounded-full text-sm ring-1 ${selected.has(s)?'bg-emerald-700 text-white ring-emerald-600':'bg-neutral-800/60 text-gray-200 ring-neutral-700/60'}\" data-skill=\"${s}\">${skillIcon(s)}${s}</button>`).join('')}
+        ${ALL_SKILLS.map((s) => `<button class=\"skill-pill px-3 py-1.5 rounded-full text-sm ring-1 ${selected.has(s) ? 'bg-emerald-700 text-white ring-emerald-600' : 'bg-neutral-800/60 text-gray-200 ring-neutral-700/60'}\" data-skill=\"${s}\">${skillIcon(s)}${s}</button>`).join('')}
       </div>
     </section>
   `
@@ -796,14 +796,14 @@ function openCreateProjectModal(root: HTMLElement): void {
 
   const close = () => {
     overlay.remove()
-    const c = +(document.body.getAttribute('data-lock')||'0'); const n=Math.max(0,c-1); if(n===0){ document.body.style.overflow=''; } document.body.setAttribute('data-lock', String(n))
+    const c = +(document.body.getAttribute('data-lock') || '0'); const n = Math.max(0, c - 1); if (n === 0) { document.body.style.overflow = ''; } document.body.setAttribute('data-lock', String(n))
     // Re-enable triggers after close
     headerBtn && (headerBtn.disabled = false)
     cardBtn && (cardBtn.disabled = false)
   }
   overlay.addEventListener('click', (e) => { if (e.target === overlay) close() })
   overlay.querySelector('#pj-close')?.addEventListener('click', close)
-  ;(function(){ const c=+(document.body.getAttribute('data-lock')||'0'); if(c===0){ document.body.style.overflow='hidden' } document.body.setAttribute('data-lock', String(c+1)) })()
+    ; (function () { const c = +(document.body.getAttribute('data-lock') || '0'); if (c === 0) { document.body.style.overflow = 'hidden' } document.body.setAttribute('data-lock', String(c + 1)) })()
 
   // Tab switching
   overlay.querySelectorAll('.pj-tab').forEach((tab) => {
@@ -811,7 +811,7 @@ function openCreateProjectModal(root: HTMLElement): void {
       const name = (tab as HTMLElement).getAttribute('data-tab')
       overlay.querySelectorAll('.pj-panel').forEach((p) => {
         const t = (p as HTMLElement).getAttribute('data-tab')
-        ;(p as HTMLElement).classList.toggle('hidden', t !== name)
+          ; (p as HTMLElement).classList.toggle('hidden', t !== name)
       })
       overlay.querySelectorAll('.pj-tab').forEach((t) => {
         const active = t === tab
@@ -829,7 +829,7 @@ function openCreateProjectModal(root: HTMLElement): void {
       .then((repos) => {
         const container = overlay.querySelector('#repoList') as HTMLElement | null
         if (container) container.innerHTML = repos.map(repoItem).join('')
-        ;(overlay as any)._repos = repos
+          ; (overlay as any)._repos = repos
         // selection (delegated)
         container?.addEventListener('click', (ev) => {
           const target = (ev.target as HTMLElement).closest('[data-repo]') as HTMLElement | null
@@ -839,7 +839,7 @@ function openCreateProjectModal(root: HTMLElement): void {
           })
           target.classList.add('ring-emerald-600', 'ring-2', 'bg-neutral-900/50')
           const full = target.getAttribute('data-repo') || ''
-          ;(overlay as any)._selectedRepo = full
+            ; (overlay as any)._selectedRepo = full
           // populate right-side form
           try {
             const list = ((overlay as any)._repos || []) as any[]
@@ -850,7 +850,7 @@ function openCreateProjectModal(root: HTMLElement): void {
             if (nameEl) nameEl.value = (r?.name || '')
             if (descEl) descEl.value = (r?.description || '')
             if (selEl) selEl.textContent = r ? `${r.full_name} ${r.private ? '(Private)' : '(Public)'}` : full
-          } catch {}
+          } catch { }
         })
         // search
         const search = overlay.querySelector('#repoSearch') as HTMLInputElement | null
@@ -858,7 +858,7 @@ function openCreateProjectModal(root: HTMLElement): void {
           const q = (search.value || '').toLowerCase()
           container?.querySelectorAll('[data-repo]').forEach((el) => {
             const text = el.textContent?.toLowerCase() || ''
-            ;(el as HTMLElement).style.display = text.includes(q) ? '' : 'none'
+              ; (el as HTMLElement).style.display = text.includes(q) ? '' : 'none'
           })
         })
       })
@@ -893,10 +893,10 @@ function openCreateProjectModal(root: HTMLElement): void {
           addProjectToGrid(root, { id, name, start, end, color })
           // Save initial tasks (if AI provided)
           if (Array.isArray(created?.initial_tasks)) {
-            try { localStorage.setItem(`kb-${id}`, JSON.stringify(created.initial_tasks)) } catch {}
+            try { localStorage.setItem(`kb-${id}`, JSON.stringify(created.initial_tasks)) } catch { }
           }
           // Persist chosen color
-          try { await apiFetch(`/projects/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ color }) }) } catch {}
+          try { await apiFetch(`/projects/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ color }) }) } catch { }
           // Update progress steps from server meta
           prog.updateFromMeta(created)
           // Close create form and show success
@@ -926,9 +926,9 @@ function openCreateProjectModal(root: HTMLElement): void {
           const color = randomCardColor()
           addProjectToGrid(root, { id, name, start: extra.start, end: extra.end, color })
           if (Array.isArray(created?.initial_tasks)) {
-            try { localStorage.setItem(`kb-${id}`, JSON.stringify(created.initial_tasks)) } catch {}
+            try { localStorage.setItem(`kb-${id}`, JSON.stringify(created.initial_tasks)) } catch { }
           }
-          try { await apiFetch(`/projects/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ color }) }) } catch {}
+          try { await apiFetch(`/projects/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ color }) }) } catch { }
           prog.updateFromMeta(created)
           close(); loadProjects(root); prog.showSuccess(id)
         }
@@ -1039,8 +1039,8 @@ function validateProjectForm(scope: HTMLElement, payload: any): boolean {
   const end = payload.end ? new Date(payload.end) : null
   if (start && end && start.getTime() > end.getTime()) {
     scope.querySelector('#err-date')?.classList.remove('hidden')
-    ;(scope.querySelector('#pj-start') as HTMLElement | null)?.classList.add('ring-rose-600')
-    ;(scope.querySelector('#pj-end') as HTMLElement | null)?.classList.add('ring-rose-600')
+      ; (scope.querySelector('#pj-start') as HTMLElement | null)?.classList.add('ring-rose-600')
+      ; (scope.querySelector('#pj-end') as HTMLElement | null)?.classList.add('ring-rose-600')
     ok = false
   }
   return ok
@@ -1059,17 +1059,17 @@ function addProjectToGrid(root: HTMLElement, p: Project): void {
     const idAttr = (card as HTMLElement).getAttribute('data-id')
     if (idAttr) window.location.hash = `#/project/detail?id=${encodeURIComponent(idAttr)}`
   })
-  // right-click context menu
-  ;(card as HTMLElement).addEventListener('contextmenu', (ev) => {
-    ev.preventDefault(); ev.stopPropagation();
-    const idAttr = (card as HTMLElement).getAttribute('data-id')
-    if (idAttr) openCardMenu(root, card as HTMLElement, Number(idAttr))
-  })
-  ;(card as HTMLElement)?.querySelector('.card-menu')?.addEventListener('click', (ev) => {
-    ev.stopPropagation()
-    const idAttr = (card as HTMLElement).getAttribute('data-id')
-    if (idAttr) openCardMenu(root, card as HTMLElement, Number(idAttr))
-  })
+    // right-click context menu
+    ; (card as HTMLElement).addEventListener('contextmenu', (ev) => {
+      ev.preventDefault(); ev.stopPropagation();
+      const idAttr = (card as HTMLElement).getAttribute('data-id')
+      if (idAttr) openCardMenu(root, card as HTMLElement, Number(idAttr))
+    })
+    ; (card as HTMLElement)?.querySelector('.card-menu')?.addEventListener('click', (ev) => {
+      ev.stopPropagation()
+      const idAttr = (card as HTMLElement).getAttribute('data-id')
+      if (idAttr) openCardMenu(root, card as HTMLElement, Number(idAttr))
+    })
   sanitizeProjectGrid(grid as HTMLElement)
 }
 
@@ -1166,7 +1166,7 @@ function openCardMenu(root: HTMLElement, anchor: HTMLElement, id: number): void 
       })
       menu.appendChild(b)
     })
-  } catch {}
+  } catch { }
 
   document.body.appendChild(menu)
   // Reposition to keep menu within viewport
@@ -1183,7 +1183,7 @@ function openCardMenu(root: HTMLElement, anchor: HTMLElement, id: number): void 
 
 function renderNewProjectForm(me?: { name?: string }): string {
   const owner = me?.name ?? 'ユーザー'
-  const skills = ['Ruby','Python','Dart','Java','JavaScript','HTML','CSS','C++','C','Lisp','Rust','Julia','MATLAB','Haskell','COBOL']
+  const skills = ['Ruby', 'Python', 'Dart', 'Java', 'JavaScript', 'HTML', 'CSS', 'C++', 'C', 'Lisp', 'Rust', 'Julia', 'MATLAB', 'Haskell', 'COBOL']
   return `
     <div class="space-y-6">
       <section class="space-y-4">
@@ -1238,7 +1238,7 @@ function renderNewProjectForm(me?: { name?: string }): string {
 }
 
 function renderExistingRepoPanel(): string {
-  const skills = ['Ruby','Python','Dart','Java','JavaScript','HTML','CSS','C++','C','Lisp','Rust','Julia','MATLAB','Haskell','COBOL']
+  const skills = ['Ruby', 'Python', 'Dart', 'Java', 'JavaScript', 'HTML', 'CSS', 'C++', 'C', 'Lisp', 'Rust', 'Julia', 'MATLAB', 'Haskell', 'COBOL']
   return `
     <div class="grid gap-6 md:grid-cols-12">
       <div class="md:col-span-5">
