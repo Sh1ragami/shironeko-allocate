@@ -1221,7 +1221,7 @@ function buildDocsTab(panel: HTMLElement, pid: string, id: string): void {
 }
 
 function buildReportTab(panel: HTMLElement, pid: string): void {
-  const tasks = loadTasks(pid)
+  const tasks = K_loadTasks(pid)
   const counts = { todo: 0, doing: 0, review: 0, done: 0 } as Record<string, number>
   tasks.forEach(t => counts[t.status] = (counts[t.status] || 0) + 1)
   const today = new Date().toISOString().slice(0, 10)
@@ -1273,7 +1273,7 @@ function buildRoadmapTab(panel: HTMLElement, pid: string, id: string): void {
 
 function buildBurndownTab(panel: HTMLElement, pid: string): void {
   const days = 14
-  const tasks = loadTasks(pid)
+  const tasks = K_loadTasks(pid)
   const remaining = tasks.filter(t => t.status !== 'done').length
   const series = Array.from({ length: days }, (_, i) => remaining - Math.floor((remaining / days) * i))
   panel.innerHTML = `
@@ -1288,7 +1288,7 @@ function buildBurndownTab(panel: HTMLElement, pid: string): void {
 }
 
 function buildTimelineTab(panel: HTMLElement, pid: string): void {
-  const tasks = loadTasks(pid)
+  const tasks = K_loadTasks(pid)
   const events: Array<{ at: string; text: string; title: string }> = []
   tasks.forEach(t => (t.history || []).forEach(h => events.push({ at: h.at, text: h.text, title: t.title })))
   events.sort((a, b) => (b.at || '').localeCompare(a.at || ''))
@@ -1945,7 +1945,7 @@ async function renderKanban(root: HTMLElement, pid: string, targetId = 'kb-board
           }
         } catch { }
       } else {
-  const tasks = loadTasks(pid)
+  const tasks = K_loadTasks(pid)
         const idx = tasks.findIndex((t) => t.id === id)
         if (idx >= 0) tasks[idx].status = target
         saveTasks(pid, tasks)
