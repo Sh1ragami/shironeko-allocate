@@ -32,8 +32,8 @@ export function openTaskModal(root: HTMLElement, pid: string, taskId: string): v
   const overlay = document.createElement('div')
   overlay.className = 'fixed inset-0 z-[80] bg-black/60 backdrop-blur-[1px] grid place-items-center'
   overlay.innerHTML = `
-    <div class="relative w-[min(980px,95vw)] max-h-[90vh] overflow-hidden rounded-xl bg-neutral-900 ring-1 ring-neutral-700/70 shadow-2xl text-gray-100">
-      <div class="flex items-center h-12 px-6 border-b border-neutral-800/70">
+    <div class="relative w-[min(980px,95vw)] max-h-[90vh] overflow-hidden rounded-xl bg-neutral-800 ring-2 ring-neutral-600 shadow-2xl text-gray-100">
+      <div class="flex items-center h-12 px-6 border-b border-neutral-600">
         <div class="text-xl font-semibold">${esc(t.title)} <span class="text-gray-400 text-base">#${t.id}</span></div>
         <div class="ml-auto text-sm text-gray-300">${t.due ? `${t.due} まで` : ''}</div>
         <button class="ml-4 text-2xl text-neutral-300 hover:text-white" id="tk-close">×</button>
@@ -46,20 +46,20 @@ export function openTaskModal(root: HTMLElement, pid: string, taskId: string): v
             <span>${esc(t.assignee || 'Sh1ragami')}</span>
           </div>
         </div>
-        <div class="rounded-lg ring-1 ring-neutral-800/70 bg-neutral-900/70">
-          <div class="px-4 py-2 text-sm text-gray-300 border-b border-neutral-800/70">説明</div>
+        <div class="rounded-lg ring-2 ring-neutral-600 bg-neutral-900/70">
+          <div class="px-4 py-2 text-sm text-gray-300 border-b border-neutral-600">説明</div>
           <textarea id="tk-desc" class="w-full bg-transparent px-4 py-3 outline-none text-gray-100" rows="6" placeholder="タスク説明を記入">${esc(t.description || '')}</textarea>
         </div>
-        <div class="rounded-lg ring-1 ring-neutral-800/70 bg-neutral-900/70 p-4">
+        <div class="rounded-lg ring-2 ring-neutral-600 bg-neutral-900/70 p-4">
           <div class="text-sm text-gray-300 mb-4">アクティビティ</div>
           <ol class="space-y-3 text-sm">
             ${(t.history || []).map(h => `<li class=\"flex items-start gap-3\"><span class=\"w-2 h-2 rounded-full bg-neutral-500 mt-2\"></span><div><div class=\"text-gray-400\">${esc(h.by)} <span class=\"ml-2\">${esc(h.at)}</span></div><div class=\"text-gray-200\">${esc(h.text)}</div></div></li>`).join('')}
           </ol>
         </div>
-        <div class="rounded-lg ring-1 ring-neutral-800/70 bg-neutral-900/70">
-          <div class="px-4 py-2 text-sm text-gray-300 border-b border-neutral-800/70">コメントを追加する</div>
+        <div class="rounded-lg ring-2 ring-neutral-600 bg-neutral-900/70">
+          <div class="px-4 py-2 text-sm text-gray-300 border-b border-neutral-600">コメントを追加する</div>
           <div class="p-4 space-y-3">
-            <textarea id="tk-comment" rows="4" class="w-full rounded-md bg-neutral-800/60 ring-1 ring-neutral-700/60 px-3 py-2 text-gray-100 placeholder:text-gray-500" placeholder="Markdown を使ってコメントを書けます"></textarea>
+            <textarea id="tk-comment" rows="4" class="w-full rounded-md bg-neutral-800/60 ring-2 ring-neutral-600 px-3 py-2 text-gray-100 placeholder:text-gray-500" placeholder="Markdown を使ってコメントを書けます"></textarea>
             <div class="flex justify-end">
               <button id="tk-submit" class="rounded-md bg-emerald-700 hover:bg-emerald-600 text-white text-sm font-medium px-4 py-2">コメントを追加</button>
             </div>

@@ -104,14 +104,19 @@ class GitHubProxyController extends Controller
 
     public function searchUsers(Request $request)
     {
-        $q = $request->string('q')->toString();
+        // Accept both `q` and `query` for compatibility with frontend
+        $q = $request->has('q') ? $request->string('q')->toString() : $request->string('query')->toString();
         if (!$q) return response()->json(['items' => []]);
         $headers = ['User-Agent' => 'shironeko-allocate', 'Accept' => 'application/vnd.github+json'];
         $tokenEnc = $request->user()?->github_access_token;
         if ($tokenEnc) {
             try { $headers['Authorization'] = 'Bearer '.Crypt::decryptString($tokenEnc); } catch (\Throwable $e) {}
         }
-        $res = Http::withHeaders($headers)->get('https://api.github.com/search/users', ['q' => $q, 'per_page' => 10]);
+        // Narrow to user logins for better relevance
+        $query = trim($q);
+        if ($query !== '') $query .= ' in:login type:user';
+        $res = Http::withHeaders($headers)->get('https://api.github.com/search/users', ['q' => $query, 'per_page' => 10]);
+        if (!$res->ok()) return response()->json(['items' => []], $res->status());
         return $res->json();
     }
 

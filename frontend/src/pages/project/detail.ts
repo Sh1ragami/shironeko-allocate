@@ -25,12 +25,12 @@ function renderSkillSection(kind: SkillGroup, title: string, uid?: number): stri
   return `
     <section class="space-y-3" data-skill-section="${kind}">
       <div class="text-sm text-gray-400">${title}</div>
-      <div class="rounded-lg ring-1 ring-neutral-700/60 bg-neutral-900/40 p-3 flex flex-wrap gap-2">
-        ${seed.map((s) => `<button class=\"skill-pill px-3 py-1.5 rounded-full text-sm ring-1 ${selected.has(s) ? 'bg-emerald-700 text-white ring-emerald-600' : 'bg-neutral-800/60 text-gray-200 ring-neutral-700/60'}\" data-skill=\"${s}\">${skillIcon(s)}${s}</button>`).join('')}
+      <div class="rounded-lg ring-2 ring-neutral-600 bg-neutral-900/40 p-3 flex flex-wrap gap-2">
+        ${seed.map((s) => `<button class=\"skill-pill px-3 py-1.5 rounded-full text-sm ring-2 ${selected.has(s) ? 'bg-emerald-700 text-white ring-emerald-600' : 'bg-neutral-800/60 text-gray-200 ring-neutral-600'}\" data-skill=\"${s}\">${skillIcon(s)}${s}</button>`).join('')}
       </div>
       <button class="see-all text-xs mx-auto block text-gray-400 hover:text-gray-200">+ すべてみる</button>
-      <div class="more-skills hidden rounded-lg ring-1 ring-neutral-700/60 bg-neutral-900/40 p-3 flex flex-wrap gap-2 max-h-48 overflow-auto">
-        ${ALL_SKILLS.map((s) => `<button class=\"skill-pill px-3 py-1.5 rounded-full text-sm ring-1 ${selected.has(s) ? 'bg-emerald-700 text-white ring-emerald-600' : 'bg-neutral-800/60 text-gray-200 ring-neutral-700/60'}\" data-skill=\"${s}\">${skillIcon(s)}${s}</button>`).join('')}
+      <div class="more-skills hidden rounded-lg ring-2 ring-neutral-600 bg-neutral-900/40 p-3 flex flex-wrap gap-2 max-h-48 overflow-auto">
+        ${ALL_SKILLS.map((s) => `<button class=\"skill-pill px-3 py-1.5 rounded-full text-sm ring-2 ${selected.has(s) ? 'bg-emerald-700 text-white ring-emerald-600' : 'bg-neutral-800/60 text-gray-200 ring-neutral-600'}\" data-skill=\"${s}\">${skillIcon(s)}${s}</button>`).join('')}
       </div>
     </section>
   `
@@ -55,24 +55,24 @@ function openAccountModal(root: HTMLElement): void {
   overlay.id = 'accountOverlay'
   overlay.className = 'fixed inset-0 z-50 bg-black/60 backdrop-blur-[1px] grid place-items-center'
   overlay.innerHTML = `
-    <div class="relative w-[min(960px,92vw)] h-[80vh] max-h-[86vh] overflow-hidden rounded-xl bg-neutral-900 ring-1 ring-neutral-700/70 shadow-2xl text-gray-100">
-      <div class="flex items-center h-12 px-5 border-b border-neutral-800/70">
+    <div class="relative w-[min(960px,92vw)] h-[80vh] max-h-[86vh] overflow-hidden rounded-xl bg-neutral-800 ring-2 ring-neutral-600 shadow-2xl text-gray-100">
+      <div class="flex items-center h-12 px-5 border-b border-neutral-600">
         <h3 class="text-lg font-semibold">マイページ</h3>
         <button id="accountClose" class="ml-auto text-2xl text-neutral-300 hover:text-white">×</button>
       </div>
       <div class="flex">
-        <aside class="w-48 shrink-0 p-4 border-r border-neutral-800/70 space-y-2">
-          <button data-tab="basic" class="tab-btn w-full text-left px-3 py-2 rounded-md bg-neutral-800/60 ring-1 ring-neutral-700/60 text-gray-100">
+        <aside class="w-48 shrink-0 p-4 border-r border-neutral-600 space-y-2">
+          <button data-tab="basic" class="tab-btn w-full text-left px-3 py-2 rounded-md bg-neutral-800/60 ring-2 ring-neutral-600 text-gray-100">
             <span>基本情報</span>
           </button>
-          <button data-tab="notify" class="tab-btn w-full text-left px-3 py-2 rounded-md hover:bg-neutral-800/40 ring-1 ring-transparent text-gray-100">
+          <button data-tab="notify" class="tab-btn w-full text-left px-3 py-2 rounded-md hover:bg-neutral-800/40 ring-2 ring-transparent text-gray-100">
             <span>通知設定</span>
           </button>
         </aside>
         <section class="flex-1 p-6 space-y-6 overflow-y-auto">
           <div class="tab-panel" data-tab="basic">
             <div class="flex items-center gap-4">
-              <div class="w-16 h-16 rounded-full overflow-hidden bg-neutral-700 ring-1 ring-neutral-600/70">
+            <div class="w-16 h-16 rounded-full overflow-hidden bg-neutral-700 ring-2 ring-neutral-600">
                 ${avatarUrl ? `<img src="${avatarUrl}" class="w-full h-full object-cover"/>` : ''}
               </div>
               <div>
@@ -81,7 +81,7 @@ function openAccountModal(root: HTMLElement): void {
               </div>
               <button id="logoutBtn" class="ml-auto inline-flex items-center rounded-md bg-rose-700 hover:bg-rose-600 text-white text-sm font-medium px-3 py-1.5">ログアウト</button>
             </div>
-            <hr class="my-6 border-neutral-800/70"/>
+            <hr class="my-6 border-neutral-600"/>
             <h4 class="text-base font-medium">ユーザー設定</h4>
             <div class="space-y-6">
               ${renderSkillSection('owned', '所有スキル一覧', (root as any)._me?.id)}
@@ -89,7 +89,7 @@ function openAccountModal(root: HTMLElement): void {
             </div>
           </div>
           <div class="tab-panel hidden" data-tab="notify">
-            <div class="mb-6 p-4 rounded-lg ring-1 ring-neutral-700/60 bg-neutral-900/60">
+            <div class="mb-6 p-4 rounded-lg ring-2 ring-neutral-600 bg-neutral-900/60">
               <p class="text-gray-300">Slackと連携することで、アクティビティをSlack通知で受け取ることができるようになります。</p>
               <div class="mt-3">
                 <button class="inline-flex items-center gap-2 rounded-md px-4 py-2 text-white font-medium bg-gradient-to-r from-fuchsia-600 to-violet-600 hover:brightness-110">
@@ -100,10 +100,10 @@ function openAccountModal(root: HTMLElement): void {
             </div>
             <section class="space-y-3">
               <h4 class="text-base font-medium">通知のタイミング</h4>
-              <div class="divide-y divide-neutral-800/70 ring-1 ring-neutral-800/60 rounded-lg overflow-hidden">
+              <div class="divide-y divide-neutral-600 ring-2 ring-neutral-600 rounded-lg overflow-hidden">
                 ${notifyRow('レビュアーに割り当てられた時')}
                 ${notifyRow('新しいタスクが割り当てられた時')}
-                ${notifyRow('担当タスクの期日が近くなった時', '<span class="ml-2 text-xs rounded-md bg-neutral-800/80 ring-1 ring-neutral-700/60 px-2 py-0.5 text-gray-300">3日前</span>')}
+                ${notifyRow('担当タスクの期日が近くなった時', '<span class="ml-2 text-xs rounded-md bg-neutral-800/80 ring-2 ring-neutral-600 px-2 py-0.5 text-gray-300">3日前</span>')}
                 ${notifyRow('自分のタスクに対するレビューが完了した時')}
               </div>
             </section>
@@ -117,9 +117,9 @@ function openAccountModal(root: HTMLElement): void {
                 </button>
               </div>
               <div class="mt-2 flex items-center gap-4 text-gray-200">
-                <input id="ntf-start" type="time" value="06:30" class="w-32 rounded-md bg-neutral-800/60 ring-1 ring-neutral-700/60 px-3 py-1.5 text-gray-100" />
+                <input id="ntf-start" type="time" value="06:30" class="w-32 rounded-md bg-neutral-800/60 ring-2 ring-neutral-600 px-3 py-1.5 text-gray-100" />
                 <span class="text-gray-400">〜</span>
-                <input id="ntf-end" type="time" value="20:30" class="w-32 rounded-md bg-neutral-800/60 ring-1 ring-neutral-700/60 px-3 py-1.5 text-gray-100" />
+                <input id="ntf-end" type="time" value="20:30" class="w-32 rounded-md bg-neutral-800/60 ring-2 ring-neutral-600 px-3 py-1.5 text-gray-100" />
               </div>
             </section>
           </div>
@@ -144,8 +144,8 @@ function openAccountModal(root: HTMLElement): void {
       overlay.querySelectorAll('.tab-btn')?.forEach((b) => {
         const active = b === btn
         b.classList.toggle('bg-neutral-800/60', active)
-        b.classList.toggle('ring-1', active)
-        b.classList.toggle('ring-neutral-700/60', active)
+        b.classList.toggle('ring-2', active)
+        b.classList.toggle('ring-neutral-600', active)
       })
     })
   })
@@ -183,7 +183,7 @@ function openAccountModal(root: HTMLElement): void {
     btn.classList.toggle('ring-emerald-600')
     btn.classList.toggle('bg-neutral-800/60')
     btn.classList.toggle('text-gray-200')
-    btn.classList.toggle('ring-neutral-700/60')
+    btn.classList.toggle('ring-neutral-600')
   }
   overlay.querySelectorAll('section[data-skill-section]')?.forEach((sec) => {
     const section = sec as HTMLElement
@@ -230,7 +230,7 @@ function parseHashQuery(): Record<string, string> {
 }
 
 export async function renderProjectDetail(container: HTMLElement): Promise<void> {
-  container.innerHTML = `<div class="min-h-screen bg-neutral-900 text-gray-100 grid"><div class="p-8">読み込み中...</div></div>`
+  container.innerHTML = `<div class="min-h-screen bg-neutral-950 text-gray-100 grid"><div class="p-8">読み込み中...</div></div>`
 
   const { id } = parseHashQuery()
   if (!id) {
@@ -350,19 +350,19 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
 
 function widgetShell(id: string, title: string, body: string): string {
   return `
-    <div class="widget group rounded-xl ring-1 ring-neutral-700/60 bg-neutral-900/50 p-4 md:col-span-6 flex flex-col overflow-hidden" draggable="false" data-widget="${id}">
+    <div class="widget group rounded-xl ring-2 ring-neutral-600 bg-neutral-900/50 p-4 md:col-span-6 flex flex-col overflow-hidden" draggable="false" data-widget="${id}">
       <div class="flex items-center pb-2 mb-3 border-b border-neutral-700/60">
         <div class="text-sm text-gray-300">${title}</div>
         <div class="wg-tools ml-auto opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 text-xs flex items-center gap-1">
           <span class="hidden md:inline">横:</span>
-          <button class="w-size px-1 py-0.5 rounded ring-1 ring-neutral-700/60 hover:bg-neutral-800" data-size="sm">S</button>
-          <button class="w-size px-1 py-0.5 rounded ring-1 ring-neutral-700/60 hover:bg-neutral-800" data-size="md">M</button>
-          <button class="w-size px-1 py-0.5 rounded ring-1 ring-neutral-700/60 hover:bg-neutral-800" data-size="lg">L</button>
+          <button class="w-size px-1 py-0.5 rounded ring-2 ring-neutral-600 hover:bg-neutral-800" data-size="sm">S</button>
+          <button class="w-size px-1 py-0.5 rounded ring-2 ring-neutral-600 hover:bg-neutral-800" data-size="md">M</button>
+          <button class="w-size px-1 py-0.5 rounded ring-2 ring-neutral-600 hover:bg-neutral-800" data-size="lg">L</button>
           <span class="hidden md:inline ml-2">縦:</span>
-          <button class="w-h px-1 py-0.5 rounded ring-1 ring-neutral-700/60 hover:bg-neutral-800" data-h="sm">S</button>
-          <button class="w-h px-1 py-0.5 rounded ring-1 ring-neutral-700/60 hover:bg-neutral-800" data-h="md">M</button>
-          <button class="w-h px-1 py-0.5 rounded ring-1 ring-neutral-700/60 hover:bg-neutral-800" data-h="lg">L</button>
-          <button class="w-del px-2 py-0.5 rounded ring-1 ring-rose-700/70 text-rose-400 hover:bg-rose-900/30">削除</button>
+          <button class="w-h px-1 py-0.5 rounded ring-2 ring-neutral-600 hover:bg-neutral-800" data-h="sm">S</button>
+          <button class="w-h px-1 py-0.5 rounded ring-2 ring-neutral-600 hover:bg-neutral-800" data-h="md">M</button>
+          <button class="w-h px-1 py-0.5 rounded ring-2 ring-neutral-600 hover:bg-neutral-800" data-h="lg">L</button>
+          <button class="w-del px-2 py-0.5 rounded ring-2 ring-rose-600 text-rose-400 hover:bg-rose-900/30">削除</button>
         </div>
       </div>
       <div class="wg-content min-h-0 flex-1 overflow-auto">${body}</div>
@@ -372,7 +372,7 @@ function widgetShell(id: string, title: string, body: string): string {
 
 function addWidgetCard(): string {
   // Always stay at the bottom and take full width on desktop so it doesn't get in the way
-  return `<button id="addWidget" class="order-last md:col-span-12 rounded-xl ring-1 ring-neutral-800/70 bg-neutral-900/40 grid place-items-center text-gray-400 h-24 md:h-28">ウィジェット追加<br/><span class="text-2xl md:text-3xl">＋</span></button>`
+  return `<button id="addWidget" class="order-last md:col-span-12 rounded-xl ring-2 ring-neutral-600 bg-neutral-900/40 grid place-items-center text-gray-400 h-24 md:h-28">ウィジェット追加<br/><span class="text-2xl md:text-3xl">＋</span></button>`
 }
 
 function contributionWidget(): string {
@@ -398,7 +398,7 @@ function barSkeleton(): string {
 }
 
 function readmeSkeleton(): string {
-  return `<div class="h-full overflow-auto rounded bg-neutral-950/40 ring-1 ring-neutral-800/70 p-4 text-gray-200 whitespace-pre-wrap">Loading README...</div>`
+  return `<div class="h-full overflow-auto rounded bg-neutral-950/40 ring-2 ring-neutral-600 p-4 text-gray-200 whitespace-pre-wrap">Loading README...</div>`
 }
 
 function hydrateOverview(root: HTMLElement, repo: any): void {
@@ -444,7 +444,7 @@ function committersRender(root: HTMLElement, stats: Array<{ login: string; avata
   wrap.innerHTML = `
     <div class="relative w-full h-full">
       <div class="absolute inset-0 grid" style="grid-template-rows: repeat(4, 1fr)">
-        ${[0, 1, 2, 3].map(() => '<div class=\"border-t border-dotted border-neutral-700/60\"></div>').join('')}
+        ${[0, 1, 2, 3].map(() => '<div class=\"border-t border-dotted border-neutral-600\"></div>').join('')}
       </div>
       <div class="absolute inset-0 flex items-end ${gapClass} justify-evenly px-2 md:px-4">
         ${top
@@ -454,7 +454,7 @@ function committersRender(root: HTMLElement, stats: Array<{ login: string; avata
             <div class=\"w-5 md:w-8\" style=\"height: calc(100% - ${reserve}px); display: flex; align-items: flex-end;\">
               <div class=\"w-full bg-emerald-600 rounded\" style=\"height:${Math.round((100 * s.count) / max)}%\"></div>
             </div>
-            <img src=\"${s.avatar_url || ''}\" class=\"mt-1 md:mt-2 rounded-full ring-1 ring-neutral-700/60 object-cover\" style=\"width:${avatarSize}px; height:${avatarSize}px;\"/>
+            <img src=\"${s.avatar_url || ''}\" class=\"mt-1 md:mt-2 rounded-full ring-2 ring-neutral-600 object-cover\" style=\"width:${avatarSize}px; height:${avatarSize}px;\"/>
             <div class=\"mt-1 text-[10px] md:text-xs text-gray-300 truncate max-w-[72px]\">${s.login}</div>
           </div>`
       )
@@ -549,7 +549,7 @@ function enableDragAndDrop(root: HTMLElement): void {
   const openBgMenu = (x: number, y: number, widget: HTMLElement) => {
     closeBgMenu()
     const menu = document.createElement('div')
-    menu.className = 'fixed rounded-md ring-1 ring-neutral-700/70 bg-neutral-900 shadow-lg p-2 text-xs text-gray-200'
+    menu.className = 'fixed rounded-md ring-2 ring-neutral-600 bg-neutral-900 shadow-lg p-2 text-xs text-gray-200'
     menu.style.left = `${Math.max(8, Math.min(window.innerWidth - 180, x))}px`
     menu.style.top = `${Math.max(8, Math.min(window.innerHeight - 200, y))}px`
     menu.style.zIndex = '70'
@@ -564,7 +564,7 @@ function enableDragAndDrop(root: HTMLElement): void {
     menu.innerHTML = `<div class="mb-1 text-[11px] text-gray-400 px-1">背景色を選択</div>` +
       opts.map(o => `
         <button class=\"w-full flex items-center gap-2 px-2 py-1 rounded hover:bg-neutral-800/60\" data-bg=\"${o.val}\">
-          <span class=\"inline-block w-4 h-4 rounded ring-1 ring-neutral-700/60\" style=\"background:${o.val || 'transparent'}\"></span>
+          <span class=\"inline-block w-4 h-4 rounded ring-2 ring-neutral-600\" style=\"background:${o.val || 'transparent'}\"></span>
           <span>${o.label}</span>
         </button>
       `).join('')
@@ -840,7 +840,7 @@ function applyWidgetSizes(root: HTMLElement, pid: string): void {
         // inactive style (subtle)
         el.classList.toggle('bg-neutral-800/40', !isActive)
         el.classList.toggle('text-gray-200', !isActive)
-        el.classList.toggle('ring-neutral-700/60', !isActive)
+        el.classList.toggle('ring-neutral-600', !isActive)
         el.setAttribute('aria-pressed', isActive ? 'true' : 'false')
       })
     }
@@ -888,14 +888,14 @@ function openWidgetPickerModal(root: HTMLElement, pid: string): void {
   const overlay = document.createElement('div')
   overlay.className = 'fixed inset-0 z-[66] bg-black/60 backdrop-blur-[1px] grid place-items-center fade-overlay'
   overlay.innerHTML = `
-    <div class="relative w-[min(1200px,96vw)] max-h-[90vh] overflow-hidden rounded-xl bg-neutral-900 ring-1 ring-neutral-700/70 shadow-2xl text-gray-100 pop-modal">
-      <header class="h-12 flex items-center px-5 border-b border-neutral-800/70">
+    <div class="relative w-[min(1200px,96vw)] max-h-[90vh] overflow-hidden rounded-xl bg-neutral-900 ring-2 ring-neutral-600 shadow-2xl text-gray-100 pop-modal">
+      <header class="h-12 flex items-center px-5 border-b border-neutral-600">
         <h3 class="text-lg font-semibold">ウィジェット一覧</h3>
         <button id="wp-close" class="ml-auto text-2xl text-neutral-300 hover:text-white">×</button>
       </header>
       <div class="flex h-[calc(90vh-3rem)]">
-        <aside class="w-56 shrink-0 p-4 border-r border-neutral-800/70 space-y-2">
-          <button class="wp-cat w-full text-left px-3 py-2 rounded bg-neutral-800/70 ring-1 ring-neutral-700/60 text-sm" data-cat="all">すべて</button>
+        <aside class="w-56 shrink-0 p-4 border-r border-neutral-600 space-y-2">
+          <button class="wp-cat w-full text-left px-3 py-2 rounded bg-neutral-800/70 ring-2 ring-neutral-600 text-sm" data-cat="all">すべて</button>
           <button class="wp-cat w-full text-left px-3 py-2 rounded hover:bg-neutral-800/40 text-sm" data-cat="github">GitHub</button>
           <button class="wp-cat w-full text-left px-3 py-2 rounded hover:bg-neutral-800/40 text-sm" data-cat="text">テキスト</button>
           <button class="wp-cat w-full text-left px-3 py-2 rounded hover:bg-neutral-800/40 text-sm" data-cat="manage">管理</button>
@@ -943,8 +943,8 @@ function openWidgetPickerModal(root: HTMLElement, pid: string): void {
     cats.forEach((b) => {
       const on = (b as HTMLElement).getAttribute('data-cat') === cat
       b.classList.toggle('bg-neutral-800/70', on)
-      b.classList.toggle('ring-1', on)
-      b.classList.toggle('ring-neutral-700/60', on)
+      b.classList.toggle('ring-2', on)
+      b.classList.toggle('ring-neutral-600', on)
     })
   }
   cats.forEach((b) => b.addEventListener('click', () => applyCat((b as HTMLElement).getAttribute('data-cat') || 'all')))
@@ -954,7 +954,7 @@ function openWidgetPickerModal(root: HTMLElement, pid: string): void {
 
 function widgetCard(type: string, title: string): string {
   return `
-    <button type="button" data-widget-type="${type}" class="group block rounded-xl overflow-hidden ring-1 ring-neutral-700/60 hover:ring-emerald-600 transition pop-card btn-press">
+    <button type="button" data-widget-type="${type}" class="group block rounded-xl overflow-hidden ring-2 ring-neutral-600 hover:ring-emerald-600 transition pop-card btn-press">
       <div class="h-40 md:h-44 bg-neutral-800/80 grid place-items-center text-gray-300 relative px-2">
         ${widgetThumb(type)}
       </div>
@@ -973,21 +973,21 @@ function widgetThumb(type: string): string {
     }).join('')
     return `<div class="w-full h-24 overflow-hidden"><div class="grid grid-cols-12 gap-1">${cells}</div></div>`
   }
-  if (type === 'overview') return `<div class="w-full h-20 bg-neutral-900/60 ring-1 ring-neutral-600/60 rounded p-2"><div class="h-2 bg-neutral-800 rounded mb-2"><div class="h-2 bg-emerald-600 rounded w-2/3"></div></div><div class="h-2 bg-neutral-800 rounded w-1/2"></div></div>`
+  if (type === 'overview') return `<div class="w-full h-20 bg-neutral-900/60 ring-2 ring-neutral-600 rounded p-2"><div class="h-2 bg-neutral-800 rounded mb-2"><div class="h-2 bg-emerald-600 rounded w-2/3"></div></div><div class="h-2 bg-neutral-800 rounded w-1/2"></div></div>`
   if (type === 'committers') {
     const bars = ['h-6', 'h-10', 'h-14', 'h-8', 'h-5']
       .map((h) => `<div class="w-4 md:w-5 ${h} bg-emerald-700 rounded"></div>`)
       .join('')
     return `<div class="w-full h-24 flex items-end gap-1 px-2">${bars}</div>`
   }
-  if (type === 'readme') return `<div class="w-full h-24 bg-neutral-900/60 ring-1 ring-neutral-600/60 rounded p-2 text-xs text-gray-400"># README\n- Getting Started\n- Usage</div>`
-  if (type === 'markdown') return `<div class="w-full h-20 bg-neutral-900/60 ring-1 ring-neutral-600/60 rounded p-2 text-xs text-gray-400">## Markdown\n- リスト\n- **強調**</div>`
-  if (type === 'tasksum') return `<div class="w-full h-20 bg-neutral-900/60 ring-1 ring-neutral-600/60 rounded p-2 grid grid-cols-3 gap-2 text-[10px] text-gray-300"><div class="rounded bg-neutral-800/60 p-1 text-center">TODO<br/><span class="text-emerald-400">5</span></div><div class="rounded bg-neutral-800/60 p-1 text-center">DOING<br/><span class="text-emerald-400">3</span></div><div class="rounded bg-neutral-800/60 p-1 text-center">DONE<br/><span class="text-emerald-400">8</span></div></div>`
-  if (type === 'milestones') return `<div class="w-full h-20 bg-neutral-900/60 ring-1 ring-neutral-600/60 rounded p-2 text-xs text-gray-400"><div>v1.0 リリース</div><div class="text-gray-500">2025-01-31</div></div>`
-  if (type === 'links') return `<div class="w-full h-20 bg-neutral-900/60 ring-1 ring-neutral-600/60 rounded p-2 text-xs text-gray-400">- PR一覧\n- 仕様書</div>`
-  if (type === 'progress') return `<div class="w-full h-20 bg-neutral-900/60 ring-1 ring-neutral-600/60 rounded p-2"><div class="h-2 bg-neutral-800 rounded"><div class="h-2 bg-emerald-600 rounded w-1/2"></div></div><div class="text-[10px] text-gray-400 mt-1">50%</div></div>`
-  if (type === 'team') return `<div class="w-full h-20 bg-neutral-900/60 ring-1 ring-neutral-600/60 rounded p-2 text-xs text-gray-400">👥 メンバー</div>`
-  if (type === 'todo') return `<div class="w-full h-20 bg-neutral-900/60 ring-1 ring-neutral-600/60 rounded p-2 text-xs text-gray-400">- [ ] 項目</div>`
+  if (type === 'readme') return `<div class="w-full h-24 bg-neutral-900/60 ring-2 ring-neutral-600 rounded p-2 text-xs text-gray-400"># README\n- Getting Started\n- Usage</div>`
+  if (type === 'markdown') return `<div class="w-full h-20 bg-neutral-900/60 ring-2 ring-neutral-600 rounded p-2 text-xs text-gray-400">## Markdown\n- リスト\n- **強調**</div>`
+  if (type === 'tasksum') return `<div class="w-full h-20 bg-neutral-900/60 ring-2 ring-neutral-600 rounded p-2 grid grid-cols-3 gap-2 text-[10px] text-gray-300"><div class="rounded bg-neutral-800/60 p-1 text-center">TODO<br/><span class="text-emerald-400">5</span></div><div class="rounded bg-neutral-800/60 p-1 text-center">DOING<br/><span class="text-emerald-400">3</span></div><div class="rounded bg-neutral-800/60 p-1 text-center">DONE<br/><span class="text-emerald-400">8</span></div></div>`
+  if (type === 'milestones') return `<div class="w-full h-20 bg-neutral-900/60 ring-2 ring-neutral-600 rounded p-2 text-xs text-gray-400"><div>v1.0 リリース</div><div class="text-gray-500">2025-01-31</div></div>`
+  if (type === 'links') return `<div class="w-full h-20 bg-neutral-900/60 ring-2 ring-neutral-600 rounded p-2 text-xs text-gray-400">- PR一覧\n- 仕様書</div>`
+  if (type === 'progress') return `<div class="w-full h-20 bg-neutral-900/60 ring-2 ring-neutral-600 rounded p-2"><div class="h-2 bg-neutral-800 rounded"><div class="h-2 bg-emerald-600 rounded w-1/2"></div></div><div class="text-[10px] text-gray-400 mt-1">50%</div></div>`
+  if (type === 'team') return `<div class="w-full h-20 bg-neutral-900/60 ring-2 ring-neutral-600 rounded p-2 text-xs text-gray-400">👥 メンバー</div>`
+  if (type === 'todo') return `<div class="w-full h-20 bg-neutral-900/60 ring-2 ring-neutral-600 rounded p-2 text-xs text-gray-400">- [ ] 項目</div>`
   return `<div class="text-gray-400">Widget</div>`
 }
 
@@ -1039,7 +1039,7 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
         tasks.forEach(t => counts[t.status] = (counts[t.status] || 0) + 1)
         box.innerHTML = `
           <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
-            ${[['todo', 'TODO'], ['doing', 'DOING'], ['review', 'REVIEW'], ['done', 'DONE']].map(([k, label]) => `<div class=\"rounded ring-1 ring-neutral-700/60 bg-neutral-800/40 p-2 text-center\">${label}<div class=\"text-2xl text-emerald-400\">${counts[k] || 0}</div></div>`).join('')}
+            ${[['todo', 'TODO'], ['doing', 'DOING'], ['review', 'REVIEW'], ['done', 'DONE']].map(([k, label]) => `<div class=\"rounded ring-2 ring-neutral-600 bg-neutral-800/40 p-2 text-center\">${label}<div class=\"text-2xl text-emerald-400\">${counts[k] || 0}</div></div>`).join('')}
           </div>
         `
       }
@@ -1081,10 +1081,10 @@ function buildWidgetBody(type: string): string {
     case 'markdown': return markdownWidget()
     case 'tasksum': return `<div class=\"tasksum-body text-sm text-gray-200\"></div>`
     case 'milestones': return `<ul class=\"text-sm text-gray-200 space-y-2\"><li>企画 <span class=\"text-gray-400\">(完了)</span></li><li>実装 <span class=\"text-gray-400\">(進行中)</span></li><li>リリース <span class=\"text-gray-400\">(未着手)</span></li></ul>`
-    case 'links': return `<div class=\"links-body text-sm text-gray-200\"></div><div class=\"mt-2 text-xs\"><button class=\"lnk-add rounded ring-1 ring-neutral-700/60 px-2 py-0.5 hover:bg-neutral-800\">リンク追加</button></div>`
+    case 'links': return `<div class=\"links-body text-sm text-gray-200\"></div><div class=\"mt-2 text-xs\"><button class=\"lnk-add rounded ring-2 ring-neutral-600 px-2 py-0.5 hover:bg-neutral-800\">リンク追加</button></div>`
     case 'progress': return `<div class=\"progress-body\"><div class=\"h-2 bg-neutral-800 rounded\"><div class=\"h-2 bg-emerald-600 rounded w-0\"></div></div><div class=\"text-xs text-gray-400 mt-1\">0%</div></div>`
     case 'team': return `<div class=\"team-body text-sm text-gray-200\"><p class=\"text-gray-400\">読み込み中...</p></div>`
-    case 'todo': return `<div class=\"todo-body text-sm text-gray-200\"></div><div class=\"mt-2 text-xs\"><button class=\"todo-add rounded ring-1 ring-neutral-700/60 px-2 py-0.5 hover:bg-neutral-800\">項目追加</button></div>`
+    case 'todo': return `<div class=\"todo-body text-sm text-gray-200\"></div><div class=\"mt-2 text-xs\"><button class=\"todo-add rounded ring-2 ring-neutral-600 px-2 py-0.5 hover:bg-neutral-800\">項目追加</button></div>`
     case 'committers': return barSkeleton()
     default: return `<div class=\"h-40 grid place-items-center text-gray-400\">Mock</div>`
   }
@@ -1095,15 +1095,15 @@ function markdownWidget(): string {
   return `
     <div class="md-widget">
       <div class="md-toolbar text-xs text-gray-400 flex gap-2">
-        <button class="md-edit rounded ring-1 ring-neutral-700/60 px-2 py-0.5 hover:bg-neutral-800">編集</button>
+        <button class="md-edit rounded ring-2 ring-neutral-600 px-2 py-0.5 hover:bg-neutral-800">編集</button>
         <span class="md-status text-gray-500"></span>
       </div>
       <div class="md-preview whitespace-pre-wrap text-sm text-gray-200 mt-2"></div>
       <div class="md-editor hidden mt-3">
-        <textarea class="md-text w-full h-36 rounded-md bg-neutral-800/60 ring-1 ring-neutral-700/60 px-3 py-2 text-gray-100 placeholder:text-gray-500" placeholder="ここにMarkdownを書いてください"></textarea>
+        <textarea class="md-text w-full h-36 rounded-md bg-neutral-800/60 ring-2 ring-neutral-600 px-3 py-2 text-gray-100 placeholder:text-gray-500" placeholder="ここにMarkdownを書いてください"></textarea>
         <div class="mt-2 flex gap-2">
           <button class="md-save rounded bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-medium px-3 py-1.5">保存</button>
-          <button class="md-cancel rounded bg-neutral-800/60 ring-1 ring-neutral-700/60 text-gray-200 text-xs px-3 py-1.5">キャンセル</button>
+          <button class="md-cancel rounded bg-neutral-800/60 ring-2 ring-neutral-600 text-gray-200 text-xs px-3 py-1.5">キャンセル</button>
         </div>
       </div>
     </div>
@@ -1120,7 +1120,7 @@ function mdRenderToHtml(src: string): string {
   // Escape HTML
   let s = (src || '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string))
   // Code fences
-  s = s.replace(/```([\s\S]*?)```/g, (m, p1) => `<pre class=\"rounded bg-neutral-900 ring-1 ring-neutral-800/70 p-3 overflow-auto\"><code>${p1}</code></pre>`)
+  s = s.replace(/```([\s\S]*?)```/g, (m, p1) => `<pre class=\"rounded bg-neutral-900 ring-2 ring-neutral-600 p-3 overflow-auto\"><code>${p1}</code></pre>`)
   // Headings
   s = s.replace(/^######\s?(.*)$/gm, '<h6 class=\"text-xs font-semibold mt-2\">$1</h6>')
   s = s.replace(/^#####\s?(.*)$/gm, '<h5 class=\"text-sm font-semibold mt-2\">$1</h5>')
@@ -1154,14 +1154,14 @@ function renderDummyDetail(container: HTMLElement, id: string): void {
 // ---------- Custom tab builders ----------
 function buildNotesTab(panel: HTMLElement, pid: string, id: string): void {
   panel.innerHTML = `
-    <div class="rounded-xl ring-1 ring-neutral-800/70 bg-neutral-900/50 p-4 text-gray-200">
+    <div class="rounded-xl ring-2 ring-neutral-600 bg-neutral-900/50 p-4 text-gray-200">
       <div class="flex items-center gap-3 mb-3">
         <div class="text-sm text-gray-300">ノート</div>
         <button id="nt-save" class="ml-auto rounded bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-medium px-3 py-1.5">保存</button>
       </div>
       <div class="grid md:grid-cols-2 gap-4">
-        <textarea id="nt-text" class="w-full h-72 rounded-md bg-neutral-800/60 ring-1 ring-neutral-700/60 px-3 py-2 text-gray-100" placeholder="ここにMarkdownでノートを書けます"></textarea>
-        <div id="nt-preview" class="h-72 overflow-auto rounded-md bg-neutral-950/40 ring-1 ring-neutral-800/70 p-3 text-gray-100 whitespace-pre-wrap"></div>
+        <textarea id="nt-text" class="w-full h-72 rounded-md bg-neutral-800/60 ring-2 ring-neutral-600 px-3 py-2 text-gray-100" placeholder="ここにMarkdownでノートを書けます"></textarea>
+        <div id="nt-preview" class="h-72 overflow-auto rounded-md bg-neutral-950/40 ring-2 ring-neutral-600 p-3 text-gray-100 whitespace-pre-wrap"></div>
       </div>
     </div>
   `
@@ -1177,18 +1177,18 @@ function buildNotesTab(panel: HTMLElement, pid: string, id: string): void {
 
 function buildDocsTab(panel: HTMLElement, pid: string, id: string): void {
   panel.innerHTML = `
-    <div class="rounded-xl ring-1 ring-neutral-800/70 bg-neutral-900/50 p-0 text-gray-200 overflow-hidden">
+    <div class="rounded-xl ring-2 ring-neutral-600 bg-neutral-900/50 p-0 text-gray-200 overflow-hidden">
       <div class="flex">
-        <aside class="w-56 shrink-0 border-r border-neutral-800/70 p-3 space-y-2" id="dc-nav">
+        <aside class="w-56 shrink-0 border-r border-neutral-600 p-3 space-y-2" id="dc-nav">
           <div class="flex items-center gap-2">
             <div class="text-sm text-gray-300">ページ</div>
-            <button id="dc-add" class="ml-auto text-xs rounded bg-neutral-800/60 ring-1 ring-neutral-700/60 px-2 py-0.5">追加</button>
+            <button id="dc-add" class="ml-auto text-xs rounded bg-neutral-800/60 ring-2 ring-neutral-600 px-2 py-0.5">追加</button>
           </div>
           <div id="dc-list" class="space-y-1"></div>
         </aside>
         <section class="flex-1 p-4">
-          <input id="dc-title" class="w-full rounded bg-neutral-800/60 ring-1 ring-neutral-700/60 px-3 py-2 text-gray-100 mb-2" placeholder="タイトル" />
-          <textarea id="dc-body" class="w-full h-72 rounded bg-neutral-800/60 ring-1 ring-neutral-700/60 px-3 py-2 text-gray-100" placeholder="Markdownで本文"></textarea>
+          <input id="dc-title" class="w-full rounded bg-neutral-800/60 ring-2 ring-neutral-600 px-3 py-2 text-gray-100 mb-2" placeholder="タイトル" />
+          <textarea id="dc-body" class="w-full h-72 rounded bg-neutral-800/60 ring-2 ring-neutral-600 px-3 py-2 text-gray-100" placeholder="Markdownで本文"></textarea>
           <div class="mt-2 text-right">
             <button id="dc-save" class="rounded bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-medium px-3 py-1.5">保存</button>
           </div>
@@ -1227,10 +1227,10 @@ function buildReportTab(panel: HTMLElement, pid: string): void {
   const today = new Date().toISOString().slice(0, 10)
   const overdue = tasks.filter(t => t.due && t.due < today && t.status !== 'done')
   panel.innerHTML = `
-    <div class="rounded-xl ring-1 ring-neutral-800/70 bg-neutral-900/50 p-4 text-gray-200">
+    <div class="rounded-xl ring-2 ring-neutral-600 bg-neutral-900/50 p-4 text-gray-200">
       <div class="text-sm text-gray-300 mb-2">タスクサマリー</div>
       <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
-        ${[['TODO', 'todo'], ['DOING', 'doing'], ['REVIEW', 'review'], ['DONE', 'done']].map(([label, k]) => `<div class=\"rounded ring-1 ring-neutral-700/60 bg-neutral-800/40 p-3 text-center\">${label}<div class=\"text-2xl text-emerald-400\">${counts[k] || 0}</div></div>`).join('')}
+        ${[['TODO', 'todo'], ['DOING', 'doing'], ['REVIEW', 'review'], ['DONE', 'done']].map(([label, k]) => `<div class=\"rounded ring-2 ring-neutral-600 bg-neutral-800/40 p-3 text-center\">${label}<div class=\"text-2xl text-emerald-400\">${counts[k] || 0}</div></div>`).join('')}
       </div>
       <div class="mt-4">
         <div class="text-sm text-gray-300 mb-1">期限切れ</div>
@@ -1242,10 +1242,10 @@ function buildReportTab(panel: HTMLElement, pid: string): void {
 
 function buildRoadmapTab(panel: HTMLElement, pid: string, id: string): void {
   panel.innerHTML = `
-    <div class="rounded-xl ring-1 ring-neutral-800/70 bg-neutral-900/50 p-4 text-gray-200">
+    <div class="rounded-xl ring-2 ring-neutral-600 bg-neutral-900/50 p-4 text-gray-200">
       <div class="flex items-center gap-2 mb-3">
-        <input id="rd-title" class="rounded bg-neutral-800/60 ring-1 ring-neutral-700/60 px-2 py-1 text-sm" placeholder="項目名" />
-        <input id="rd-date" type="date" class="rounded bg-neutral-800/60 ring-1 ring-neutral-700/60 px-2 py-1 text-sm" />
+        <input id="rd-title" class="rounded bg-neutral-800/60 ring-2 ring-neutral-600 px-2 py-1 text-sm" placeholder="項目名" />
+        <input id="rd-date" type="date" class="rounded bg-neutral-800/60 ring-2 ring-neutral-600 px-2 py-1 text-sm" />
         <button id="rd-add" class="rounded bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-medium px-3 py-1.5">追加</button>
       </div>
       <div id="rd-list" class="space-y-2"></div>
@@ -1258,7 +1258,7 @@ function buildRoadmapTab(panel: HTMLElement, pid: string, id: string): void {
   const list = panel.querySelector('#rd-list') as HTMLElement
   const render = () => {
     const data = load().sort((a, b) => (a.date || '').localeCompare(b.date || ''))
-    list.innerHTML = data.length ? data.map(i => `<div class=\"rounded ring-1 ring-neutral-700/60 bg-neutral-800/40 p-2 flex items-center\"><div class=\"text-sm\">${i.title}</div><div class=\"ml-auto text-xs text-gray-400\">${i.date || '-'}</div></div>`).join('') : '<p class="text-sm text-gray-400">項目がありません。</p>'
+    list.innerHTML = data.length ? data.map(i => `<div class=\"rounded ring-2 ring-neutral-600 bg-neutral-800/40 p-2 flex items-center\"><div class=\"text-sm\">${i.title}</div><div class=\"ml-auto text-xs text-gray-400\">${i.date || '-'}</div></div>`).join('') : '<p class=\"text-sm text-gray-400\">項目がありません。</p>'
   }
   panel.querySelector('#rd-add')?.addEventListener('click', () => {
     const t = (panel.querySelector('#rd-title') as HTMLInputElement).value.trim()
@@ -1277,7 +1277,7 @@ function buildBurndownTab(panel: HTMLElement, pid: string): void {
   const remaining = tasks.filter(t => t.status !== 'done').length
   const series = Array.from({ length: days }, (_, i) => remaining - Math.floor((remaining / days) * i))
   panel.innerHTML = `
-    <div class="rounded-xl ring-1 ring-neutral-800/70 bg-neutral-900/50 p-4 text-gray-200">
+    <div class="rounded-xl ring-2 ring-neutral-600 bg-neutral-900/50 p-4 text-gray-200">
       <div class="text-sm text-gray-300 mb-2">簡易バーンダウン（${days}日）</div>
       <div class="h-40 flex items-end gap-1">
         ${series.map(v => `<div class=\"w-4 bg-emerald-700\" style=\"height:${Math.max(4, v * 6)}px\"></div>`).join('')}
@@ -1293,7 +1293,7 @@ function buildTimelineTab(panel: HTMLElement, pid: string): void {
   tasks.forEach(t => (t.history || []).forEach(h => events.push({ at: h.at, text: h.text, title: t.title })))
   events.sort((a, b) => (b.at || '').localeCompare(a.at || ''))
   panel.innerHTML = `
-    <div class="rounded-xl ring-1 ring-neutral-800/70 bg-neutral-900/50 p-4 text-gray-200">
+    <div class="rounded-xl ring-2 ring-neutral-600 bg-neutral-900/50 p-4 text-gray-200">
       <div class="text-sm text-gray-300 mb-2">最近のアクティビティ</div>
       ${events.length ? `<ul class=\"space-y-2\">${events.slice(0, 30).map(e => `<li class=\\"text-sm\\"><span class=\\"text-xs text-gray-400\\">${e.at}</span> - ${e.text} <span class=\\"text-xs text-gray-400\\">(${e.title})</span></li>`).join('')}</ul>` : '<p class="text-sm text-gray-400">記録がありません。</p>'}
     </div>
@@ -1305,7 +1305,7 @@ function buildWidgetTab(panel: HTMLElement, pid: string, scope: string, defaults
   panel.innerHTML = `
     <div class="space-y-3">
       <div class="flex items-center">
-        <button id="wgEditToggle" class="ml-auto text-xs rounded-md bg-neutral-800/60 ring-1 ring-neutral-700/60 px-2 py-1 text-gray-200">編集</button>
+        <button id="wgEditToggle" class="ml-auto text-xs rounded-md bg-neutral-800/60 ring-2 ring-neutral-600 px-2 py-1 text-gray-200">編集</button>
       </div>
       <div class="grid gap-7 md:gap-8 grid-cols-1 md:grid-cols-12" id="widgetGrid" data-pid="${pid}:${scope}" style="grid-auto-rows: 3.5rem;">
         ${addWidgetCard()}
@@ -1328,12 +1328,12 @@ function buildWidgetTab(panel: HTMLElement, pid: string, scope: string, defaults
 
 function detailLayout(ctx: { id: number; name: string; fullName: string }): string {
   return `
-    <div class="min-h-screen bg-neutral-900 text-gray-100">
+    <div class="min-h-screen bg-neutral-950 text-gray-100">
       <!-- Top global bar -->
-      <div class="h-14 bg-neutral-950/90 ring-1 ring-neutral-800/80 flex items-center px-6">
+      <div class="h-14 bg-neutral-950/90 ring-2 ring-neutral-700/80 flex items-center px-6">
         <div class="flex items-center gap-3">
           <!-- App logo circle -->
-          <div class="w-10 h-10 rounded-full bg-neutral-800 ring-1 ring-neutral-700/70 grid place-items-center">
+          <div class="w-10 h-10 rounded-full bg-neutral-800 ring-2 ring-neutral-600 grid place-items-center">
             <div class="grid grid-cols-3 grid-rows-3 gap-0.5 text-white/90">
               <div class="w-1.5 h-1.5 bg-white/90 col-start-2 row-start-1"></div>
               <div class="w-1.5 h-1.5 bg-white/90 col-start-1 row-start-2"></div>
@@ -1346,13 +1346,13 @@ function detailLayout(ctx: { id: number; name: string; fullName: string }): stri
           <span class="text-gray-500">/</span>
           <span class="text-sm text-gray-300" id="topPathRepo">Repo</span>
         </div>
-        <button id="accountTopBtn" class="ml-auto w-9 h-9 rounded-full overflow-hidden bg-neutral-700 ring-1 ring-neutral-700/70">
+        <button id="accountTopBtn" class="ml-auto w-9 h-9 rounded-full overflow-hidden bg-neutral-700 ring-2 ring-neutral-600">
           <img id="accountTopImg" class="w-full h-full object-cover hidden" alt="avatar" />
         </button>
       </div>
 
       <!-- Secondary header with title and actions -->
-      <div class="px-6 py-6 ring-1 ring-neutral-800/80 bg-neutral-900/80">
+      <div class="px-6 py-6 ring-2 ring-neutral-700/80 bg-neutral-900/80">
         <div class="flex items-center">
           <h1 id="pageTitle" class="text-2xl md:text-3xl font-semibold">${ctx.name}</h1>
           <div class="ml-auto flex items-center gap-4">
@@ -1370,7 +1370,7 @@ function detailLayout(ctx: { id: number; name: string; fullName: string }): stri
       <main class="p-8">
         <section class="space-y-3" id="tab-summary" data-tab="summary">
           <div class="flex items-center">
-            <button id="wgEditToggle" class="ml-auto text-xs rounded-md bg-neutral-800/60 ring-1 ring-neutral-700/60 px-2 py-1 text-gray-200">編集</button>
+            <button id="wgEditToggle" class="ml-auto text-xs rounded-md bg-neutral-800/60 ring-2 ring-neutral-600 px-2 py-1 text-gray-200">編集</button>
           </div>
           <div class="grid gap-7 md:gap-8 grid-cols-1 md:grid-cols-12" id="widgetGrid" data-pid="${ctx.id}" style="grid-auto-rows: 3.5rem;">
             ${widgetShell('contrib', 'Contributions', contributionWidget())}
@@ -1488,7 +1488,7 @@ function openTabContextMenu(root: HTMLElement, pid: string, arg: { kind: 'core' 
   const rect = btn.getBoundingClientRect()
   const menu = document.createElement('div')
   menu.id = 'tabCtxMenu'
-  menu.className = 'fixed z-[80] w-36 rounded-md bg-neutral-900 ring-1 ring-neutral-700/70 shadow-xl text-sm text-gray-200'
+  menu.className = 'fixed z-[80] w-36 rounded-md bg-neutral-900 ring-2 ring-neutral-600 shadow-xl text-sm text-gray-200'
   menu.style.top = `${rect.bottom + 6}px`
   menu.style.left = `${rect.left}px`
   menu.innerHTML = `
@@ -1514,16 +1514,16 @@ function openTabContextMenu(root: HTMLElement, pid: string, arg: { kind: 'core' 
     const pop = document.createElement('div')
     document.getElementById('tabRenamePop')?.remove()
     pop.id = 'tabRenamePop'
-    pop.className = 'fixed z-[81] w-[min(320px,92vw)] rounded-lg bg-neutral-900 ring-1 ring-neutral-700/70 shadow-xl p-2'
+    pop.className = 'fixed z-[81] w-[min(320px,92vw)] rounded-lg bg-neutral-900 ring-2 ring-neutral-600 shadow-xl p-2'
     pop.style.top = `${r.bottom + 8}px`
     pop.style.left = `${Math.max(12, Math.min(window.innerWidth - 340, r.left))}px`
     const currentTitle = kind === 'core' ? (getCoreTabs(pid)[id as 'summary' | 'board']?.title || '') : (btn.textContent || '')
     const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     pop.innerHTML = `
       <div class="flex items-center gap-2">
-        <input id="tr-name" type="text" class="flex-1 min-w-0 rounded-md bg-neutral-800/60 ring-1 ring-neutral-700/60 px-2 py-1.5 text-gray-100" value="${esc(currentTitle)}" />
+        <input id="tr-name" type="text" class="flex-1 min-w-0 rounded-md bg-neutral-800/60 ring-2 ring-neutral-600 px-2 py-1.5 text-gray-100" value="${esc(currentTitle)}" />
         <button id="tr-save" class="rounded-md bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-medium px-3 py-1.5 whitespace-nowrap shrink-0">保存</button>
-        <button id="tr-cancel" class="rounded-md bg-neutral-800/60 ring-1 ring-neutral-700/60 text-gray-200 text-xs px-3 py-1.5 whitespace-nowrap shrink-0">取消</button>
+        <button id="tr-cancel" class="rounded-md bg-neutral-800/60 ring-2 ring-neutral-600 text-gray-200 text-xs px-3 py-1.5 whitespace-nowrap shrink-0">取消</button>
       </div>
     `
     const remove = () => pop.remove()
@@ -1630,7 +1630,7 @@ function addCustomTab(root: HTMLElement, pid: string, type: TabTemplate, persist
     buildWidgetTab(panel, pid, id, [])
     root.querySelector('main')?.appendChild(panel)
   } else {
-    panel.innerHTML = `<div class=\"rounded-xl ring-1 ring-neutral-800/70 bg-neutral-900/50 p-8 text-gray-300\">${tabTitle(type)}（プレースホルダー）</div>`
+    panel.innerHTML = `<div class=\"rounded-xl ring-2 ring-neutral-600 bg-neutral-900/50 p-8 text-gray-300\">${tabTitle(type)}（プレースホルダー）</div>`
     root.querySelector('main')?.appendChild(panel)
   }
 
@@ -1734,7 +1734,7 @@ async function loadCollaborators(root: HTMLElement, projectId: number): Promise<
     const wrap = root.querySelector('#collabAvatars') as HTMLElement | null
     if (!wrap) return
     wrap.innerHTML = list
-      .map((u) => `<img title="${u.login}${u.status === 'pending' ? '（招待中）' : ''}" data-login="${u.login}" src="${u.avatar_url || ''}" class="w-9 h-9 rounded-full ring-1 ring-neutral-700/60 object-cover cursor-pointer"/>`)
+      .map((u) => `<img title="${u.login}${u.status === 'pending' ? '（招待中）' : ''}" data-login="${u.login}" src="${u.avatar_url || ''}" class="w-9 h-9 rounded-full ring-2 ring-neutral-600 object-cover cursor-pointer"/>`)
       .join('')
     wrap.querySelectorAll('img[data-login]')?.forEach((el) => {
       el.addEventListener('click', (e) => openCollabMenu(root, projectId, e.currentTarget as HTMLElement))
@@ -1748,14 +1748,14 @@ function openCollaboratorPopover(root: HTMLElement, projectId: number, anchor: H
   const rect = anchor.getBoundingClientRect()
   const pop = document.createElement('div')
   pop.id = 'collabPopover'
-  pop.className = 'fixed z-[70] w-[min(420px,92vw)] rounded-lg bg-neutral-900 ring-1 ring-neutral-700/70 shadow-xl'
+  pop.className = 'fixed z-[70] w-[min(420px,92vw)] rounded-lg bg-neutral-900 ring-2 ring-neutral-600 shadow-xl'
   pop.style.top = `${rect.bottom + 8}px`
   pop.style.left = `${Math.max(12, rect.right - 420)}px`
   pop.innerHTML = `
     <div class="p-3">
       <div class="text-sm text-gray-300 mb-2">GitHubユーザーを検索</div>
-      <input id="collabSearch" type="text" class="w-full rounded-md bg-neutral-800/70 ring-1 ring-neutral-700/60 px-3 py-2 text-gray-100" placeholder="ユーザー名で検索" />
-      <div id="collabResults" class="mt-3 max-h-64 overflow-y-auto divide-y divide-neutral-800/70"></div>
+      <input id="collabSearch" type="text" class="w-full rounded-md bg-neutral-800/70 ring-2 ring-neutral-600 px-3 py-2 text-gray-100" placeholder="ユーザー名で検索" />
+      <div id="collabResults" class="mt-3 max-h-64 overflow-y-auto divide-y divide-neutral-600"></div>
     </div>
   `
   const close = (ev?: MouseEvent) => {
@@ -1807,7 +1807,7 @@ function openCollabMenu(root: HTMLElement, projectId: number, anchor: HTMLElemen
   const r = anchor.getBoundingClientRect()
   const pop = document.createElement('div')
   pop.id = 'collabMenu'
-  pop.className = 'fixed z-[72] w-48 rounded-lg bg-neutral-900 ring-1 ring-neutral-700/70 shadow-xl'
+  pop.className = 'fixed z-[72] w-48 rounded-lg bg-neutral-900 ring-2 ring-neutral-600 shadow-xl'
   pop.style.top = `${r.bottom + 8}px`
   pop.style.left = `${Math.min(window.innerWidth - 200, Math.max(12, r.left - 24))}px`
   pop.innerHTML = `
@@ -1982,7 +1982,7 @@ async function renderKanban(root: HTMLElement, pid: string, targetId = 'kb-board
 function columnHtml(status: Status, tasks: Task[]): string {
   const def = STATUS_DEF[status]
   return `
-    <section class="rounded-xl ring-1 ring-neutral-800/70 bg-neutral-900/60 overflow-hidden flex flex-col" data-col="${status}">
+    <section class="rounded-xl ring-2 ring-neutral-600 bg-neutral-900/60 overflow-hidden flex flex-col" data-col="${status}">
       <header class="px-3 py-2 ${def.color} text-white text-sm">${def.label}</header>
       <div class="p-2 space-y-3 min-h-[300px]">
         ${tasks.map(taskCard).join('')}
@@ -1998,7 +1998,7 @@ function taskCard(t: Task): string {
   const assignee = t.assignee || 'Sh1ragami'
   const due = t.due || ''
   return `
-    <div class="rounded-lg ring-1 ring-neutral-700/60 bg-neutral-800/80 p-3 cursor-grab shadow-sm" draggable="true" data-task="${t.id}">
+    <div class="rounded-lg ring-2 ring-neutral-600 bg-neutral-800/80 p-3 cursor-grab shadow-sm" draggable="true" data-task="${t.id}">
       <div class="flex items-start justify-between">
         <div class="text-xs text-gray-400">${String(t.id).startsWith('gh-') ? '<span class=\\"text-white\\"></span> #' + String(t.id).slice(3) : '#' + t.id}</div>
         <div class="text-sm text-gray-300">${due}</div>
@@ -2024,64 +2024,64 @@ function openNewTaskModal(root: HTMLElement, pid: string, status: Status, target
   overlay.id = 'newTaskOverlay'
   overlay.className = 'fixed inset-0 z-[82] bg-black/60 grid place-items-center fade-overlay'
   overlay.innerHTML = `
-    <div class="relative w-[min(980px,95vw)] h-[86vh] overflow-hidden rounded-xl bg-neutral-900 ring-1 ring-neutral-700/70 text-gray-100 pop-modal">
-      <div class="flex items-center h-12 px-6 border-b border-neutral-800/70">
+    <div class="relative w-[min(980px,95vw)] h-[86vh] overflow-hidden rounded-xl bg-neutral-900 ring-2 ring-neutral-600 text-gray-100 pop-modal">
+      <div class="flex items-center h-12 px-6 border-b border-neutral-600">
         <div class="text-lg font-semibold">新しいタスクを追加</div>
         <button class="ml-auto text-2xl text-neutral-300 hover:text-white" id="nt-close">×</button>
       </div>
       <div class="p-6 space-y-8 overflow-y-auto" style="max-height: calc(86vh - 3rem);">
         <!-- Section 1: General -->
         <div class="flex items-start gap-3">
-          <div class="w-6 h-6 rounded-full bg-neutral-800 ring-1 ring-neutral-700/60 grid place-items-center text-sm">1</div>
+          <div class="w-6 h-6 rounded-full bg-neutral-800 ring-2 ring-neutral-600 grid place-items-center text-sm">1</div>
           <section class="flex-1 space-y-4">
             <h3 class="text-base font-medium">一般</h3>
             <div class="flex items-center gap-4">
               <div class="text-sm text-gray-400 w-24">担当者</div>
               <label class="flex items-center gap-2 text-sm text-gray-300"><input id="nt-auto" type="checkbox" class="accent-emerald-600" checked> 自動割り当て</label>
               <span class="text-gray-500">/</span>
-              <select id="nt-assigneeSel" class="rounded-md bg-neutral-800/60 ring-1 ring-neutral-700/60 px-2 py-2 text-gray-100">
+              <select id="nt-assigneeSel" class="rounded-md bg-neutral-800/60 ring-2 ring-neutral-600 px-2 py-2 text-gray-100">
                 <option value="">（選択）</option>
               </select>
-              <input id="nt-assignee" type="text" class="flex-1 rounded-md bg-neutral-800/60 ring-1 ring-neutral-700/60 px-3 py-2 text-gray-100 placeholder:text-gray-500" placeholder="自由入力（任意）" />
+              <input id="nt-assignee" type="text" class="flex-1 rounded-md bg-neutral-800/60 ring-2 ring-neutral-600 px-3 py-2 text-gray-100 placeholder:text-gray-500" placeholder="自由入力（任意）" />
             </div>
             <div class="flex items-center gap-4">
               <div class="text-sm text-gray-400 w-24">タスク名</div>
-              <input id="nt-title" type="text" required class="flex-1 rounded-md bg-neutral-800/60 ring-1 ring-neutral-700/60 px-3 py-2 text-gray-100 placeholder:text-gray-500" placeholder="タスク名" />
+              <input id="nt-title" type="text" required class="flex-1 rounded-md bg-neutral-800/60 ring-2 ring-neutral-600 px-3 py-2 text-gray-100 placeholder:text-gray-500" placeholder="タスク名" />
             </div>
             <p id="nt-err-title" class="text-rose-400 text-sm hidden">タスク名を入力してください。</p>
             <div>
               <div class="text-sm text-gray-400 mb-1">タスク説明</div>
-              <textarea id="nt-desc" rows="5" class="w-full rounded-md bg-neutral-800/60 ring-1 ring-neutral-700/60 px-3 py-2 text-gray-100 placeholder:text-gray-500" placeholder="説明（任意）"></textarea>
+              <textarea id="nt-desc" rows="5" class="w-full rounded-md bg-neutral-800/60 ring-2 ring-neutral-600 px-3 py-2 text-gray-100 placeholder:text-gray-500" placeholder="説明（任意）"></textarea>
             </div>
           </section>
         </div>
 
         <!-- Section 2: Config -->
         <div class="flex items-start gap-3">
-          <div class="w-6 h-6 rounded-full bg-neutral-800 ring-1 ring-neutral-700/60 grid place-items-center text-sm">2</div>
+          <div class="w-6 h-6 rounded-full bg-neutral-800 ring-2 ring-neutral-600 grid place-items-center text-sm">2</div>
           <section class="flex-1 space-y-4">
             <h3 class="text-base font-medium">構成</h3>
-            <div class="rounded-lg ring-1 ring-neutral-700/60 bg-neutral-900/40 p-4 space-y-3">
+            <div class="rounded-lg ring-2 ring-neutral-600 bg-neutral-900/40 p-4 space-y-3">
               <div class="text-sm text-gray-300">タスク種別を選択</div>
-              <div class="flex justify-end"><select id="nt-type" class="rounded-md bg-neutral-800/60 ring-1 ring-neutral-700/60 px-3 py-1.5 text-gray-100"><option value="feature">feature</option><option value="bug">bug</option><option value="chore">chore</option></select></div>
+              <div class="flex justify-end"><select id="nt-type" class="rounded-md bg-neutral-800/60 ring-2 ring-neutral-600 px-3 py-1.5 text-gray-100"><option value="feature">feature</option><option value="bug">bug</option><option value="chore">chore</option></select></div>
             </div>
-            <div class="rounded-lg ring-1 ring-neutral-700/60 bg-neutral-900/40 p-4 space-y-3">
+            <div class="rounded-lg ring-2 ring-neutral-600 bg-neutral-900/40 p-4 space-y-3">
               <div class="text-sm text-gray-300">期日を選択</div>
-              <div class="flex justify-end"><input id="nt-due" type="date" class="rounded-md bg-neutral-800/60 ring-1 ring-neutral-700/60 px-3 py-1.5 text-gray-100"/></div>
+              <div class="flex justify-end"><input id="nt-due" type="date" class="rounded-md bg-neutral-800/60 ring-2 ring-neutral-600 px-3 py-1.5 text-gray-100"/></div>
             </div>
-            <div class="rounded-lg ring-1 ring-neutral-700/60 bg-neutral-900/40 p-4 space-y-3">
+            <div class="rounded-lg ring-2 ring-neutral-600 bg-neutral-900/40 p-4 space-y-3">
               <div class="text-sm text-gray-300">タスク優先度を選択</div>
-              <div class="flex justify-end"><select id="nt-priority" class="rounded-md bg-neutral-800/60 ring-1 ring-neutral-700/60 px-3 py-1.5 text-gray-100"><option>自動設定</option><option>高</option><option selected>中</option><option>低</option></select></div>
+              <div class="flex justify-end"><select id="nt-priority" class="rounded-md bg-neutral-800/60 ring-2 ring-neutral-600 px-3 py-1.5 text-gray-100"><option>自動設定</option><option>高</option><option selected>中</option><option>低</option></select></div>
             </div>
-            <div class="rounded-lg ring-1 ring-neutral-700/60 bg-neutral-900/40 p-4 space-y-3">
+            <div class="rounded-lg ring-2 ring-neutral-600 bg-neutral-900/40 p-4 space-y-3">
               <div class="text-sm text-gray-300">スキル要件を選択</div>
-              <div id="nt-skills" class="flex flex-wrap gap-2">${['Ruby', 'Python', 'Dart', 'Java', 'JavaScript', 'HTML', 'CSS'].map((s, i) => `<button class=\"nt-skill px-3 py-1.5 rounded-full text-sm ring-1 ${i === 0 ? 'bg-emerald-700 text-white ring-emerald-600' : 'bg-neutral-800/60 text-gray-200 ring-neutral-700/60'}\" data-skill=\"${s}\">${s}</button>`).join('')}</div>
+              <div id="nt-skills" class="flex flex-wrap gap-2">${['Ruby', 'Python', 'Dart', 'Java', 'JavaScript', 'HTML', 'CSS'].map((s, i) => `<button class=\"nt-skill px-3 py-1.5 rounded-full text-sm ring-2 ${i === 0 ? 'bg-emerald-700 text-white ring-emerald-600' : 'bg-neutral-800/60 text-gray-200 ring-neutral-600'}\" data-skill=\"${s}\">${s}</button>`).join('')}</div>
               <p class="text-xs text-center text-gray-400">+ すべてみる</p>
             </div>
           </section>
         </div>
       </div>
-      <div class="absolute bottom-0 inset-x-0 p-4 border-t border-neutral-800/70 bg-neutral-900/80 flex justify-end">
+      <div class="absolute bottom-0 inset-x-0 p-4 border-t border-neutral-600 bg-neutral-900/80 flex justify-end">
         <button id="nt-submit" class="rounded-md bg-emerald-700 hover:bg-emerald-600 text-white text-sm font-medium px-4 py-2">タスクを追加</button>
       </div>
     </div>`
@@ -2097,7 +2097,7 @@ function openNewTaskModal(root: HTMLElement, pid: string, status: Status, target
       chip.classList.toggle('ring-emerald-600')
       chip.classList.toggle('bg-neutral-800/60')
       chip.classList.toggle('text-gray-200')
-      chip.classList.toggle('ring-neutral-700/60')
+      chip.classList.toggle('ring-neutral-600')
     })
   })
 

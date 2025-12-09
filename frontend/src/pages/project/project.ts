@@ -19,22 +19,22 @@ function projectCard(p: Project): string {
   if (!p || !p.id || (!p.name && !p.alias) || String(p.name || p.alias || '').trim() === '') return ''
   const color = p.color || 'blue'
   const style =
-    color === 'red' ? 'bg-rose-900/40 hover:bg-rose-900/55 ring-rose-900/50 hover:ring-rose-700/60'
-      : color === 'green' ? 'bg-emerald-900/40 hover:bg-emerald-900/55 ring-emerald-900/50 hover:ring-emerald-700/60'
-        : color === 'black' ? 'bg-black/60 hover:bg-black/70 ring-black/60 hover:ring-black/70'
-          : color === 'white' ? 'bg-white/10 hover:bg-white/15 ring-white/30 hover:ring-white/40'
-            : color === 'purple' ? 'bg-fuchsia-900/40 hover:bg-fuchsia-900/55 ring-fuchsia-900/50 hover:ring-fuchsia-700/60'
-              : color === 'orange' ? 'bg-orange-900/40 hover:bg-orange-900/55 ring-orange-900/50 hover:ring-orange-700/60'
-                : color === 'yellow' ? 'bg-yellow-900/40 hover:bg-yellow-900/55 ring-yellow-900/50 hover:ring-yellow-700/60'
-                  : color === 'gray' ? 'bg-neutral-800/60 hover:bg-neutral-800/70 ring-neutral-700/60 hover:ring-neutral-500/60'
-                    : 'bg-sky-900/40 hover:bg-sky-900/55 ring-sky-900/50 hover:ring-sky-700/60'
+    color === 'red' ? 'bg-rose-900/40 hover:bg-rose-900/55 ring-rose-800/70 hover:ring-rose-600/80'
+      : color === 'green' ? 'bg-emerald-900/40 hover:bg-emerald-900/55 ring-emerald-800/70 hover:ring-emerald-600/80'
+        : color === 'black' ? 'bg-black/60 hover:bg-black/70 ring-neutral-700/80 hover:ring-neutral-600/90'
+          : color === 'white' ? 'bg-white/10 hover:bg-white/15 ring-white/40 hover:ring-white/50'
+            : color === 'purple' ? 'bg-fuchsia-900/40 hover:bg-fuchsia-900/55 ring-fuchsia-800/70 hover:ring-fuchsia-600/80'
+              : color === 'orange' ? 'bg-orange-900/40 hover:bg-orange-900/55 ring-orange-800/70 hover:ring-orange-600/80'
+                : color === 'yellow' ? 'bg-yellow-900/40 hover:bg-yellow-900/55 ring-yellow-800/70 hover:ring-yellow-600/80'
+                  : color === 'gray' ? 'bg-neutral-800/60 hover:bg-neutral-800/70 ring-neutral-600 hover:ring-neutral-500'
+                    : 'bg-sky-900/40 hover:bg-sky-900/55 ring-sky-800/70 hover:ring-sky-600/80'
   const title = (p.alias && String(p.alias).trim() !== '' ? p.alias : p.name)
   return `
-    <button data-id="${p.id}" class="group relative w-full h-40 rounded-xl ring-1 ${style} shadow-sm text-left p-5 transition-colors pop-card btn-press">
+    <button data-id="${p.id}" class="group relative w-full h-40 rounded-xl ring-2 ${style} shadow-sm text-left p-5 transition-colors pop-card btn-press">
       <div class="text-base font-medium text-gray-100/90">${title}</div>
       <div class="mt-2 text-xs text-gray-400">${p.start ? `${p.start} ~ ${p.end ?? ''}` : '&nbsp;'}</div>
       <div class="absolute bottom-3 right-3 flex gap-2 items-center opacity-0 group-hover:opacity-80 pointer-events-none group-hover:pointer-events-auto transition-opacity">
-        <button type="button" class="card-menu inline-flex items-center gap-1 rounded-md bg-neutral-800/80 ring-1 ring-neutral-700/60 px-2 py-1 text-xs text-gray-300 hover:text-white">
+        <button type="button" class="card-menu inline-flex items-center gap-1 rounded-md bg-neutral-800/80 ring-2 ring-neutral-600 px-2 py-1 text-xs text-gray-300 hover:text-white">
           <span class="w-1.5 h-1.5 rounded-full bg-gray-300/70"></span>
           <span class="w-1.5 h-1.5 rounded-full bg-gray-300/70"></span>
           <span class="w-1.5 h-1.5 rounded-full bg-gray-300/70"></span>
@@ -46,7 +46,7 @@ function projectCard(p: Project): string {
 
 function createProjectCard(): string {
   return `
-    <button id="createCard" class="w-full h-40 rounded-xl bg-neutral-800/40 ring-1 ring-neutral-700/60 hover:ring-neutral-500/60 transition-colors grid place-items-center text-gray-300 pop-card btn-press">
+    <button id="createCard" class="w-full h-40 rounded-xl bg-neutral-800/40 ring-2 ring-neutral-600 hover:ring-neutral-500 transition-colors grid place-items-center text-gray-300 pop-card btn-press">
       <div class="text-center">
         <div class="text-sm mb-2">プロジェクト作成</div>
         <div class="text-3xl">＋</div>
@@ -57,12 +57,12 @@ function createProjectCard(): string {
 
 export function renderProject(container: HTMLElement): void {
   container.innerHTML = `
-    <div class="min-h-screen bg-neutral-900 text-gray-100">
+    <div class="min-h-screen bg-neutral-950 text-gray-100">
       <!-- Topbar -->
-      <div class="h-14 bg-neutral-900/95 ring-1 ring-neutral-800/80 flex items-center px-6">
+      <div class="h-14 bg-neutral-900/95 ring-2 ring-neutral-700/80 flex items-center px-6">
         <h1 class="text-lg font-semibold tracking-wide">プロジェクト一覧</h1>
         <div class="ml-auto flex items-center gap-3">
-          <button id="accountBtn" class="w-8 h-8 rounded-full overflow-hidden ring-1 ring-neutral-700/70 bg-neutral-700 grid place-items-center">
+          <button id="accountBtn" class="w-8 h-8 rounded-full overflow-hidden ring-2 ring-neutral-600 bg-neutral-700 grid place-items-center">
             <span class="sr-only">アカウント</span>
             <img id="accountAvatar" class="w-full h-full object-cover hidden" alt="avatar"/>
             <div id="accountFallback" class="text-xs text-neutral-300">Me</div>
@@ -72,7 +72,7 @@ export function renderProject(container: HTMLElement): void {
 
       <div class="flex">
         <!-- Sidebar -->
-        <aside class="hidden md:flex w-24 shrink-0 border-r border-neutral-800/70 min-h-[calc(100vh-3.5rem)] flex-col items-center pt-8 gap-6 bg-neutral-950/40" id="groupSidebar">
+        <aside class="hidden md:flex w-24 shrink-0 border-r border-neutral-600 min-h-[calc(100vh-3.5rem)] flex-col items-center pt-8 gap-6 bg-neutral-950/40" id="groupSidebar">
           <!-- groups will be injected here -->
           <button id="sidebar-create" class="mt-2 grid place-items-center w-10 h-10 rounded-full border border-dashed border-neutral-600 text-2xl text-neutral-400">+</button>
         </aside>
@@ -163,7 +163,7 @@ function openCreateProgress(msg: string) {
   overlay.id = 'pjProgress'
   overlay.className = 'fixed inset-0 z-[70] bg-black/50 backdrop-blur-[1px] grid place-items-center'
   overlay.innerHTML = `
-    <div class="w-[min(560px,92vw)] rounded-xl bg-neutral-900 ring-1 ring-neutral-700/70 shadow-2xl p-6 text-gray-100">
+    <div class="w-[min(560px,92vw)] rounded-xl bg-neutral-900 ring-2 ring-neutral-600 shadow-2xl p-6 text-gray-100">
       <div class="flex items-center gap-3">
         <div class="w-6 h-6 rounded-full border-2 border-emerald-500 border-t-transparent animate-spin" id="pjProgSpin"></div>
         <div id="pjProgMsg" class="text-sm">${msg}</div>
@@ -198,7 +198,7 @@ function openCreateProgress(msg: string) {
         </ul>
       </div>
       <div id="pjProgActions" class="mt-5 flex justify-end gap-3 hidden">
-        <button id="pjProgClose" class="rounded-md bg-neutral-800/60 ring-1 ring-neutral-700/60 px-3 py-1.5 text-gray-200">閉じる</button>
+        <button id="pjProgClose" class="rounded-md bg-neutral-800/60 ring-2 ring-neutral-600 px-3 py-1.5 text-gray-200">閉じる</button>
         <button id="pjProgOpen" class="hidden rounded-md bg-emerald-700 hover:bg-emerald-600 text-white px-3 py-1.5">詳細を開く</button>
       </div>
     </div>
@@ -421,7 +421,7 @@ function renderGroupSidebar(root: HTMLElement, me: { id?: number; github_id?: nu
   groups.forEach((g, idx) => {
     const el = document.createElement('button')
     el.setAttribute('data-group', g.id)
-    el.className = `w-10 h-10 rounded-full ${selected === g.id ? 'ring-2 ring-sky-500' : 'ring-1 ring-neutral-700/60'} overflow-hidden bg-neutral-700 grid place-items-center`
+    el.className = `w-10 h-10 rounded-full ${selected === g.id ? 'ring-2 ring-sky-500' : 'ring-2 ring-neutral-600'} overflow-hidden bg-neutral-700 grid place-items-center`
     if (g.avatar && idx === 0) {
       el.innerHTML = `<img src="${g.avatar}" class="w-full h-full object-cover" alt="avatar"/>`
     } else {
@@ -466,7 +466,7 @@ function openGroupMenu(root: HTMLElement, me: { id?: number }, g: Group, anchor:
   // デフォルトグループ(user)は削除不可
   const rect = anchor.getBoundingClientRect()
   const menu = document.createElement('div')
-  menu.className = 'fixed z-[62] w-40 rounded-md bg-neutral-900 ring-1 ring-neutral-700/70 shadow-xl text-sm text-gray-200'
+  menu.className = 'fixed z-[62] w-40 rounded-md bg-neutral-900 ring-2 ring-neutral-600 shadow-xl text-sm text-gray-200'
   menu.style.top = `${rect.bottom + 6}px`
   menu.style.left = `${rect.left - 20}px`
   menu.innerHTML = `
@@ -503,7 +503,7 @@ function openCreateGroupPopover(root: HTMLElement, me: { id?: number }): void {
   const btn = sidebar.querySelector('#sidebar-create') as HTMLElement
   const rect = btn.getBoundingClientRect()
   const pop = document.createElement('div')
-  pop.className = 'fixed z-[60] w-64 rounded-lg bg-neutral-900 ring-1 ring-neutral-700/70 shadow-xl'
+  pop.className = 'fixed z-[60] w-64 rounded-lg bg-neutral-900 ring-2 ring-neutral-600 shadow-xl'
   pop.style.top = `${rect.top + rect.height + 8}px`
   // 画面内に収まるように位置を調整（左右のはみ出し防止）
   const desired = rect.left - 100
@@ -513,7 +513,7 @@ function openCreateGroupPopover(root: HTMLElement, me: { id?: number }): void {
   pop.innerHTML = `
     <div class="p-3">
       <div class="text-sm text-gray-300 mb-2">新しいグループ</div>
-      <input id="gname" class="w-full rounded-md bg-neutral-800/70 ring-1 ring-neutral-700/60 px-3 py-2 text-gray-100" placeholder="グループ名" />
+      <input id="gname" class="w-full rounded-md bg-neutral-800/70 ring-2 ring-neutral-600 px-3 py-2 text-gray-100" placeholder="グループ名" />
       <div class="mt-3 flex justify-end gap-2">
         <button id="gcancel" class="px-3 py-1 rounded bg-neutral-800/60 text-gray-200 text-sm">キャンセル</button>
         <button id="gcreate" class="px-3 py-1 rounded bg-emerald-700 text-white text-sm">作成</button>
@@ -550,24 +550,24 @@ function openAccountModal(root: HTMLElement): void {
   overlay.id = 'accountOverlay'
   overlay.className = 'fixed inset-0 z-50 bg-black/60 backdrop-blur-[1px] grid place-items-center fade-overlay'
   overlay.innerHTML = `
-    <div class="relative w-[min(960px,92vw)] h-[80vh] max-h-[86vh] overflow-hidden rounded-xl bg-neutral-900 ring-1 ring-neutral-700/70 shadow-2xl text-gray-100 pop-modal">
-      <div class="flex items-center h-12 px-5 border-b border-neutral-800/70">
+    <div class="relative w-[min(960px,92vw)] h-[80vh] max-h-[86vh] overflow-hidden rounded-xl bg-neutral-900 ring-2 ring-neutral-600 shadow-2xl text-gray-100 pop-modal">
+      <div class="flex items-center h-12 px-5 border-b border-neutral-600">
         <h3 class="text-lg font-semibold">マイページ</h3>
         <button id="accountClose" class="ml-auto text-2xl text-neutral-300 hover:text-white">×</button>
       </div>
       <div class="flex">
-        <aside class="w-48 shrink-0 p-4 border-r border-neutral-800/70 space-y-2">
-          <button data-tab="basic" class="tab-btn w-full text-left px-3 py-2 rounded-md bg-neutral-800/60 ring-1 ring-neutral-700/60 text-gray-100">
+        <aside class="w-48 shrink-0 p-4 border-r border-neutral-600 space-y-2">
+          <button data-tab="basic" class="tab-btn w-full text-left px-3 py-2 rounded-md bg-neutral-800/60 ring-2 ring-neutral-600 text-gray-100">
             <span>基本情報</span>
           </button>
-          <button data-tab="notify" class="tab-btn w-full text-left px-3 py-2 rounded-md hover:bg-neutral-800/40 ring-1 ring-transparent text-gray-100">
+          <button data-tab="notify" class="tab-btn w-full text-left px-3 py-2 rounded-md hover:bg-neutral-800/40 ring-2 ring-transparent text-gray-100">
             <span>通知設定</span>
           </button>
         </aside>
         <section class="flex-1 p-6 space-y-6 overflow-y-auto">
           <div class="tab-panel" data-tab="basic">
             <div class="flex items-center gap-4">
-              <div class="w-16 h-16 rounded-full overflow-hidden bg-neutral-700 ring-1 ring-neutral-600/70">
+              <div class="w-16 h-16 rounded-full overflow-hidden bg-neutral-700 ring-2 ring-neutral-600">
                 ${avatarUrl ? `<img src="${avatarUrl}" class="w-full h-full object-cover"/>` : ''}
               </div>
               <div>
@@ -577,7 +577,7 @@ function openAccountModal(root: HTMLElement): void {
               <button id="logoutBtn" class="ml-auto inline-flex items-center rounded-md bg-rose-700 hover:bg-rose-600 text-white text-sm font-medium px-3 py-1.5">ログアウト</button>
             </div>
 
-            <hr class="my-6 border-neutral-800/70"/>
+            <hr class="my-6 border-neutral-600"/>
 
             <h4 class="text-base font-medium">ユーザー設定</h4>
 
@@ -587,7 +587,7 @@ function openAccountModal(root: HTMLElement): void {
             </div>
           </div>
           <div class="tab-panel hidden" data-tab="notify">
-            <div class="mb-6 p-4 rounded-lg ring-1 ring-neutral-700/60 bg-neutral-900/60">
+            <div class="mb-6 p-4 rounded-lg ring-2 ring-neutral-600 bg-neutral-900/60">
               <p class="text-gray-300">Slackと連携することで、アクティビティをSlack通知で受け取ることができるようになります。</p>
               <div class="mt-3">
                 <button class="inline-flex items-center gap-2 rounded-md px-4 py-2 text-white font-medium bg-gradient-to-r from-fuchsia-600 to-violet-600 hover:brightness-110">
@@ -599,10 +599,10 @@ function openAccountModal(root: HTMLElement): void {
 
             <section class="space-y-3">
               <h4 class="text-base font-medium">通知のタイミング</h4>
-              <div class="divide-y divide-neutral-800/70 ring-1 ring-neutral-800/60 rounded-lg overflow-hidden">
+              <div class="divide-y divide-neutral-600 ring-2 ring-neutral-600 rounded-lg overflow-hidden">
                 ${notifyRow('レビュアーに割り当てられた時')}
                 ${notifyRow('新しいタスクが割り当てられた時')}
-                ${notifyRow('担当タスクの期日が近くなった時', '<span class="ml-2 text-xs rounded-md bg-neutral-800/80 ring-1 ring-neutral-700/60 px-2 py-0.5 text-gray-300">3日前</span>')}
+                ${notifyRow('担当タスクの期日が近くなった時', '<span class="ml-2 text-xs rounded-md bg-neutral-800/80 ring-2 ring-neutral-600 px-2 py-0.5 text-gray-300">3日前</span>')}
                 ${notifyRow('自分のタスクに対するレビューが完了した時')}
               </div>
             </section>
@@ -648,7 +648,7 @@ function openAccountModal(root: HTMLElement): void {
       })
       overlay.querySelectorAll('.tab-btn').forEach((b) => {
         b.classList.toggle('bg-neutral-800/60', b === btn)
-        b.classList.toggle('ring-neutral-700/60', b === btn)
+        b.classList.toggle('ring-neutral-600', b === btn)
       })
     })
   })
@@ -677,7 +677,7 @@ function openAccountModal(root: HTMLElement): void {
     btn.classList.toggle('ring-emerald-600')
     btn.classList.toggle('bg-neutral-800/60')
     btn.classList.toggle('text-gray-200')
-    btn.classList.toggle('ring-neutral-700/60')
+    btn.classList.toggle('ring-neutral-600')
   }
   overlay.querySelectorAll('section[data-skill-section]')?.forEach((sec) => {
     const section = sec as HTMLElement
@@ -715,12 +715,12 @@ function renderSkillSection(kind: SkillGroup, title: string, uid?: number): stri
   return `
     <section class="space-y-3" data-skill-section="${kind}">
       <div class="text-sm text-gray-400">${title}</div>
-      <div class="rounded-lg ring-1 ring-neutral-700/60 bg-neutral-900/40 p-3 flex flex-wrap gap-2">
-        ${seed.map((s) => `<button class=\"skill-pill px-3 py-1.5 rounded-full text-sm ring-1 ${selected.has(s) ? 'bg-emerald-700 text-white ring-emerald-600' : 'bg-neutral-800/60 text-gray-200 ring-neutral-700/60'}\" data-skill=\"${s}\">${skillIcon(s)}${s}</button>`).join('')}
+      <div class="rounded-lg ring-2 ring-neutral-600 bg-neutral-900/40 p-3 flex flex-wrap gap-2">
+        ${seed.map((s) => `<button class=\"skill-pill px-3 py-1.5 rounded-full text-sm ring-2 ${selected.has(s) ? 'bg-emerald-700 text-white ring-emerald-600' : 'bg-neutral-800/60 text-gray-200 ring-neutral-600'}\" data-skill=\"${s}\">${skillIcon(s)}${s}</button>`).join('')}
       </div>
       <button class="see-all text-xs mx-auto block text-gray-400 hover:text-gray-200">+ すべてみる</button>
-      <div class="more-skills hidden rounded-lg ring-1 ring-neutral-700/60 bg-neutral-900/40 p-3 flex flex-wrap gap-2 max-h-48 overflow-auto">
-        ${ALL_SKILLS.map((s) => `<button class=\"skill-pill px-3 py-1.5 rounded-full text-sm ring-1 ${selected.has(s) ? 'bg-emerald-700 text-white ring-emerald-600' : 'bg-neutral-800/60 text-gray-200 ring-neutral-700/60'}\" data-skill=\"${s}\">${skillIcon(s)}${s}</button>`).join('')}
+      <div class="more-skills hidden rounded-lg ring-2 ring-neutral-600 bg-neutral-900/40 p-3 flex flex-wrap gap-2 max-h-48 overflow-auto">
+        ${ALL_SKILLS.map((s) => `<button class=\"skill-pill px-3 py-1.5 rounded-full text-sm ring-2 ${selected.has(s) ? 'bg-emerald-700 text-white ring-emerald-600' : 'bg-neutral-800/60 text-gray-200 ring-neutral-600'}\" data-skill=\"${s}\">${skillIcon(s)}${s}</button>`).join('')}
       </div>
     </section>
   `
@@ -742,7 +742,7 @@ function notifyRow(label: string, extra: string = ''): string {
 }
 
 function timeBox(text: string): string {
-  return `<span class="inline-flex items-center rounded-md bg-neutral-800/70 ring-1 ring-neutral-700/60 px-3 py-1 text-sm text-gray-200">${text}</span>`
+  return `<span class="inline-flex items-center rounded-md bg-neutral-800/70 ring-2 ring-neutral-600 px-3 py-1 text-sm text-gray-200">${text}</span>`
 }
 
 // ---------------- Project Create Modal ----------------
@@ -756,8 +756,8 @@ function openCreateProjectModal(root: HTMLElement): void {
   overlay.className = 'fixed inset-0 z-[60] bg-black/60 backdrop-blur-[1px] grid place-items-center'
   overlay.classList.add('fade-overlay')
   overlay.innerHTML = `
-    <div class="relative w-[min(1040px,95vw)] h-[82vh] overflow-hidden rounded-xl bg-neutral-900 ring-1 ring-neutral-700/70 shadow-2xl text-gray-100">
-      <div class="flex items-center h-12 px-5 border-b border-neutral-800/70">
+    <div class="relative w-[min(1040px,95vw)] h-[82vh] overflow-hidden rounded-xl bg-neutral-900 ring-2 ring-neutral-600 shadow-2xl text-gray-100">
+      <div class="flex items-center h-12 px-5 border-b border-neutral-600">
         <h3 class="text-lg font-semibold">プロジェクト</h3>
         <div class="ml-6 flex gap-6 text-sm">
           <button class="pj-tab px-2 py-1 border-b-2 border-orange-500" data-tab="new">新規</button>
@@ -779,7 +779,7 @@ function openCreateProjectModal(root: HTMLElement): void {
         </section>
       </div>
 
-      <div class="absolute bottom-0 inset-x-0 p-4 border-t border-neutral-800/70 bg-neutral-900/80">
+      <div class="absolute bottom-0 inset-x-0 p-4 border-t border-neutral-600 bg-neutral-900/80">
         <div class="max-w-full flex justify-end">
           <button id="pj-submit" class="inline-flex items-center rounded-md bg-emerald-700 hover:bg-emerald-600 text-white text-sm font-medium px-4 py-2 shadow">プロジェクト作成</button>
         </div>
@@ -957,7 +957,7 @@ function openCreateProjectModal(root: HTMLElement): void {
       chip.classList.toggle('ring-emerald-600', on)
       chip.classList.toggle('bg-neutral-800/60', !on)
       chip.classList.toggle('text-gray-200', !on)
-      chip.classList.toggle('ring-neutral-700/60', !on)
+      chip.classList.toggle('ring-neutral-600', !on)
     })
   })
 
@@ -988,7 +988,7 @@ function openCreateProjectModal(root: HTMLElement): void {
       chip.classList.toggle('ring-emerald-600', on)
       chip.classList.toggle('bg-neutral-800/60', !on)
       chip.classList.toggle('text-gray-200', !on)
-      chip.classList.toggle('ring-neutral-700/60', !on)
+      chip.classList.toggle('ring-neutral-600', !on)
     })
   })
   overlay.querySelector('#ex-visibility')?.addEventListener('click', (e) => {
@@ -1076,7 +1076,7 @@ function addProjectToGrid(root: HTMLElement, p: Project): void {
 function openCardMenu(root: HTMLElement, anchor: HTMLElement, id: number): void {
   const rect = anchor.getBoundingClientRect()
   const menu = document.createElement('div')
-  menu.className = 'fixed z-50 rounded-md bg-neutral-900 ring-1 ring-neutral-700/70 shadow-xl text-sm text-gray-200'
+  menu.className = 'fixed z-50 rounded-md bg-neutral-900 ring-2 ring-neutral-600 shadow-xl text-sm text-gray-200'
   // Initial position; we'll correct after mount to avoid viewport overflow
   menu.style.top = `${rect.bottom + 6}px`
   menu.style.left = `${rect.right}px`
@@ -1088,15 +1088,15 @@ function openCardMenu(root: HTMLElement, anchor: HTMLElement, id: number): void 
     <button class="w-36 text-left px-3 py-2 hover:bg-neutral-800" data-act="rename">別名（アプリ内）</button>
     <div class="px-3 py-1 text-xs text-gray-400">見た目</div>
     <div class="px-2 pb-2 flex gap-2">
-      <button class="w-6 h-6 rounded-full ring-2 ring-neutral-700/60 bg-sky-800" data-color="blue" title="Blue"></button>
-      <button class="w-6 h-6 rounded-full ring-2 ring-neutral-700/60 bg-emerald-800" data-color="green" title="Green"></button>
-      <button class="w-6 h-6 rounded-full ring-2 ring-neutral-700/60 bg-rose-800" data-color="red" title="Red"></button>
-      <button class="w-6 h-6 rounded-full ring-2 ring-neutral-700/60 bg-fuchsia-800" data-color="purple" title="Purple"></button>
-      <button class="w-6 h-6 rounded-full ring-2 ring-neutral-700/60 bg-orange-800" data-color="orange" title="Orange"></button>
-      <button class="w-6 h-6 rounded-full ring-2 ring-neutral-700/60 bg-yellow-700" data-color="yellow" title="Yellow"></button>
-      <button class="w-6 h-6 rounded-full ring-2 ring-neutral-700/60 bg-neutral-700" data-color="gray" title="Gray"></button>
-      <button class="w-6 h-6 rounded-full ring-2 ring-neutral-700/60 bg-black" data-color="black" title="Black"></button>
-      <button class="w-6 h-6 rounded-full ring-2 ring-neutral-700/60 bg-white" data-color="white" title="White"></button>
+      <button class="w-6 h-6 rounded-full ring-2 ring-neutral-600 bg-sky-800" data-color="blue" title="Blue"></button>
+      <button class="w-6 h-6 rounded-full ring-2 ring-neutral-600 bg-emerald-800" data-color="green" title="Green"></button>
+      <button class="w-6 h-6 rounded-full ring-2 ring-neutral-600 bg-rose-800" data-color="red" title="Red"></button>
+      <button class="w-6 h-6 rounded-full ring-2 ring-neutral-600 bg-fuchsia-800" data-color="purple" title="Purple"></button>
+      <button class="w-6 h-6 rounded-full ring-2 ring-neutral-600 bg-orange-800" data-color="orange" title="Orange"></button>
+      <button class="w-6 h-6 rounded-full ring-2 ring-neutral-600 bg-yellow-700" data-color="yellow" title="Yellow"></button>
+      <button class="w-6 h-6 rounded-full ring-2 ring-neutral-600 bg-neutral-700" data-color="gray" title="Gray"></button>
+      <button class="w-6 h-6 rounded-full ring-2 ring-neutral-600 bg-black" data-color="black" title="Black"></button>
+      <button class="w-6 h-6 rounded-full ring-2 ring-neutral-600 bg-white" data-color="white" title="White"></button>
     </div>
     <button class="w-36 text-left px-3 py-2 hover:bg-neutral-800 text-rose-400" data-act="delete">削除</button>
   `
@@ -1190,12 +1190,12 @@ function renderNewProjectForm(me?: { name?: string }): string {
         <div class="flex items-center gap-4">
           <div class="text-sm text-gray-400 w-24">所有者</div>
           <div class="flex-1 flex items-center gap-2">
-            <div class="inline-flex items-center gap-2 rounded-md bg-neutral-800/70 ring-1 ring-neutral-700/60 px-3 py-1.5 text-sm text-gray-200">
+            <div class="inline-flex items-center gap-2 rounded-md bg-neutral-800/70 ring-2 ring-neutral-600 px-3 py-1.5 text-sm text-gray-200">
               <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
               <span>${owner}</span>
             </div>
             <span class="text-gray-500">/</span>
-            <input id="pj-name" type="text" placeholder="プロジェクト名" class="flex-1 rounded-md bg-neutral-800/60 ring-1 ring-neutral-700/60 px-3 py-2 text-gray-100 placeholder:text-gray-500" required maxlength="100" />
+            <input id="pj-name" type="text" placeholder="プロジェクト名" class="flex-1 rounded-md bg-neutral-800/60 ring-2 ring-neutral-600 px-3 py-2 text-gray-100 placeholder:text-gray-500" required maxlength="100" />
           </div>
         </div>
         <p id="err-name" class="text-rose-400 text-sm hidden">プロジェクト名を入力してください。</p>
@@ -1203,32 +1203,32 @@ function renderNewProjectForm(me?: { name?: string }): string {
 
         <div>
           <div class="text-sm text-gray-400 mb-1">プロジェクト概要</div>
-          <textarea id="pj-desc" rows="5" class="w-full rounded-md bg-neutral-800/60 ring-1 ring-neutral-700/60 px-3 py-2 text-gray-100 placeholder:text-gray-500" placeholder="説明を入力"></textarea>
+          <textarea id="pj-desc" rows="5" class="w-full rounded-md bg-neutral-800/60 ring-2 ring-neutral-600 px-3 py-2 text-gray-100 placeholder:text-gray-500" placeholder="説明を入力"></textarea>
         </div>
       </section>
 
       <section class="space-y-4">
-        <div class="rounded-lg ring-1 ring-neutral-700/60 bg-neutral-900/40 p-4 space-y-4">
+        <div class="rounded-lg ring-2 ring-neutral-600 bg-neutral-900/40 p-4 space-y-4">
           <div class="flex items-center justify-between">
             <div>
               <div class="text-sm text-gray-300">表示権限を選択</div>
               <div class="text-xs text-gray-400">このプロジェクトを閲覧およびコミットできるユーザーを選択する</div>
             </div>
-            <button id="pj-visibility" data-state="public" class="rounded-md bg-neutral-800/70 ring-1 ring-neutral-700/60 px-3 py-1.5 text-sm">Public</button>
+            <button id="pj-visibility" data-state="public" class="rounded-md bg-neutral-800/70 ring-2 ring-neutral-600 px-3 py-1.5 text-sm">Public</button>
           </div>
 
           <div class="flex items-center gap-3">
             <div class="text-sm text-gray-300 w-28">期日を選択</div>
-            <input id="pj-start" type="date" class="w-44 rounded-md bg-neutral-800/60 ring-1 ring-neutral-700/60 px-3 py-1.5 text-gray-100 placeholder:text-gray-500" />
+            <input id="pj-start" type="date" class="w-44 rounded-md bg-neutral-800/60 ring-2 ring-neutral-600 px-3 py-1.5 text-gray-100 placeholder:text-gray-500" />
             <span class="text-gray-400">〜</span>
-            <input id="pj-end" type="date" class="w-44 rounded-md bg-neutral-800/60 ring-1 ring-neutral-700/60 px-3 py-1.5 text-gray-100 placeholder:text-gray-500" />
+            <input id="pj-end" type="date" class="w-44 rounded-md bg-neutral-800/60 ring-2 ring-neutral-600 px-3 py-1.5 text-gray-100 placeholder:text-gray-500" />
           </div>
           <p id="err-date" class="text-rose-400 text-sm hidden">開始日は終了日より前の日付にしてください。</p>
 
           <div>
             <div class="text-sm text-gray-300 mb-2">スキル要件を選択</div>
             <div id="pj-skills" class="flex flex-wrap gap-2">
-              ${skills.map((s, i) => `<button class="pj-skill px-3 py-1.5 rounded-full text-sm ring-1 ${i % 5 === 0 ? 'bg-emerald-700 text-white ring-emerald-600' : 'bg-neutral-800/60 text-gray-200 ring-neutral-700/60'}" data-skill="${s}">${s}</button>`).join('')}
+              ${skills.map((s, i) => `<button class="pj-skill px-3 py-1.5 rounded-full text-sm ring-2 ${i % 5 === 0 ? 'bg-emerald-700 text-white ring-emerald-600' : 'bg-neutral-800/60 text-gray-200 ring-neutral-600'}" data-skill="${s}">${s}</button>`).join('')}
             </div>
           </div>
         </div>
@@ -1244,14 +1244,14 @@ function renderExistingRepoPanel(): string {
       <div class="md:col-span-5">
         <div class="text-sm text-gray-300 mb-2">GitHubリポジトリを選択</div>
         <div class="flex items-center gap-3">
-          <input id="repoSearch" type="text" placeholder="リポジトリを検索..." class="flex-1 rounded-md bg-neutral-800/60 ring-1 ring-neutral-700/60 px-3 py-2 text-gray-100 placeholder:text-gray-500" />
-          <button class="rounded-md bg-neutral-800/60 ring-1 ring-neutral-700/60 px-3 py-2 text-sm">更新が新しい順</button>
+          <input id="repoSearch" type="text" placeholder="リポジトリを検索..." class="flex-1 rounded-md bg-neutral-800/60 ring-2 ring-neutral-600 px-3 py-2 text-gray-100 placeholder:text-gray-500" />
+          <button class="rounded-md bg-neutral-800/60 ring-2 ring-neutral-600 px-3 py-2 text-sm">更新が新しい順</button>
         </div>
-        <div id="repoList" class="mt-3 divide-y divide-neutral-800/70 max-h-[48vh] overflow-y-auto"></div>
+        <div id="repoList" class="mt-3 divide-y divide-neutral-600 max-h-[48vh] overflow-y-auto"></div>
         <p class="text-xs text-gray-400 mt-2">リポジトリをひとつ選択してください。</p>
       </div>
       <div class="md:col-span-7">
-        <div class="rounded-lg ring-1 ring-neutral-700/60 bg-neutral-900/40 p-4 space-y-4">
+        <div class="rounded-lg ring-2 ring-neutral-600 bg-neutral-900/40 p-4 space-y-4">
           <div class="flex items-center justify-between">
             <div>
               <div class="text-sm text-gray-300">選択されたリポジトリ</div>
@@ -1260,12 +1260,12 @@ function renderExistingRepoPanel(): string {
           </div>
           <div class="flex items-center gap-4">
             <div class="text-sm text-gray-400 w-24">プロジェクト名</div>
-            <input id="ex-name" type="text" placeholder="プロジェクト名" class="flex-1 rounded-md bg-neutral-800/60 ring-1 ring-neutral-700/60 px-3 py-2 text-gray-100 placeholder:text-gray-500" maxlength="100" />
+            <input id="ex-name" type="text" placeholder="プロジェクト名" class="flex-1 rounded-md bg-neutral-800/60 ring-2 ring-neutral-600 px-3 py-2 text-gray-100 placeholder:text-gray-500" maxlength="100" />
           </div>
           <p id="ex-err-namefmt" class="text-rose-400 text-sm hidden">英数字・ハイフン・アンダースコア・ドットのみ、100文字以内で入力してください。</p>
           <div>
             <div class="text-sm text-gray-400 mb-1">プロジェクト概要</div>
-            <textarea id="ex-desc" rows="4" class="w-full rounded-md bg-neutral-800/60 ring-1 ring-neutral-700/60 px-3 py-2 text-gray-100 placeholder:text-gray-500" placeholder="説明を入力"></textarea>
+            <textarea id="ex-desc" rows="4" class="w-full rounded-md bg-neutral-800/60 ring-2 ring-neutral-600 px-3 py-2 text-gray-100 placeholder:text-gray-500" placeholder="説明を入力"></textarea>
           </div>
 
           <div class="flex items-center justify-between">
@@ -1273,21 +1273,21 @@ function renderExistingRepoPanel(): string {
               <div class="text-sm text-gray-300">表示権限を選択</div>
               <div class="text-xs text-gray-400">このプロジェクトを閲覧およびコミットできるユーザーを選択する</div>
             </div>
-            <button id="ex-visibility" data-state="public" class="rounded-md bg-neutral-800/70 ring-1 ring-neutral-700/60 px-3 py-1.5 text-sm">Public</button>
+            <button id="ex-visibility" data-state="public" class="rounded-md bg-neutral-800/70 ring-2 ring-neutral-600 px-3 py-1.5 text-sm">Public</button>
           </div>
 
           <div class="flex items-center gap-3">
             <div class="text-sm text-gray-300 w-28">期日を選択</div>
-            <input id="ex-start" type="date" class="w-44 rounded-md bg-neutral-800/60 ring-1 ring-neutral-700/60 px-3 py-1.5 text-gray-100 placeholder:text-gray-500" />
+            <input id="ex-start" type="date" class="w-44 rounded-md bg-neutral-800/60 ring-2 ring-neutral-600 px-3 py-1.5 text-gray-100 placeholder:text-gray-500" />
             <span class="text-gray-400">〜</span>
-            <input id="ex-end" type="date" class="w-44 rounded-md bg-neutral-800/60 ring-1 ring-neutral-700/60 px-3 py-1.5 text-gray-100 placeholder:text-gray-500" />
+            <input id="ex-end" type="date" class="w-44 rounded-md bg-neutral-800/60 ring-2 ring-neutral-600 px-3 py-1.5 text-gray-100 placeholder:text-gray-500" />
           </div>
           <p id="ex-err-date" class="text-rose-400 text-sm hidden">開始日は終了日より前の日付にしてください。</p>
 
           <div>
             <div class="text-sm text-gray-300 mb-2">スキル要件を選択</div>
             <div id="ex-skills" class="flex flex-wrap gap-2">
-              ${skills.map((s, i) => `<button class="ex-skill px-3 py-1.5 rounded-full text-sm ring-1 ${i % 5 === 0 ? 'bg-emerald-700 text-white ring-emerald-600' : 'bg-neutral-800/60 text-gray-200 ring-neutral-700/60'}" data-skill="${s}">${s}</button>`).join('')}
+              ${skills.map((s, i) => `<button class="ex-skill px-3 py-1.5 rounded-full text-sm ring-2 ${i % 5 === 0 ? 'bg-emerald-700 text-white ring-emerald-600' : 'bg-neutral-800/60 text-gray-200 ring-neutral-600'}" data-skill="${s}">${s}</button>`).join('')}
             </div>
           </div>
         </div>
@@ -1309,10 +1309,10 @@ function repoItem(r: any): string {
   const lang = r.language ? `<span class=\"ml-2 text-xs text-gray-400\">${r.language}</span>` : ''
   const updated = r.updated_at ? new Date(r.updated_at).toLocaleDateString() : ''
   return `
-    <button type="button" class="w-full text-left py-4 hover:bg-neutral-900/40 px-1 rounded-md ring-1 ring-transparent" data-repo="${r.full_name}">
+    <button type="button" class="w-full text-left py-4 hover:bg-neutral-900/40 px-1 rounded-md ring-2 ring-transparent" data-repo="${r.full_name}">
       <div class="flex items-center gap-2">
         <div class="font-medium text-sky-300">${r.name}</div>
-        <span class="text-xs rounded bg-neutral-800/80 ring-1 ring-neutral-700/60 px-1.5 py-0.5">${visibility}</span>
+        <span class="text-xs rounded bg-neutral-800/80 ring-2 ring-neutral-600 px-1.5 py-0.5">${visibility}</span>
       </div>
       <div class="text-sm text-gray-300 mt-0.5">${r.description ?? ''}</div>
       <div class="text-xs text-gray-400 mt-1">Updated ${updated} ${lang}</div>

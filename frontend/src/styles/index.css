@@ -22,16 +22,63 @@ body {
   -webkit-overflow-scrolling: touch;
 }
 
-/* Dark theme tokens (GitHub-inspired, subtle) */
+/* Dark theme tokens (GitHub Primer Dark) */
 :root {
-  --gh-canvas: #0d1117;
-  --gh-canvas-subtle: #161b22;
-  --gh-border: #30363d;
-  --gh-muted: #8b949e;
-  --gh-contrast: #c9d1d9;
-  --gh-accent: #58a6ff;
-  --gh-green: #238636;
+  /* App surfaces (Primer tokens) */
+  --gh-canvas: #010409;        /* deeper base for stronger separation */
+  --gh-canvas-subtle: #161b22; /* color-canvas-subtle */
+  --gh-border: #30363d;        /* color-border-default */
+  /* Text colors */
+  --gh-muted: #8b949e;         /* color-fg-muted */
+  --gh-contrast: #c9d1d9;      /* color-fg-default */
+  --gh-accent: #58a6ff;        /* color-accent-fg */
+  --gh-green: #238636;         /* color-success-emphasis */
   --gh-green-hover: #2ea043;
+
+  /* Tailwind color variables (RGB) for alpha-aware utilities */
+  /* Neutral = Primer dark neutrals */
+  --color-neutral-50: 240 246 252;  /* #f0f6fc */
+  --color-neutral-100: 201 209 217; /* #c9d1d9 */
+  --color-neutral-200: 177 186 196; /* #b1bac4 */
+  --color-neutral-300: 139 148 158; /* #8b949e */
+  --color-neutral-400: 110 118 129; /* #6e7681 */
+  --color-neutral-500: 72 79 88;    /* #484f58 */
+  --color-neutral-600: 48 54 61;    /* #30363d */
+  --color-neutral-700: 33 38 45;    /* #21262d */
+  --color-neutral-800: 22 27 34;    /* #161b22 */
+  --color-neutral-900: 13 17 23;    /* #0d1117 */
+  --color-neutral-950: 1 4 9;       /* #010409 */
+
+  /* Gray = use same mapping for text utilities */
+  --color-gray-50: 240 246 252;
+  --color-gray-100: 201 209 217;
+  --color-gray-200: 177 186 196;
+  --color-gray-300: 139 148 158;
+  --color-gray-400: 110 118 129;
+  --color-gray-500: 72 79 88;
+  --color-gray-600: 48 54 61;
+  --color-gray-700: 33 38 45;
+  --color-gray-800: 22 27 34;
+  --color-gray-900: 13 17 23;
+  --color-gray-950: 1 4 9;
+
+  /* Blue scale (Primer blue) for link utilities */
+  --color-blue-50: 235 245 255;   /* #ebf5ff */
+  --color-blue-100: 202 232 255;  /* #cae8ff */
+  --color-blue-200: 165 214 255;  /* #a5d6ff */
+  --color-blue-300: 121 192 255;  /* #79c0ff */
+  --color-blue-400: 88 166 255;   /* #58a6ff */
+  --color-blue-500: 56 139 253;   /* #388bfd */
+  --color-blue-600: 31 111 235;   /* #1f6feb */
+  --color-blue-700: 17 88 199;    /* #1158c7 */
+  --color-blue-800: 10 48 105;    /* #0a3069 */
+  --color-blue-900: 0 29 61;      /* #001d3d */
+  --color-blue-950: 0 20 41;      /* approx */
+
+  /* Success (map to emerald utilities for buttons/toggles) */
+  --color-emerald-500: 46 160 67;  /* #2ea043 (hover) */
+  --color-emerald-600: 35 134 54;  /* #238636 (base) */
+  --color-emerald-700: 31 111 47;  /* approx darker */
 }
 
 /* Theme helpers */
@@ -77,6 +124,17 @@ input:focus-visible,
 textarea:focus-visible {
   outline: 2px solid var(--gh-accent);
   outline-offset: 1px;
+}
+
+/* Placeholders readable but muted */
+::placeholder {
+  color: var(--gh-muted);
+  opacity: 1; /* avoid extra fading on Safari */
+}
+
+/* Text selection contrast */
+::selection {
+  background: rgba(88, 166, 255, 0.25); /* blue-400/25 */
 }
 
 /* Slightly brighten default text */
