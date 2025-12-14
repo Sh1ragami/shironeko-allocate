@@ -76,7 +76,9 @@ body {
   --color-blue-950: 0 20 41;      /* approx */
 
   /* Success (map to emerald utilities for buttons/toggles) */
-  --color-emerald-500: 46 160 67;  /* #2ea043 (hover) */
+  --color-emerald-300: 112 220 143; /* ~#70dc8f */
+  --color-emerald-400: 63 185 80;   /* #3fb950 (Primer success.fg) */
+  --color-emerald-500: 46 160 67;   /* #2ea043 (hover) */
   --color-emerald-600: 35 134 54;  /* #238636 (base) */
   --color-emerald-700: 31 111 47;  /* approx darker */
 }

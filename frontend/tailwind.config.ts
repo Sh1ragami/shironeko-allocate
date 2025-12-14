@@ -59,6 +59,8 @@ export default {
         },
         // Success mapped to GitHub success green (used via emerald utilities)
         emerald: {
+          300: withOpacity('--color-emerald-300'),
+          400: withOpacity('--color-emerald-400'),
           500: withOpacity('--color-emerald-500'),
           600: withOpacity('--color-emerald-600'),
           700: withOpacity('--color-emerald-700'),

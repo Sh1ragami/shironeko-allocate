@@ -351,7 +351,7 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
 function widgetShell(id: string, title: string, body: string): string {
   return `
     <div class="widget group rounded-xl ring-2 ring-neutral-600 bg-neutral-900/50 p-4 md:col-span-6 flex flex-col overflow-hidden" draggable="false" data-widget="${id}">
-      <div class="flex items-center pb-2 mb-3 border-b border-neutral-700/60">
+      <div class="flex items-center pb-2 mb-3 border-b border-neutral-600">
         <div class="text-sm text-gray-300">${title}</div>
         <div class="wg-tools ml-auto opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 text-xs flex items-center gap-1">
           <span class="hidden md:inline">横:</span>
@@ -380,7 +380,8 @@ function contributionWidget(): string {
   const rows = 7, cols = 52
   const cells = Array.from({ length: rows * cols }, () => {
     const v = Math.floor(Math.random() * 5)
-    const color = ['bg-neutral-800', 'bg-emerald-900', 'bg-emerald-800', 'bg-emerald-700', 'bg-emerald-600'][v]
+    // Higher visibility palette (GitHub-like): neutral + 4 greens (lighter)
+    const color = ['bg-neutral-800', 'bg-emerald-800', 'bg-emerald-600', 'bg-emerald-500', 'bg-emerald-400'][v]
     return `<div class="w-3 h-3 ${color} rounded-sm"></div>`
   }).join('')
   return `<div class="h-72 overflow-x-auto"><div class="inline-grid" style="grid-template-columns: repeat(${cols}, 0.75rem); gap: 4px;">${cells}</div></div>`
@@ -973,14 +974,14 @@ function widgetThumb(type: string): string {
     }).join('')
     return `<div class="w-full h-24 overflow-hidden"><div class="grid grid-cols-12 gap-1">${cells}</div></div>`
   }
-  if (type === 'overview') return `<div class="w-full h-20 bg-neutral-900/60 ring-2 ring-neutral-600 rounded p-2"><div class="h-2 bg-neutral-800 rounded mb-2"><div class="h-2 bg-emerald-600 rounded w-2/3"></div></div><div class="h-2 bg-neutral-800 rounded w-1/2"></div></div>`
+  if (type === 'overview') return `<div class="w-full h-20 bg-neutral-900/60 ring-2 ring-neutral-600 rounded p-2"><div class="h-2 bg-neutral-700 rounded mb-2"><div class="h-2 bg-emerald-500 rounded w-2/3"></div></div><div class="h-2 bg-neutral-700 rounded w-1/2"></div></div>`
   if (type === 'committers') {
     const bars = ['h-6', 'h-10', 'h-14', 'h-8', 'h-5']
-      .map((h) => `<div class="w-4 md:w-5 ${h} bg-emerald-700 rounded"></div>`)
+      .map((h) => `<div class="w-4 md:w-5 ${h} bg-emerald-500 rounded"></div>`)
       .join('')
     return `<div class="w-full h-24 flex items-end gap-1 px-2">${bars}</div>`
   }
-  if (type === 'readme') return `<div class="w-full h-24 bg-neutral-900/60 ring-2 ring-neutral-600 rounded p-2 text-xs text-gray-400"># README\n- Getting Started\n- Usage</div>`
+  if (type === 'readme') return `<div class="w-full h-24 bg-neutral-900/60 ring-2 ring-neutral-600 rounded p-2 text-xs text-gray-300"># README\n- Getting Started\n- Usage</div>`
   if (type === 'markdown') return `<div class="w-full h-20 bg-neutral-900/60 ring-2 ring-neutral-600 rounded p-2 text-xs text-gray-400">## Markdown\n- リスト\n- **強調**</div>`
   if (type === 'tasksum') return `<div class="w-full h-20 bg-neutral-900/60 ring-2 ring-neutral-600 rounded p-2 grid grid-cols-3 gap-2 text-[10px] text-gray-300"><div class="rounded bg-neutral-800/60 p-1 text-center">TODO<br/><span class="text-emerald-400">5</span></div><div class="rounded bg-neutral-800/60 p-1 text-center">DOING<br/><span class="text-emerald-400">3</span></div><div class="rounded bg-neutral-800/60 p-1 text-center">DONE<br/><span class="text-emerald-400">8</span></div></div>`
   if (type === 'milestones') return `<div class="w-full h-20 bg-neutral-900/60 ring-2 ring-neutral-600 rounded p-2 text-xs text-gray-400"><div>v1.0 リリース</div><div class="text-gray-500">2025-01-31</div></div>`
