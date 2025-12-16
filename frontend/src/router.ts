@@ -36,6 +36,9 @@ export class Router {
       render(this.outlet)
     } else {
       this.outlet.innerHTML = '<p class="text-rose-700">Route not found</p>'
+      return
     }
+
+    render(this.outlet)
   }
 }
