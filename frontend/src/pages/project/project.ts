@@ -57,9 +57,9 @@ function createProjectCard(): string {
 
 export function renderProject(container: HTMLElement): void {
   container.innerHTML = `
-    <div class="min-h-screen bg-neutral-950 text-gray-100">
+    <div class="min-h-screen gh-canvas text-gray-100">
       <!-- Topbar -->
-      <div class="h-14 bg-neutral-900/95 ring-2 ring-neutral-700/80 flex items-center px-6">
+      <div class="h-14 bg-neutral-900/90 ring-2 ring-neutral-600/70 flex items-center px-6">
         <h1 class="text-lg font-semibold tracking-wide">プロジェクト一覧</h1>
         <div class="ml-auto flex items-center gap-3">
           <button id="accountBtn" class="w-8 h-8 rounded-full overflow-hidden ring-2 ring-neutral-600 bg-neutral-700 grid place-items-center">
@@ -72,7 +72,7 @@ export function renderProject(container: HTMLElement): void {
 
       <div class="flex">
         <!-- Sidebar -->
-        <aside class="hidden md:flex w-24 shrink-0 border-r border-neutral-600 min-h-[calc(100vh-3.5rem)] flex-col items-center pt-8 gap-6 bg-neutral-950/40" id="groupSidebar">
+        <aside class="hidden md:flex w-24 shrink-0 border-r border-neutral-600 min-h-[calc(100vh-3.5rem)] flex-col items-center pt-8 gap-6 bg-neutral-900/40" id="groupSidebar">
           <!-- groups will be injected here -->
           <button id="sidebar-create" class="mt-2 grid place-items-center w-10 h-10 rounded-full border border-dashed border-neutral-600 text-2xl text-neutral-400">+</button>
         </aside>

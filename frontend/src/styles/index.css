@@ -22,14 +22,15 @@ body {
   -webkit-overflow-scrolling: touch;
 }
 
-/* Dark theme tokens (GitHub Primer Dark) */
+/* Dark theme tokens (GitHub Primer Dark – tuned) */
 :root {
   /* App surfaces (Primer tokens) */
-  --gh-canvas: #010409;        /* deeper base for stronger separation */
-  --gh-canvas-subtle: #161b22; /* color-canvas-subtle */
-  --gh-border: #30363d;        /* color-border-default */
+  /* Slightly lightened base to improve contrast and reduce "crushed" blacks */
+  --gh-canvas: #0d1117;        /* color-canvas-default */
+  --gh-canvas-subtle: #1a222c; /* a touch lighter than #161b22 for separation */
+  --gh-border: #3a424a;        /* a bit brighter for clearer dividers */
   /* Text colors */
-  --gh-muted: #8b949e;         /* color-fg-muted */
+  --gh-muted: #9aa3ad;         /* slightly brighter muted text */
   --gh-contrast: #c9d1d9;      /* color-fg-default */
   --gh-accent: #58a6ff;        /* color-accent-fg */
   --gh-green: #238636;         /* color-success-emphasis */
@@ -47,7 +48,8 @@ body {
   --color-neutral-700: 33 38 45;    /* #21262d */
   --color-neutral-800: 22 27 34;    /* #161b22 */
   --color-neutral-900: 13 17 23;    /* #0d1117 */
-  --color-neutral-950: 1 4 9;       /* #010409 */
+  /* Make 950 less deep to reduce flatness when used as page background */
+  --color-neutral-950: 13 17 23;    /* align with 900 for higher base brightness */
 
   /* Gray = use same mapping for text utilities */
   --color-gray-50: 240 246 252;
@@ -85,7 +87,11 @@ body {
 
 /* Theme helpers */
 .gh-canvas {
-  background-color: var(--gh-canvas);
+  /* Add very subtle color variation with layered gradients */
+  background:
+    radial-gradient(900px 600px at 0% 0%, rgba(88, 166, 255, 0.06), transparent 60%),
+    radial-gradient(800px 500px at 100% 100%, rgba(35, 134, 54, 0.05), transparent 60%),
+    var(--gh-canvas);
 }
 
 .gh-canvas-subtle {
