@@ -1,3 +1,68 @@
+# Allocate
+
+<p align="center">
+  <strong>GitHub 専用タスク管理アプリ</strong><br>
+  Issue / Pull Request を「やること」として再定義する
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Allocate-GitHub%20Task%20Manager-111827?style=for-the-badge" />
+</p>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white&style=flat" />
+  <img src="https://img.shields.io/badge/PHP-777BB4?logo=php&logoColor=white&style=flat" />
+  <img src="https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=white&style=flat" />
+  <img src="https://img.shields.io/badge/Shell-4EAA25?logo=gnu-bash&logoColor=white&style=flat" />
+  <img src="https://img.shields.io/badge/CSS-1572B6?logo=css3&logoColor=white&style=flat" />
+  <img src="https://img.shields.io/badge/HTML-E34F26?logo=html5&logoColor=white&style=flat" />
+</p>
+
+---
+
+##  概要
+
+**Allocate** は、  GitHub 上の **Issue・Pull Request** をタスクとして一元管理できる  
+**GitHub 特化型タスク管理アプリ**です。
+
+GitHub から離れた瞬間に形骸化しがちなタスク管理を、  **開発フローの中心に引き戻す** ことを目的にしています。
+
+---
+
+## コンセプト
+
+> GitHub を、タスク管理ツールとして使い切る
+
+- Issue = やること  
+- Pull Request = 進捗  
+- GitHub = 開発のハブ  
+
+
+---
+
+## 主な特徴
+
+-  **GitHub 前提設計**
+  - Issue / PR をそのままタスクとして扱える
+-  **タスクの可視化**
+  - 状態・優先度を直感的に把握
+-  **開発フローに自然に統合**
+  - ツールを増やさず、GitHub を中心に運用
+-  **学生・個人開発向け**
+  - 過度に重くならないシンプル設計
+
+---
+
+#
+
+
+
+
+
+
+
+
+
 # アロケート – 開発クイックガイド
 
 ■ スタック
