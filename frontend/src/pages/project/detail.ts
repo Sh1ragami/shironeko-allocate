@@ -239,6 +239,28 @@ function removeOpenProjTab(id: number): OpenProjTab[] {
   saveOpenProjTabs(next)
   return next
 }
+
+// Lightweight in-app navigation stack for project tabs (session-scoped)
+type ProjNav = { stack: number[]; cursor: number }
+function projNavKey(): string { return 'proj-nav' }
+function getProjNav(): ProjNav {
+  try { return JSON.parse(sessionStorage.getItem(projNavKey()) || '{"stack":[],"cursor":-1}') as ProjNav } catch { return { stack: [], cursor: -1 } }
+}
+function saveProjNav(n: ProjNav): void { sessionStorage.setItem(projNavKey(), JSON.stringify(n)) }
+function navVisit(pid: number): void {
+  const nav = getProjNav()
+  // drop forward entries if any
+  if (nav.cursor >= 0 && nav.cursor < nav.stack.length - 1) nav.stack = nav.stack.slice(0, nav.cursor + 1)
+  if (nav.stack[nav.cursor] !== pid) { nav.stack.push(pid); nav.cursor = nav.stack.length - 1 }
+  saveProjNav(nav)
+}
+function navCanBack(): boolean { const nav = getProjNav(); return nav.cursor > 0 }
+function navCanFwd(): boolean { const nav = getProjNav(); return nav.cursor >= 0 && nav.cursor < nav.stack.length - 1 }
+function navStepBack(): number | null { const nav = getProjNav(); if (nav.cursor > 0) { nav.cursor -= 1; saveProjNav(nav); return nav.stack[nav.cursor] } return null }
+function navStepFwd(): number | null { const nav = getProjNav(); if (nav.cursor < nav.stack.length - 1) { nav.cursor += 1; saveProjNav(nav); return nav.stack[nav.cursor] } return null }
+// nav mode to suppress visit on back/forward
+function setNavMode(mode: 'back' | 'forward' | 'push' | ''): void { sessionStorage.setItem('proj-nav-mode', mode) }
+function consumeNavMode(): 'back' | 'forward' | 'push' | '' { const m = (sessionStorage.getItem('proj-nav-mode') as any) || ''; sessionStorage.removeItem('proj-nav-mode'); return m }
 function ensureProjectOpenTab(p: OpenProjTab): void {
   const list = getOpenProjTabs()
   const i = list.findIndex((x) => x.id === p.id)
@@ -270,7 +292,10 @@ function renderProjectTabsBar(root: HTMLElement, activeId: number): void {
       <span class="tab-close ml-1 text-gray-400 hover:text-gray-200 px-1" title="閉じる">×</span>
     </button>`
   }).join('')
-  host.innerHTML = html
+  const backCls = navCanBack() ? 'text-gray-100 hover:text-white' : 'text-gray-500'
+  const fwdCls = navCanFwd() ? 'text-gray-100 hover:text-white' : 'text-gray-500'
+  const navHtml = `<span class=\"nav-ctrl self-stretch flex items-center gap-1 pl-0.5 pr-1.5\">\n    <button id=\"navBack\" class=\"inline-flex items-center justify-center w-7 h-7 leading-none ${backCls}\" title=\"戻る\">＜</button>\n    <button id=\"navFwd\" class=\"inline-flex items-center justify-center w-7 h-7 leading-none ${fwdCls}\" title=\"進む\">＞</button>\n  </span>`
+  host.innerHTML = navHtml + html
   // Delegated clicks
   // Rebind delegated handler (avoid stacking)
   const prev = (host as any)._tabsHandler as ((e: Event) => void) | undefined
@@ -290,7 +315,7 @@ function renderProjectTabsBar(root: HTMLElement, activeId: number): void {
       if (pid === activeId) {
         // decide where to go
         const cand = nextList[idx] || nextList[idx - 1]
-        if (cand) window.location.hash = `#/project/detail?id=${encodeURIComponent(String(cand.id))}`
+        if (cand) { try { navVisit(cand.id) } catch {}; window.location.hash = `#/project/detail?id=${encodeURIComponent(String(cand.id))}` }
         else window.location.hash = '#/project'
         return
       }
@@ -300,6 +325,7 @@ function renderProjectTabsBar(root: HTMLElement, activeId: number): void {
     }
     // navigate to tab
     if (pid !== activeId) {
+      try { navVisit(pid) } catch {}
       window.location.hash = `#/project/detail?id=${encodeURIComponent(String(pid))}`
     }
   }
@@ -308,6 +334,37 @@ function renderProjectTabsBar(root: HTMLElement, activeId: number): void {
   // plus button
   const addBtn = root.querySelector('#projTabAdd') as HTMLElement | null
   addBtn?.addEventListener('click', (e) => openProjectTabPicker(root, e.currentTarget as HTMLElement))
+  // nav controls (use in-app stack)
+  const backEl = root.querySelector('#navBack') as HTMLElement | null
+  const fwdEl = root.querySelector('#navFwd') as HTMLElement | null
+  const updateNavColors = () => {
+    const be = root.querySelector('#navBack') as HTMLElement | null
+    const fe = root.querySelector('#navFwd') as HTMLElement | null
+    if (be) {
+      be.classList.toggle('text-gray-100', navCanBack())
+      be.classList.toggle('hover:text-white', navCanBack())
+      be.classList.toggle('text-gray-500', !navCanBack())
+    }
+    if (fe) {
+      fe.classList.toggle('text-gray-100', navCanFwd())
+      fe.classList.toggle('hover:text-white', navCanFwd())
+      fe.classList.toggle('text-gray-500', !navCanFwd())
+    }
+  }
+  backEl?.addEventListener('click', (e) => {
+    e.preventDefault()
+    setNavMode('back')
+    const id = navStepBack()
+    if (id != null) window.location.hash = `#/project/detail?id=${encodeURIComponent(String(id))}`
+    else updateNavColors()
+  })
+  fwdEl?.addEventListener('click', (e) => {
+    e.preventDefault()
+    setNavMode('forward')
+    const id = navStepFwd()
+    if (id != null) window.location.hash = `#/project/detail?id=${encodeURIComponent(String(id))}`
+    else updateNavColors()
+  })
 }
 
 function openProjectTabPicker(root: HTMLElement, anchor: HTMLElement): void {
@@ -363,6 +420,7 @@ function openProjectTabPicker(root: HTMLElement, anchor: HTMLElement): void {
     if (!b) return
     const id = b.getAttribute('data-id') || ''
     if (!id) return
+    try { navVisit(Number(id)) } catch {}
     window.location.hash = `#/project/detail?id=${encodeURIComponent(id)}`
     pop.remove()
   })
@@ -398,6 +456,8 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
   if (fullName) (container as HTMLElement).setAttribute('data-repo-full', fullName)
 
   container.innerHTML = detailLayout({ id: project.id, name: project.name, fullName })
+  // Record visit unless this render was triggered by back/forward
+  try { const mode = consumeNavMode(); if (mode !== 'back' && mode !== 'forward') navVisit(project.id) } catch {}
   // Ensure this project is in the top project-tabs and render the bar
   try { ensureProjectOpenTab({ id: project.id, title: project.name, fullName }) } catch {}
   try { renderProjectTabsBar(container, project.id) } catch {}
@@ -477,9 +537,7 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
   railToggle?.addEventListener('click', onToggle)
   railToggleTop?.addEventListener('click', onToggle)
 
-  // Back / Forward controls in top tab bar
-  container.querySelector('#navBack')?.addEventListener('click', (e) => { e.preventDefault(); history.back() })
-  container.querySelector('#navFwd')?.addEventListener('click', (e) => { e.preventDefault(); history.forward() })
+  // Back / Forward controls are bound inside renderProjectTabsBar per render
 
   // Tab lock interactions (left rail)
   const bar = container.querySelector('#tabBar') as HTMLElement | null
@@ -1544,13 +1602,14 @@ function detailLayout(ctx: { id: number; name: string; fullName: string }): stri
           <!-- Left control area aligned above the rail -->
           <div class="absolute left-0 bottom-0 h-full w-[14rem] pl-3 flex items-end gap-2">
             <button id="railToggleTop" class="w-7 h-7 grid place-items-center text-gray-200 hover:text-white" title="サイドバー表示/非表示"><span class="material-symbols-outlined text-[20px] leading-none">view_sidebar</span></button>
-            <button id="navBack" class="w-7 h-7 grid place-items-center text-gray-300 hover:text-gray-100" title="戻る">＜</button>
-            <button id="navFwd" class="w-7 h-7 grid place-items-center text-gray-300 hover:text-gray-100" title="進む">＞</button>
+            
             <!-- Vertical divider aligned with rail edge -->
             <div class="absolute right-0 top-0 h-full border-r border-neutral-600 pointer-events-none"></div>
           </div>
-          <div class="tabs-wrap flex-1 flex items-end gap-0 overflow-x-auto pl-[calc(14rem+2rem)]" role="tablist"></div>
+          <div class="tabs-wrap flex-1 flex items-end gap-0 overflow-x-auto pl-[calc(14rem+0.5rem)]" role="tablist"></div>
           <button id="projTabAdd" class="ml-2 text-xl text-gray-400 hover:text-gray-100 px-2" title="プロジェクトを開く/追加">＋</button>
+          <!-- Right edge divider for browser tabs -->
+          <div class="absolute right-0 top-0 h-full border-l border-neutral-600 pointer-events-none"></div>
         </div>
       </div>
 

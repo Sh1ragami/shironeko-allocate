@@ -31,7 +31,8 @@ body {
   --gh-border: #3a424a;        /* a bit brighter for clearer dividers */
   /* Text colors */
   --gh-muted: #9aa3ad;         /* slightly brighter muted text */
-  --gh-contrast: #c9d1d9;      /* color-fg-default */
+  /* Make default text brighter for readability */
+  --gh-contrast: #ffffff;      /* bright default text */
   --gh-accent: #58a6ff;        /* color-accent-fg */
   --gh-green: #238636;         /* color-success-emphasis */
   --gh-green-hover: #2ea043;
@@ -53,10 +54,11 @@ body {
 
   /* Gray = use same mapping for text utilities */
   --color-gray-50: 240 246 252;
-  --color-gray-100: 201 209 217;
-  --color-gray-200: 177 186 196;
-  --color-gray-300: 139 148 158;
-  --color-gray-400: 110 118 129;
+  /* Lighten grays used for text utilities to improve contrast */
+  --color-gray-100: 245 247 249; /* #f5f7f9 */
+  --color-gray-200: 228 233 238; /* #e4e9ee */
+  --color-gray-300: 208 216 224; /* #d0d8e0 */
+  --color-gray-400: 180 190 200; /* #b4bec8 */
   --color-gray-500: 72 79 88;
   --color-gray-600: 48 54 61;
   --color-gray-700: 33 38 45;
