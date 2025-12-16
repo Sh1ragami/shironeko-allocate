@@ -1,5 +1,6 @@
-import { apiFetch } from '../../utils/api'
+import { apiFetch, ApiError } from '../../utils/api'
 import { openTaskModal } from './task-modal'
+import { renderNotFound } from '../not-found/not-found'
 // (no component-level imports; keep in-page implementations)
 // Account modal helpers (duplicated to open over current page)
 type SkillGroup = 'owned' | 'want'
@@ -435,27 +436,49 @@ function parseHashQuery(): Record<string, string> {
 }
 
 export async function renderProjectDetail(container: HTMLElement): Promise<void> {
-  container.innerHTML = `<div class="min-h-screen gh-canvas text-gray-100 grid"><div class="p-8">読み込み中...</div></div>`
-
   const { id } = parseHashQuery()
-  if (!id) {
-    container.innerHTML = `<div class="p-8 text-rose-400">プロジェクトIDが指定されていません。</div>`
+  // ID validation: ensure it's a numeric string
+  if (!id || !/^\d+$/.test(id)) {
+    renderNotFound(container)
     return
   }
 
   let project: Project | null = null
+  let me: { id: number; name: string; github_id?: number } | null = null
+
   try {
     project = await apiFetch<Project>(`/projects/${id}`)
+    // Fetch user info concurrently, but don't fail the entire page if it fails
+    try {
+      me = await apiFetch<{ id: number; name: string; github_id?: number }>(`/me`)
+    } catch {
+      // User fetch failed, proceed without it
+    }
   } catch (e) {
-    // Fallback to dummy detail layout when not found
-    renderDummyDetail(container, id)
+    if (e instanceof ApiError && e.status === 404) {
+      renderNotFound(container)
+    } else {
+      // For other errors, fallback to dummy detail
+      renderDummyDetail(container, id)
+    }
     return
   }
 
   const fullName = project.github_meta?.full_name || project.link_repo || ''
-  if (fullName) (container as HTMLElement).setAttribute('data-repo-full', fullName)
+  const owner = fullName.includes('/') ? fullName.split('/')[0] : me?.name || 'User'
+  const repoName = fullName.includes('/') ? fullName.split('/')[1] : project.name
 
-  container.innerHTML = detailLayout({ id: project.id, name: project.name, fullName })
+  // Render the full layout once with all available data
+  container.innerHTML = detailLayout({ id: project.id, name: project.name, fullName, owner, repo: repoName })
+  if (fullName) (container as HTMLElement).setAttribute('data-repo-full', fullName)
+  
+  // Store user data if fetched
+  if (me) {
+    (container as any)._me = me
+  }
+
+  // --- Start of post-render setup ---
+
   // Record visit unless this render was triggered by back/forward
   try { const mode = consumeNavMode(); if (mode !== 'back' && mode !== 'forward') navVisit(project.id) } catch {}
   // Ensure this project is in the top project-tabs and render the bar
@@ -511,7 +534,7 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
   const rail = container.querySelector('#leftRail') as HTMLElement | null
   const railToggle = container.querySelector('#railToggle') as HTMLButtonElement | null
   const railToggleTop = container.querySelector('#railToggleTop') as HTMLButtonElement | null
-  const railKey = `pj-rail-collapsed-${project.id}`
+  const railKey = `pj-rail-collapsed`
   const setToggleIcon = () => {
     const ensure = (btn: HTMLButtonElement | null) => {
       if (!btn) return
@@ -596,24 +619,12 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
     } catch { }
   }
 
-  // Top header: path + account avatar
-  try {
-    const me = await apiFetch<{ id: number; name: string; github_id?: number }>(`/me`)
-    const owner = fullName.includes('/') ? fullName.split('/')[0] : me.name
-    const repo = fullName.includes('/') ? fullName.split('/')[1] : project.name
-    const pathUser = container.querySelector('#topPathUser') as HTMLElement | null
-    const pathRepo = container.querySelector('#topPathRepo') as HTMLElement | null
-    const title = container.querySelector('#pageTitle') as HTMLElement | null
+  // Update avatar image if user was fetched
+  if (me?.github_id) {
     const accImg = container.querySelector('#accountTopImg') as HTMLImageElement | null
-    if (pathUser) pathUser.textContent = owner
-    if (pathRepo) pathRepo.textContent = repo
-    if (title) title.textContent = project.name
-    if (me.github_id) {
-      const url = `https://avatars.githubusercontent.com/u/${me.github_id}?s=96`
-      if (accImg) { accImg.src = url; accImg.classList.remove('hidden') }
-    }
-    ; (container as any)._me = me
-  } catch { }
+    const url = `https://avatars.githubusercontent.com/u/${me.github_id}?s=96`
+    if (accImg) { accImg.src = url; accImg.classList.remove('hidden') }
+  }
 }
 
 // ---------- Widgets helpers ----------
@@ -1593,7 +1604,7 @@ function buildWidgetTab(panel: HTMLElement, pid: string, scope: string, defaults
   }
 }
 
-function detailLayout(ctx: { id: number; name: string; fullName: string }): string {
+function detailLayout(ctx: { id: number; name: string; fullName: string; owner: string; repo: string }): string {
   return `
     <div class="min-h-screen gh-canvas text-gray-100">
       <!-- Browser-like project tabs (full width) -->
@@ -1620,9 +1631,9 @@ function detailLayout(ctx: { id: number; name: string; fullName: string }): stri
           <!-- Repo / Project breadcrumb at top of rail -->
           <div class="mb-5 pt-1">
             <div class="flex items-center gap-2 text-sm">
-              <a href="#/project" class="text-gray-300 hover:text-white" id="topPathUser">User</a>
+              <a href="#/project" class="text-gray-300 hover:text-white" id="topPathUser">${ctx.owner}</a>
               <span class="text-gray-500">/</span>
-              <span class="text-gray-300" id="topPathRepo">Repo</span>
+              <span class="text-gray-300" id="topPathRepo">${ctx.repo}</span>
             </div>
           </div>
 
