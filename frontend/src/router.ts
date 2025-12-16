@@ -18,20 +18,23 @@ export class Router {
 
   private normalize(hash: string): string {
     const h = hash.startsWith('#') ? hash.slice(1) : hash
-    return h || '/'
+    const [path] = h.split('?')
+    return path || '/'
   }
 
   render(): void {
     const path = this.normalize(window.location.hash)
-    const render = this.routes[path]
-
-    // 未定義のパスは 404 にリダイレクト
-    if (!render) {
-      if (path !== '/404' && this.routes['/404']) {
-        this.routes['/404'](this.outlet)
-        return
-      }
-      // 404 ルート自体が未定義の場合のフォールバック
+    // Auth guard: allow only public paths when not logged in
+    const publicPaths = new Set<string>(['/', '/login', '/404'])
+    const token = localStorage.getItem('apiToken')
+    if (!token && !publicPaths.has(path)) {
+      window.location.hash = '#/login'
+      return
+    }
+    const render = this.routes[path] ?? this.routes['/404']
+    if (render) {
+      render(this.outlet)
+    } else {
       this.outlet.innerHTML = '<p class="text-rose-700">Route not found</p>'
       return
     }
