@@ -24,6 +24,7 @@ export class Router {
 
   render(): void {
     const path = this.normalize(window.location.hash)
+    this.cleanupFloatingUI()
     // Auth guard: allow only public paths when not logged in
     const publicPaths = new Set<string>(['/', '/login', '/404'])
     const token = localStorage.getItem('apiToken')
@@ -40,5 +41,20 @@ export class Router {
     }
 
     render(this.outlet)
+  }
+
+  private cleanupFloatingUI(): void {
+    const ids = [
+      'tabCtxMenu',
+      'tabRenamePop',
+      'pjCardMenu',
+      'collabPopover',
+      'collabMenu',
+      'accountOverlay',
+      'pjOverlay',
+      'pjProgress',
+      'newTaskOverlay',
+    ]
+    ids.forEach((id) => document.getElementById(id)?.remove())
   }
 }

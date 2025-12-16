@@ -19,6 +19,7 @@ Route::middleware('token.auth')->group(function () {
     Route::get('/github/contributors', [\App\Http\Controllers\Api\GitHubProxyController::class, 'contributors']);
     Route::get('/github/readme', [\App\Http\Controllers\Api\GitHubProxyController::class, 'readme']);
     Route::get('/github/search/users', [\App\Http\Controllers\Api\GitHubProxyController::class, 'searchUsers']);
+    Route::get('/github/commits', [\App\Http\Controllers\Api\GitHubProxyController::class, 'commits']);
 
     // Projects
     Route::post('/projects', [\App\Http\Controllers\Api\ProjectController::class, 'store']);
@@ -29,4 +30,12 @@ Route::middleware('token.auth')->group(function () {
     Route::get('/projects/{id}/collaborators', [\App\Http\Controllers\Api\ProjectController::class, 'collaborators']);
     Route::post('/projects/{id}/collaborators', [\App\Http\Controllers\Api\ProjectController::class, 'inviteCollaborator']);
     Route::delete('/projects/{id}/collaborators/{login}', [\App\Http\Controllers\Api\ProjectController::class, 'deleteCollaborator']);
+
+    // GitHub Issues linkage
+    Route::get('/projects/{id}/issues', [\App\Http\Controllers\Api\ProjectController::class, 'listIssues']);
+    Route::patch('/projects/{id}/issues/{number}', [\App\Http\Controllers\Api\ProjectController::class, 'updateIssue']);
+    Route::post('/projects/{id}/issues/assign-next', [\App\Http\Controllers\Api\ProjectController::class, 'assignNext']);
+
+    // Auth
+    Route::post('/logout', [\App\Http\Controllers\Api\AuthController::class, 'logout']);
 });

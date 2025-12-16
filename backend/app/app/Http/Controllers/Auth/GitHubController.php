@@ -16,9 +16,13 @@ class GitHubController extends Controller
 {
     public function redirect(): RedirectResponse
     {
-        return Socialite::driver('github')
-            ->scopes(['read:user', 'user:email', 'repo'])
-            ->redirect();
+        $driver = Socialite::driver('github')
+            ->scopes(['read:user', 'user:email', 'repo']);
+        // When force=1 is present, ask GitHub to re-prompt for login/consent
+        if (request()->boolean('force')) {
+            $driver = $driver->with(['prompt' => 'login']);
+        }
+        return $driver->redirect();
     }
 
     public function callback(): RedirectResponse
@@ -76,6 +80,17 @@ class GitHubController extends Controller
             DB::table('users')->where('github_id', $githubId)->update($updateData);
         } else {
             DB::table('users')->insert(array_merge($baseData, $updateData));
+        }
+
+        // Fallback store for GitHub access token when DB column is missing
+        if (!$has('github_access_token') && ($gitUser->token ?? null)) {
+            try {
+                $path = storage_path('app/oauth.json');
+                $json = is_file($path) ? (json_decode(file_get_contents($path), true) ?: []) : [];
+                $json[(string)$githubId] = Crypt::encryptString($gitUser->token);
+                if (!is_dir(dirname($path))) @mkdir(dirname($path), 0777, true);
+                file_put_contents($path, json_encode($json, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE));
+            } catch (\Throwable $e) { /* ignore */ }
         }
 
         // Redirect back to frontend with token in hash (not sent to server logs)
