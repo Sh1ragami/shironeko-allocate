@@ -780,6 +780,86 @@ function enableDragAndDrop(root: HTMLElement): void {
   let dragEl: HTMLElement | null = null
   let bgMenuEl: HTMLElement | null = null
   let dragAllowed = false
+  let hoverEl: HTMLElement | null = null
+  let ghostEl: HTMLElement | null = null
+  let ghost = { left: 0, top: 0, cols: 0, rows: 0 }
+
+  const getMetrics = () => {
+    const styles = getComputedStyle(grid)
+    const gapX = parseFloat((styles.columnGap || '0').toString()) || 0
+    const gapY = parseFloat((styles.rowGap || '0').toString()) || 0
+    const unitCols = 12
+    const gridRect = grid.getBoundingClientRect()
+    const colW = Math.max(1, (gridRect.width - (unitCols - 1) * gapX) / unitCols)
+    const rowH = parseFloat((styles.gridAutoRows || '24').toString()) || 24
+    return { gapX, gapY, gridRect, colW, rowH, unitCols }
+  }
+
+  const ensureGhost = () => {
+    if (ghostEl) return ghostEl
+    const el = document.createElement('div')
+    el.id = 'wg-ghost'
+    el.style.position = 'fixed'
+    el.style.pointerEvents = 'none'
+    el.style.zIndex = '71'
+    el.style.border = '2px dashed rgba(251,191,36,1)' // amber-400
+    el.style.background = 'rgba(251,191,36,0.08)'
+    el.style.borderRadius = '10px'
+    el.style.display = 'none'
+    document.body.appendChild(el)
+    ghostEl = el
+    return el
+  }
+
+  const hideGhost = () => { if (ghostEl) ghostEl.style.display = 'none' }
+
+  const getWidgetDims = (w: HTMLElement) => {
+    const id = w.getAttribute('data-widget') || ''
+    const meta = getWidgetMeta(pid)
+    const cur = meta[id] || {}
+    const size = (cur.size || 'md') as 'sm' | 'md' | 'lg'
+    const cols = Math.max(1, Math.min(12, (cur as any).cols ?? (size === 'sm' ? 4 : size === 'md' ? 8 : 12)))
+    const h = (cur.h || 'md') as 'sm' | 'md' | 'lg'
+    const rows = Math.max(1, Math.min(12, (cur as any).rows ?? (h === 'sm' ? 1 : h === 'md' ? 2 : 3)))
+    return { cols, rows }
+  }
+
+  const updateGhostAtPoint = (clientX: number, clientY: number) => {
+    const g = ensureGhost()
+    const { gapX, gapY, gridRect, colW, rowH, unitCols } = getMetrics()
+    const src = dragEl ? getWidgetDims(dragEl) : { cols: 4, rows: 2 }
+    // Snap to grid
+    const col = Math.max(0, Math.min(unitCols - 1, Math.floor((clientX - gridRect.left) / (colW + gapX))))
+    const row = Math.max(0, Math.floor((clientY - gridRect.top) / (rowH + gapY)))
+
+    const curLeft = gridRect.left + col * (colW + gapX)
+    const top = gridRect.top + row * (rowH + gapY)
+    const ghostHeightPx = src.rows * rowH + (src.rows - 1) * gapY
+    // Find nearest right neighbor overlapping vertically to estimate available width
+    let neighborLeft = gridRect.right
+    grid.querySelectorAll('.widget').forEach((n) => {
+      const el = n as HTMLElement
+      if (el === dragEl) return
+      const r = el.getBoundingClientRect()
+      const verticalOverlap = !(r.bottom <= top || r.top >= top + ghostHeightPx)
+      if (verticalOverlap && r.left > curLeft) neighborLeft = Math.min(neighborLeft, r.left)
+    })
+    // Available pixels to the right edge or neighbor (do not subtract gap here)
+    const availablePx = Math.max(colW, neighborLeft - curLeft)
+    const maxColsFit = Math.max(1, Math.min(src.cols, Math.floor((availablePx + gapX) / (colW + gapX))))
+    const cols = Math.max(1, Math.min(unitCols - col, maxColsFit))
+    const rows = src.rows // keep rows as-is for now
+
+    const left = curLeft
+    const width = cols * colW + (cols - 1) * gapX
+    const height = rows * rowH + (rows - 1) * gapY
+    g.style.left = `${Math.round(left)}px`
+    g.style.top = `${Math.round(top)}px`
+    g.style.width = `${Math.round(width)}px`
+    g.style.height = `${Math.round(height)}px`
+    g.style.display = 'block'
+    ghost = { left, top, cols, rows }
+  }
 
   const save = () => {
     const order = Array.from(grid.querySelectorAll('.widget')).map((w) => w.getAttribute('data-widget'))
@@ -799,6 +879,7 @@ function enableDragAndDrop(root: HTMLElement): void {
   }
 
   const isEdit = () => grid.getAttribute('data-edit') === '1'
+  // (removed) reorderByVisual: revert to natural DOM order
   // Allow drag only when started from the move handle
   document.addEventListener('mouseup', () => { dragAllowed = false })
   grid.addEventListener('mousedown', (e) => {
@@ -819,8 +900,11 @@ function enableDragAndDrop(root: HTMLElement): void {
     dragEl = t
     const dt = (e as DragEvent).dataTransfer
     if (dt) { try { dt.setData('text/plain', 'widget'); dt.effectAllowed = 'move' } catch {} }
-    // Hide original so it doesn't look duplicated (kanban-style)
-    setTimeout(() => { t.style.display = 'none' }, 0)
+    // Keep layout by hiding visually (not removing flow)
+    setTimeout(() => { t.style.visibility = 'hidden' }, 0)
+    // Move add button out of the way while dragging
+    const add = grid.querySelector('#addWidget') as HTMLElement | null
+    if (add) { add.setAttribute('data-prev-display', add.style.display || ''); add.style.display = 'none' }
   })
   grid.addEventListener('dragover', (e) => {
     if (!isEdit()) return
@@ -828,23 +912,71 @@ function enableDragAndDrop(root: HTMLElement): void {
     try { const dt = (e as DragEvent).dataTransfer; if (dt) dt.dropEffect = 'move' } catch {}
     const t = e.target as HTMLElement
     const widget = t.closest('.widget') as HTMLElement | null
-    if (!widget || !dragEl || widget === dragEl) return
-    const rect = widget.getBoundingClientRect()
-    const before = (e as DragEvent).clientY < rect.top + rect.height / 2
-    if (before) grid.insertBefore(dragEl, widget)
-    else grid.insertBefore(dragEl, widget.nextSibling)
+    if (!dragEl) return
+    // Update ghost to show target area even on empty space
+    updateGhostAtPoint((e as DragEvent).clientX, (e as DragEvent).clientY)
+    // also remember widget under cursor for potential swap drop
+    hoverEl = (widget && widget !== dragEl) ? widget : null
   })
   grid.addEventListener('dragenter', (e) => { if (isEdit()) e.preventDefault() })
   grid.addEventListener('drop', (e) => {
     if (!isEdit()) return
     e.preventDefault()
-    if (dragEl) (dragEl as HTMLElement).style.display = ''
-    save()
+    if (dragEl) {
+      dragEl.style.visibility = ''
+      // Swap positions only when dropping onto another widget
+      if (hoverEl && hoverEl !== dragEl) {
+        const a = dragEl
+        const b = hoverEl
+        const parent = a.parentNode as HTMLElement
+        if (parent && b.parentNode === parent) {
+          const aNext = a.nextSibling
+          const bNext = b.nextSibling
+          if (aNext === b) {
+            parent.insertBefore(b, a)
+          } else if (bNext === a) {
+            parent.insertBefore(a, b)
+          } else {
+            if (bNext) parent.insertBefore(a, bNext); else parent.appendChild(a)
+            if (aNext) parent.insertBefore(b, aNext); else parent.appendChild(b)
+          }
+        }
+      } else {
+        // Drop on empty space: insert near cursor position and auto-adjust width
+        const { cols, rows } = ghost
+        const id = dragEl.getAttribute('data-widget') || ''
+        const meta2 = getWidgetMeta(pid)
+        const m = meta2[id] || {}
+        ;(m as any).cols = cols
+        ;(m as any).rows = rows
+        meta2[id] = m as any
+        setWidgetMeta(pid, meta2)
+        applyWidgetSizes(root, pid)
+        // Insert before first widget visually below the cursor; else append
+        const y = (e as DragEvent).clientY
+        let target: Element | null = null
+        const items = Array.from(grid.querySelectorAll('.widget')).filter(n => n !== dragEl)
+          .sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top || a.getBoundingClientRect().left - b.getBoundingClientRect().left)
+        for (const n of items) { const r = (n as HTMLElement).getBoundingClientRect(); if (r.top > y) { target = n; break } }
+        if (target) grid.insertBefore(dragEl, target)
+        else grid.appendChild(dragEl)
+        save()
+      }
+      hideGhost()
+      applyWidgetSizes(root, pid)
+      const add = grid.querySelector('#addWidget') as HTMLElement | null
+      if (add) { const prev = add.getAttribute('data-prev-display') || ''; add.style.display = prev; add.removeAttribute('data-prev-display') }
+      hoverEl = null
+    }
     dragEl = null
     dragAllowed = false
   })
   grid.addEventListener('dragend', () => {
-    if (dragEl) (dragEl as HTMLElement).style.display = ''
+    if (dragEl) dragEl.style.visibility = ''
+    hideGhost()
+    hoverEl = null
+    const add = grid.querySelector('#addWidget') as HTMLElement | null
+    if (add) { const prev = add.getAttribute('data-prev-display') || ''; add.style.display = prev; add.removeAttribute('data-prev-display') }
     dragEl = null
     dragAllowed = false
   })
@@ -950,6 +1082,7 @@ function enableDragAndDrop(root: HTMLElement): void {
       resHandles.forEach(h => h.classList.toggle('hidden', !on))
       if (move) move.classList.toggle('hidden', !on)
     })
+    // no reorder on toggle (reverted)
   }
   const savedEdit = localStorage.getItem(`wg-edit-${pid}`) === '1'
   setEdit(!!savedEdit)
@@ -1000,6 +1133,7 @@ function enableDragAndDrop(root: HTMLElement): void {
     const widget = handle.closest('.widget') as HTMLElement | null
     if (!widget) return
     e.preventDefault(); e.stopPropagation()
+    // no-op (reverted reorder)
 
     const id = widget.getAttribute('data-widget') || ''
     const meta = getWidgetMeta(pid)
@@ -1008,6 +1142,7 @@ function enableDragAndDrop(root: HTMLElement): void {
     let startCols = (cur as any).cols ?? (curSize === 'sm' ? 4 : curSize === 'md' ? 8 : 12)
     const curH = (cur.h || 'md') as 'sm' | 'md' | 'lg'
     let startRows = (cur as any).rows ?? (curH === 'sm' ? 1 : curH === 'md' ? 2 : 3)
+    let startPb = Math.max(0, Math.floor(((cur as any).pb) || 0))
     startCols = Math.max(1, Math.min(12, startCols))
     startRows = Math.max(1, Math.min(12, startRows))
 
@@ -1025,6 +1160,53 @@ function enableDragAndDrop(root: HTMLElement): void {
     let lastRows = startRows
     const dir = (handle.getAttribute('data-rz') || 'se') as 'e' | 's' | 'w' | 'n' | 'se' | 'ne' | 'sw' | 'nw'
 
+    // Linked neighbor (horizontal adjacent) for 'e' (right edge) or 'w' (left edge)
+    let linkNeighbor: HTMLElement | null = null
+    let linkStartCols = 0
+    let linkStartRows = 0
+    let linkTotalCols = 0
+    if (dir === 'e' || dir === 'w') {
+      const myRect = widget.getBoundingClientRect()
+      const widgets = Array.from(grid.querySelectorAll('.widget')) as HTMLElement[]
+      const tol = gapX + 2
+      if (dir === 'e') {
+        // find neighbor on right that vertically overlaps and is flush to my right within tolerance
+        let best: { el: HTMLElement; dx: number } | null = null
+        widgets.forEach((el) => {
+          if (el === widget) return
+          const r = el.getBoundingClientRect()
+          const vertical = !(r.bottom <= myRect.top || r.top >= myRect.bottom)
+          const dx = Math.abs(r.left - myRect.right)
+          if (vertical && r.left >= myRect.right - tol && dx <= tol) {
+            if (!best || dx < best.dx) best = { el, dx }
+          }
+        })
+        if (best) linkNeighbor = best.el
+      } else if (dir === 'w') {
+        // find neighbor on left flush to my left
+        let best: { el: HTMLElement; dx: number } | null = null
+        widgets.forEach((el) => {
+          if (el === widget) return
+          const r = el.getBoundingClientRect()
+          const vertical = !(r.bottom <= myRect.top || r.top >= myRect.bottom)
+          const dx = Math.abs(myRect.left - r.right)
+          if (vertical && r.right <= myRect.left + tol && dx <= tol) {
+            if (!best || dx < best.dx) best = { el, dx }
+          }
+        })
+        if (best) linkNeighbor = best.el
+      }
+      if (linkNeighbor) {
+        const nid = linkNeighbor.getAttribute('data-widget') || ''
+        const nmeta = getWidgetMeta(pid)
+        const ncur = nmeta[nid] || {}
+        const nsize = (ncur.size || 'md') as 'sm' | 'md' | 'lg'
+        linkStartCols = Math.max(1, Math.min(12, (ncur as any).cols ?? (nsize === 'sm' ? 4 : nsize === 'md' ? 8 : 12)))
+        linkStartRows = Math.max(1, Math.min(12, (ncur as any).rows ?? ((ncur.h || 'md') === 'sm' ? 1 : (ncur.h || 'md') === 'md' ? 2 : 3)))
+        linkTotalCols = startCols + linkStartCols
+      }
+    }
+
     const onMove = (ev: MouseEvent) => {
       const dx = ev.clientX - startX
       const dy = ev.clientY - startY
@@ -1041,10 +1223,45 @@ function enableDragAndDrop(root: HTMLElement): void {
         case 'sw': addCols = addColsRaw; addRows = addRowsRaw; break
         case 'nw': addCols = addColsRaw; addRows = -addRowsRaw; break
       }
-      const nextCols = Math.max(1, Math.min(12, startCols + addCols))
+      let nextCols = Math.max(1, Math.min(12, startCols + addCols))
       const nextRows = Math.max(1, Math.min(12, startRows + addRows))
+      if (linkNeighbor) {
+        // keep total constant; adjust neighbor inversely
+        const minMy = 1
+        const minNei = 1
+        nextCols = Math.max(minMy, Math.min(linkTotalCols - minNei, nextCols))
+        const neiCols = Math.max(minNei, linkTotalCols - nextCols)
+        linkNeighbor.style.gridColumn = `span ${neiCols} / span ${neiCols}`
+        linkNeighbor.style.gridRow = `span ${linkStartRows} / span ${linkStartRows}`
+      }
       if (nextCols !== lastCols) { widget.style.gridColumn = `span ${nextCols} / span ${nextCols}`; lastCols = nextCols }
       if (nextRows !== lastRows) { widget.style.gridRow = `span ${nextRows} / span ${nextRows}`; lastRows = nextRows }
+
+      // Live pad update to keep lower rows from flowing up when shrinking height
+      try {
+        const livePadRows = 0
+        const sel = `[data-pad-for="${id}"]`
+        const pads = Array.from(grid.querySelectorAll(sel)) as HTMLElement[]
+        let pad = pads[0] || null
+        if (pads.length > 1) { pads.slice(1).forEach(n => n.remove()) }
+        if (livePadRows > 0) {
+          if (!pad) {
+            pad = document.createElement('div')
+            pad.className = 'wg-pad'
+            pad.setAttribute('data-pad-for', id)
+            if (widget.nextSibling) grid.insertBefore(pad, widget.nextSibling)
+            else grid.appendChild(pad)
+          }
+          pad.style.gridColumn = 'span 12 / span 12'
+          pad.style.gridRow = `span ${livePadRows} / span ${livePadRows}`
+          pad.style.visibility = 'hidden'
+          pad.style.pointerEvents = 'none'
+          pad.style.margin = '0'
+          pad.style.padding = '0'
+        } else if (pad) {
+          pad.remove()
+        }
+      } catch { }
     }
     const onUp = () => {
       document.removeEventListener('mousemove', onMove)
@@ -1053,12 +1270,63 @@ function enableDragAndDrop(root: HTMLElement): void {
       const m = meta2[id] || {}
       ;(m as any).cols = lastCols
       ;(m as any).rows = lastRows
+      // no persistent pad bookkeeping (reverted)
       meta2[id] = m as any
+      if (linkNeighbor) {
+        const nid = linkNeighbor.getAttribute('data-widget') || ''
+        const nm = meta2[nid] || {}
+        const neiCols = parseInt((linkNeighbor.style.gridColumn || '').match(/span\s+(\d+)/)?.[1] || String(linkStartCols), 10)
+        ;(nm as any).cols = Math.max(1, Math.min(12, isNaN(neiCols) ? linkStartCols : neiCols))
+        ;(nm as any).rows = linkStartRows
+        meta2[nid] = nm as any
+      }
       setWidgetMeta(pid, meta2)
       applyWidgetSizes(root, pid)
     }
     document.addEventListener('mousemove', onMove)
     document.addEventListener('mouseup', onUp)
+  })
+
+  // Auto-fit width on double-click of right edge handle
+  grid.addEventListener('dblclick', (e) => {
+    if (!isEdit()) return
+    const handle = (e.target as HTMLElement).closest('.wg-rz[data-rz="e"]') as HTMLElement | null
+    if (!handle) return
+    const widget = handle.closest('.widget') as HTMLElement | null
+    if (!widget) return
+    e.preventDefault(); e.stopPropagation()
+
+    const { gapX, gridRect, colW, unitCols, rowH } = getMetrics() as any
+    const rect = widget.getBoundingClientRect()
+    // Estimate start column from current left
+    const startCol = Math.max(0, Math.min(unitCols - 1, Math.floor((rect.left - gridRect.left) / (colW + gapX))))
+    // Find nearest right neighbor overlapping vertically
+    let neighborLeft = gridRect.right
+    grid.querySelectorAll('.widget').forEach((n) => {
+      const el = n as HTMLElement
+      if (el === widget) return
+      const r = el.getBoundingClientRect()
+      const verticalOverlap = !(r.bottom <= rect.top || r.top >= rect.bottom)
+      if (verticalOverlap && r.left > rect.left) neighborLeft = Math.min(neighborLeft, r.left)
+    })
+    const capacityPx = Math.max(colW, neighborLeft - rect.left)
+    const capacityCols = Math.max(1, Math.min(unitCols - startCol, Math.floor((capacityPx + gapX) / (colW + gapX))))
+
+    // Current columns from meta (fallback if missing)
+    const id = widget.getAttribute('data-widget') || ''
+    const meta = getWidgetMeta(pid)
+    const cur = meta[id] || {}
+    const fallbackSize = (cur.size || 'md') as 'sm' | 'md' | 'lg'
+    const curCols = Math.max(1, Math.min(unitCols, (cur as any).cols ?? (fallbackSize === 'sm' ? 4 : fallbackSize === 'md' ? 8 : 12)))
+    const rows = Math.max(1, Math.min(12, (cur as any).rows ?? ((cur.h || 'md') === 'sm' ? 1 : (cur.h || 'md') === 'md' ? 2 : 3)))
+
+    const nextCols = capacityCols
+    if (nextCols === curCols) return
+    ;(cur as any).cols = nextCols
+    ;(cur as any).rows = rows
+    meta[id] = cur as any
+    setWidgetMeta(pid, meta)
+    applyWidgetSizes(root, pid)
   })
 
   // Size change controls
@@ -1212,6 +1480,15 @@ function applyWidgetSizes(root: HTMLElement, pid: string): void {
     // 背景色の適用
     const bg = meta[id]?.bg || ''
     el.style.background = bg
+
+    // パディング行（下に固定の空行を確保）: 1行=12セルの不可視パッドを挿入（前方の穴埋めを抑止）
+    try {
+      const grid = root.querySelector('#widgetGrid') as HTMLElement | null
+      if (!grid) return
+      // Revert: remove any padding placeholders for this widget
+      const sel = `[data-pad-for="${id}"]`
+      Array.from(grid.querySelectorAll(sel)).forEach(n => n.remove())
+    } catch { }
   })
 }
 
