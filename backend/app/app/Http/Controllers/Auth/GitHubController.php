@@ -31,7 +31,8 @@ class GitHubController extends Controller
             $gitUser = Socialite::driver('github')->user();
         } catch (\Throwable $e) {
             Log::error('GitHub OAuth error', ['error' => $e->getMessage()]);
-            return redirect('http://localhost:5173/#/login?error=oauth_failed');
+            $frontend = (string) (config('app.frontend_url') ?? 'http://localhost:5173');
+            return redirect($frontend.'/#/login?error=oauth_failed');
         }
 
         // Resolve email (may be null if scope missing)
@@ -94,7 +95,8 @@ class GitHubController extends Controller
         }
 
         // Redirect back to frontend with token in hash (not sent to server logs)
-        $url = sprintf('http://localhost:5173/#/project?token=%s', $token);
+        $frontend = (string) (config('app.frontend_url') ?? 'http://localhost:5173');
+        $url = sprintf('%s/#/project?token=%s', rtrim($frontend, '/'), $token);
         return redirect()->away($url);
     }
 }

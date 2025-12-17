@@ -1,4 +1,11 @@
 <?php
+// Health endpoint
+Route::get('/health', function () {
+    return response()->json([
+        'status' => 'ok',
+        'time' => now()->toIso8601String(),
+    ]);
+});
 // Me endpoint (requires token)
 Route::middleware('token.auth')->get('/me', function () {
     /** @var \App\Models\User $user */
