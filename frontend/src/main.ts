@@ -1,18 +1,19 @@
 import { Router } from './router'
 import './styles/index.css'
-import { renderTop } from './pages/top/top'
+import { renderRoot } from './pages/root/root'
 import { renderLogin } from './pages/login/login'
 import { renderProject } from './pages/project/project'
 import { renderProjectDetail } from './pages/project/detail'
+import { renderNotFound } from './pages/not-found/not-found'
 
 const app = document.getElementById('app') as HTMLElement | null
 if (app) {
   const router = new Router(app, {
-    '/': renderTop,
+    '/': renderRoot,
     '/login': renderLogin,
     '/project': renderProject,
     '/project/detail': renderProjectDetail,
-    '/404': (el) => (el.innerHTML = '<p class="text-rose-700">Page not found</p>'),
+    '/404': renderNotFound,
   })
   // Capture token in hash and store
   captureTokenFromHash()

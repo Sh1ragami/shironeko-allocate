@@ -1,5 +1,6 @@
-import { apiFetch } from '../../utils/api'
+import { apiFetch, ApiError } from '../../utils/api'
 import { openTaskModal } from './task-modal'
+import { renderNotFound } from '../not-found/not-found'
 // (no component-level imports; keep in-page implementations)
 // Account modal helpers (duplicated to open over current page)
 type SkillGroup = 'owned' | 'want'
@@ -435,27 +436,49 @@ function parseHashQuery(): Record<string, string> {
 }
 
 export async function renderProjectDetail(container: HTMLElement): Promise<void> {
-  container.innerHTML = `<div class="min-h-screen gh-canvas text-gray-100 grid"><div class="p-8">読み込み中...</div></div>`
-
   const { id } = parseHashQuery()
-  if (!id) {
-    container.innerHTML = `<div class="p-8 text-rose-400">プロジェクトIDが指定されていません。</div>`
+  // ID validation: ensure it's a numeric string
+  if (!id || !/^\d+$/.test(id)) {
+    renderNotFound(container)
     return
   }
 
   let project: Project | null = null
+  let me: { id: number; name: string; github_id?: number } | null = null
+
   try {
     project = await apiFetch<Project>(`/projects/${id}`)
+    // Fetch user info concurrently, but don't fail the entire page if it fails
+    try {
+      me = await apiFetch<{ id: number; name: string; github_id?: number }>(`/me`)
+    } catch {
+      // User fetch failed, proceed without it
+    }
   } catch (e) {
-    // Fallback to dummy detail layout when not found
-    renderDummyDetail(container, id)
+    if (e instanceof ApiError && e.status === 404) {
+      renderNotFound(container)
+    } else {
+      // For other errors, fallback to dummy detail
+      renderDummyDetail(container, id)
+    }
     return
   }
 
   const fullName = project.github_meta?.full_name || project.link_repo || ''
-  if (fullName) (container as HTMLElement).setAttribute('data-repo-full', fullName)
+  const owner = fullName.includes('/') ? fullName.split('/')[0] : me?.name || 'User'
+  const repoName = fullName.includes('/') ? fullName.split('/')[1] : project.name
 
-  container.innerHTML = detailLayout({ id: project.id, name: project.name, fullName })
+  // Render the full layout once with all available data
+  container.innerHTML = detailLayout({ id: project.id, name: project.name, fullName, owner, repo: repoName })
+  if (fullName) (container as HTMLElement).setAttribute('data-repo-full', fullName)
+  
+  // Store user data if fetched
+  if (me) {
+    (container as any)._me = me
+  }
+
+  // --- Start of post-render setup ---
+
   // Record visit unless this render was triggered by back/forward
   try { const mode = consumeNavMode(); if (mode !== 'back' && mode !== 'forward') navVisit(project.id) } catch {}
   // Ensure this project is in the top project-tabs and render the bar
@@ -511,7 +534,7 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
   const rail = container.querySelector('#leftRail') as HTMLElement | null
   const railToggle = container.querySelector('#railToggle') as HTMLButtonElement | null
   const railToggleTop = container.querySelector('#railToggleTop') as HTMLButtonElement | null
-  const railKey = `pj-rail-collapsed-${project.id}`
+  const railKey = `pj-rail-collapsed`
   const setToggleIcon = () => {
     const ensure = (btn: HTMLButtonElement | null) => {
       if (!btn) return
@@ -596,46 +619,36 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
     } catch { }
   }
 
-  // Top header: path + account avatar
-  try {
-    const me = await apiFetch<{ id: number; name: string; github_id?: number }>(`/me`)
-    const owner = fullName.includes('/') ? fullName.split('/')[0] : me.name
-    const repo = fullName.includes('/') ? fullName.split('/')[1] : project.name
-    const pathUser = container.querySelector('#topPathUser') as HTMLElement | null
-    const pathRepo = container.querySelector('#topPathRepo') as HTMLElement | null
-    const title = container.querySelector('#pageTitle') as HTMLElement | null
+  // Update avatar image if user was fetched
+  if (me?.github_id) {
     const accImg = container.querySelector('#accountTopImg') as HTMLImageElement | null
-    if (pathUser) pathUser.textContent = owner
-    if (pathRepo) pathRepo.textContent = repo
-    if (title) title.textContent = project.name
-    if (me.github_id) {
-      const url = `https://avatars.githubusercontent.com/u/${me.github_id}?s=96`
-      if (accImg) { accImg.src = url; accImg.classList.remove('hidden') }
-    }
-    ; (container as any)._me = me
-  } catch { }
+    const url = `https://avatars.githubusercontent.com/u/${me.github_id}?s=96`
+    if (accImg) { accImg.src = url; accImg.classList.remove('hidden') }
+  }
 }
 
 // ---------- Widgets helpers ----------
 
 function widgetShell(id: string, title: string, body: string): string {
+  // タイトルは非表示。S/M/L操作は廃止し、角からのリサイズへ移行。
   return `
-    <div class="widget group rounded-xl ring-2 ring-neutral-600 bg-neutral-900/50 p-4 md:col-span-6 flex flex-col overflow-hidden" draggable="false" data-widget="${id}">
-      <div class="flex items-center pb-2 mb-3 border-b border-neutral-600">
-        <div class="text-sm text-gray-300">${title}</div>
-        <div class="wg-tools ml-auto opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 text-xs flex items-center gap-1">
-          <span class="hidden md:inline">横:</span>
-          <button class="w-size px-1 py-0.5 rounded ring-2 ring-neutral-600 hover:bg-neutral-800" data-size="sm">S</button>
-          <button class="w-size px-1 py-0.5 rounded ring-2 ring-neutral-600 hover:bg-neutral-800" data-size="md">M</button>
-          <button class="w-size px-1 py-0.5 rounded ring-2 ring-neutral-600 hover:bg-neutral-800" data-size="lg">L</button>
-          <span class="hidden md:inline ml-2">縦:</span>
-          <button class="w-h px-1 py-0.5 rounded ring-2 ring-neutral-600 hover:bg-neutral-800" data-h="sm">S</button>
-          <button class="w-h px-1 py-0.5 rounded ring-2 ring-neutral-600 hover:bg-neutral-800" data-h="md">M</button>
-          <button class="w-h px-1 py-0.5 rounded ring-2 ring-neutral-600 hover:bg-neutral-800" data-h="lg">L</button>
-          <button class="w-del px-2 py-0.5 rounded ring-2 ring-rose-600 text-rose-400 hover:bg-rose-900/30">削除</button>
-        </div>
-      </div>
+    <div class="widget group relative rounded-xl ring-2 ring-neutral-600 bg-neutral-900/50 p-3 md:col-span-6 flex flex-col overflow-hidden" draggable="false" data-widget="${id}">
       <div class="wg-content min-h-0 flex-1 overflow-auto">${body}</div>
+      <!-- Edit-only controls: move handle, delete button, resize handles (sides + corners) -->
+      <div class="wg-move hidden absolute top-1 left-1 w-7 h-7 grid place-items-center cursor-grab active:cursor-grabbing select-none">
+        <img src="/src/public/drag_indicator_24dp_E3E3E3_FILL0_wght400_GRAD0_opsz24.svg" alt="drag" class="w-5 h-5 opacity-80" draggable="false"/>
+      </div>
+      <button class="w-del hidden absolute top-1 right-1 w-7 h-7 grid place-items-center text-rose-300 hover:text-rose-400 text-xl md:text-2xl leading-none">×</button>
+      <!-- sides -->
+      <div class="wg-rz hidden absolute top-1/2 -translate-y-1/2 right-0 w-2 h-8 cursor-e-resize bg-neutral-600/50" data-rz="e"></div>
+      <div class="wg-rz hidden absolute left-0 top-1/2 -translate-y-1/2 w-2 h-8 cursor-w-resize bg-neutral-600/50" data-rz="w"></div>
+      <div class="wg-rz hidden absolute bottom-0 left-1/2 -translate-x-1/2 h-2 w-8 cursor-s-resize bg-neutral-600/50" data-rz="s"></div>
+      <div class="wg-rz hidden absolute top-0 left-1/2 -translate-x-1/2 h-2 w-8 cursor-n-resize bg-neutral-600/50" data-rz="n"></div>
+      <!-- corners -->
+      <div class="wg-rz hidden absolute bottom-0 right-0 w-3.5 h-3.5 cursor-se-resize bg-neutral-600/60" data-rz="se"></div>
+      <div class="wg-rz hidden absolute top-0 right-0 w-3.5 h-3.5 cursor-ne-resize bg-neutral-600/60" data-rz="ne"></div>
+      <div class="wg-rz hidden absolute bottom-0 left-0 w-3.5 h-3.5 cursor-sw-resize bg-neutral-600/60" data-rz="sw"></div>
+      <div class="wg-rz hidden absolute top-0 left-0 w-3.5 h-3.5 cursor-nw-resize bg-neutral-600/60" data-rz="nw"></div>
     </div>
   `
 }
@@ -766,6 +779,87 @@ function enableDragAndDrop(root: HTMLElement): void {
   const pid = grid.getAttribute('data-pid') || '0'
   let dragEl: HTMLElement | null = null
   let bgMenuEl: HTMLElement | null = null
+  let dragAllowed = false
+  let hoverEl: HTMLElement | null = null
+  let ghostEl: HTMLElement | null = null
+  let ghost = { left: 0, top: 0, cols: 0, rows: 0 }
+
+  const getMetrics = () => {
+    const styles = getComputedStyle(grid)
+    const gapX = parseFloat((styles.columnGap || '0').toString()) || 0
+    const gapY = parseFloat((styles.rowGap || '0').toString()) || 0
+    const unitCols = 12
+    const gridRect = grid.getBoundingClientRect()
+    const colW = Math.max(1, (gridRect.width - (unitCols - 1) * gapX) / unitCols)
+    const rowH = parseFloat((styles.gridAutoRows || '24').toString()) || 24
+    return { gapX, gapY, gridRect, colW, rowH, unitCols }
+  }
+
+  const ensureGhost = () => {
+    if (ghostEl) return ghostEl
+    const el = document.createElement('div')
+    el.id = 'wg-ghost'
+    el.style.position = 'fixed'
+    el.style.pointerEvents = 'none'
+    el.style.zIndex = '71'
+    el.style.border = '2px dashed rgba(251,191,36,1)' // amber-400
+    el.style.background = 'rgba(251,191,36,0.08)'
+    el.style.borderRadius = '10px'
+    el.style.display = 'none'
+    document.body.appendChild(el)
+    ghostEl = el
+    return el
+  }
+
+  const hideGhost = () => { if (ghostEl) ghostEl.style.display = 'none' }
+
+  const getWidgetDims = (w: HTMLElement) => {
+    const id = w.getAttribute('data-widget') || ''
+    const meta = getWidgetMeta(pid)
+    const cur = meta[id] || {}
+    const size = (cur.size || 'md') as 'sm' | 'md' | 'lg'
+    const cols = Math.max(1, Math.min(12, (cur as any).cols ?? (size === 'sm' ? 4 : size === 'md' ? 8 : 12)))
+    const h = (cur.h || 'md') as 'sm' | 'md' | 'lg'
+    const rows = Math.max(1, Math.min(12, (cur as any).rows ?? (h === 'sm' ? 1 : h === 'md' ? 2 : 3)))
+    return { cols, rows }
+  }
+
+  const updateGhostAtPoint = (clientX: number, clientY: number) => {
+    const g = ensureGhost()
+    const { gapX, gapY, gridRect, colW, rowH, unitCols } = getMetrics()
+    const src = dragEl ? getWidgetDims(dragEl) : { cols: 4, rows: 2 }
+    // Snap to grid
+    const col = Math.max(0, Math.min(unitCols - 1, Math.floor((clientX - gridRect.left) / (colW + gapX))))
+    const row = Math.max(0, Math.floor((clientY - gridRect.top) / (rowH + gapY)))
+
+    const curLeft = gridRect.left + col * (colW + gapX)
+    const top = gridRect.top + row * (rowH + gapY)
+    const ghostHeightPx = src.rows * rowH + (src.rows - 1) * gapY
+    // Find nearest right neighbor overlapping vertically to estimate available width
+    let neighborLeft = gridRect.right
+    grid.querySelectorAll('.widget').forEach((n) => {
+      const el = n as HTMLElement
+      if (el === dragEl) return
+      const r = el.getBoundingClientRect()
+      const verticalOverlap = !(r.bottom <= top || r.top >= top + ghostHeightPx)
+      if (verticalOverlap && r.left > curLeft) neighborLeft = Math.min(neighborLeft, r.left)
+    })
+    // Available pixels to the right edge or neighbor (do not subtract gap here)
+    const availablePx = Math.max(colW, neighborLeft - curLeft)
+    const maxColsFit = Math.max(1, Math.min(src.cols, Math.floor((availablePx + gapX) / (colW + gapX))))
+    const cols = Math.max(1, Math.min(unitCols - col, maxColsFit))
+    const rows = src.rows // keep rows as-is for now
+
+    const left = curLeft
+    const width = cols * colW + (cols - 1) * gapX
+    const height = rows * rowH + (rows - 1) * gapY
+    g.style.left = `${Math.round(left)}px`
+    g.style.top = `${Math.round(top)}px`
+    g.style.width = `${Math.round(width)}px`
+    g.style.height = `${Math.round(height)}px`
+    g.style.display = 'block'
+    ghost = { left, top, cols, rows }
+  }
 
   const save = () => {
     const order = Array.from(grid.querySelectorAll('.widget')).map((w) => w.getAttribute('data-widget'))
@@ -785,34 +879,106 @@ function enableDragAndDrop(root: HTMLElement): void {
   }
 
   const isEdit = () => grid.getAttribute('data-edit') === '1'
+  // (removed) reorderByVisual: revert to natural DOM order
+  // Allow drag only when started from the move handle
+  document.addEventListener('mouseup', () => { dragAllowed = false })
+  grid.addEventListener('mousedown', (e) => {
+    if (!isEdit()) return
+    const onHandle = (e.target as HTMLElement).closest('.wg-move') as HTMLElement | null
+    dragAllowed = !!onHandle
+    if (onHandle) {
+      const w = onHandle.closest('.widget') as HTMLElement | null
+      if (w) w.setAttribute('draggable', 'true')
+    }
+  })
+
   grid.addEventListener('dragstart', (e) => {
     if (!isEdit()) { (e as DragEvent).preventDefault(); return }
+    if (!dragAllowed) { (e as DragEvent).preventDefault(); return }
     const t = (e.target as HTMLElement).closest('.widget') as HTMLElement | null
     if (!t) return
     dragEl = t
-    // Hide original so it doesn't look duplicated (kanban-style)
-    setTimeout(() => { t.style.display = 'none' }, 0)
+    const dt = (e as DragEvent).dataTransfer
+    if (dt) { try { dt.setData('text/plain', 'widget'); dt.effectAllowed = 'move' } catch {} }
+    // Keep layout by hiding visually (not removing flow)
+    setTimeout(() => { t.style.visibility = 'hidden' }, 0)
+    // Move add button out of the way while dragging
+    const add = grid.querySelector('#addWidget') as HTMLElement | null
+    if (add) { add.setAttribute('data-prev-display', add.style.display || ''); add.style.display = 'none' }
   })
   grid.addEventListener('dragover', (e) => {
     if (!isEdit()) return
     e.preventDefault()
+    try { const dt = (e as DragEvent).dataTransfer; if (dt) dt.dropEffect = 'move' } catch {}
     const t = e.target as HTMLElement
     const widget = t.closest('.widget') as HTMLElement | null
-    if (!widget || !dragEl || widget === dragEl) return
-    const rect = widget.getBoundingClientRect()
-    const before = (e as DragEvent).clientY < rect.top + rect.height / 2
-    if (before) grid.insertBefore(dragEl, widget)
-    else grid.insertBefore(dragEl, widget.nextSibling)
+    if (!dragEl) return
+    // Update ghost to show target area even on empty space
+    updateGhostAtPoint((e as DragEvent).clientX, (e as DragEvent).clientY)
+    // also remember widget under cursor for potential swap drop
+    hoverEl = (widget && widget !== dragEl) ? widget : null
   })
-  grid.addEventListener('drop', () => {
+  grid.addEventListener('dragenter', (e) => { if (isEdit()) e.preventDefault() })
+  grid.addEventListener('drop', (e) => {
     if (!isEdit()) return
-    if (dragEl) (dragEl as HTMLElement).style.display = ''
-    save()
+    e.preventDefault()
+    if (dragEl) {
+      dragEl.style.visibility = ''
+      // Swap positions only when dropping onto another widget
+      if (hoverEl && hoverEl !== dragEl) {
+        const a = dragEl
+        const b = hoverEl
+        const parent = a.parentNode as HTMLElement
+        if (parent && b.parentNode === parent) {
+          const aNext = a.nextSibling
+          const bNext = b.nextSibling
+          if (aNext === b) {
+            parent.insertBefore(b, a)
+          } else if (bNext === a) {
+            parent.insertBefore(a, b)
+          } else {
+            if (bNext) parent.insertBefore(a, bNext); else parent.appendChild(a)
+            if (aNext) parent.insertBefore(b, aNext); else parent.appendChild(b)
+          }
+        }
+      } else {
+        // Drop on empty space: insert near cursor position and auto-adjust width
+        const { cols, rows } = ghost
+        const id = dragEl.getAttribute('data-widget') || ''
+        const meta2 = getWidgetMeta(pid)
+        const m = meta2[id] || {}
+        ;(m as any).cols = cols
+        ;(m as any).rows = rows
+        meta2[id] = m as any
+        setWidgetMeta(pid, meta2)
+        applyWidgetSizes(root, pid)
+        // Insert before first widget visually below the cursor; else append
+        const y = (e as DragEvent).clientY
+        let target: Element | null = null
+        const items = Array.from(grid.querySelectorAll('.widget')).filter(n => n !== dragEl)
+          .sort((a, b) => a.getBoundingClientRect().top - b.getBoundingClientRect().top || a.getBoundingClientRect().left - b.getBoundingClientRect().left)
+        for (const n of items) { const r = (n as HTMLElement).getBoundingClientRect(); if (r.top > y) { target = n; break } }
+        if (target) grid.insertBefore(dragEl, target)
+        else grid.appendChild(dragEl)
+        save()
+      }
+      hideGhost()
+      applyWidgetSizes(root, pid)
+      const add = grid.querySelector('#addWidget') as HTMLElement | null
+      if (add) { const prev = add.getAttribute('data-prev-display') || ''; add.style.display = prev; add.removeAttribute('data-prev-display') }
+      hoverEl = null
+    }
     dragEl = null
+    dragAllowed = false
   })
   grid.addEventListener('dragend', () => {
-    if (dragEl) (dragEl as HTMLElement).style.display = ''
+    if (dragEl) dragEl.style.visibility = ''
+    hideGhost()
+    hoverEl = null
+    const add = grid.querySelector('#addWidget') as HTMLElement | null
+    if (add) { const prev = add.getAttribute('data-prev-display') || ''; add.style.display = prev; add.removeAttribute('data-prev-display') }
     dragEl = null
+    dragAllowed = false
   })
 
   // Context menu: background color picker (edit mode only)
@@ -905,13 +1071,18 @@ function enableDragAndDrop(root: HTMLElement): void {
     grid.classList.remove('ring-1', 'ring-amber-500/40', 'bg-amber-950/10', 'rounded-lg')
     grid.querySelectorAll('.widget').forEach((w) => {
       const el = w as HTMLElement
-      el.classList.toggle('cursor-move', on)
+      // ドラッグを示すカーソルはハンドル側にのみ付与
       el.classList.toggle('border', on)
       el.classList.toggle('border-dashed', on)
       el.classList.toggle('border-amber-500/40', on)
-      const tools = el.querySelector('.wg-tools') as HTMLElement | null
-      if (tools) tools.classList.toggle('hidden', !on)
+      const delBtn = el.querySelector('.w-del') as HTMLElement | null
+      const resHandles = el.querySelectorAll('.wg-rz') as NodeListOf<HTMLElement>
+      const move = el.querySelector('.wg-move') as HTMLElement | null
+      if (delBtn) delBtn.classList.toggle('hidden', !on)
+      resHandles.forEach(h => h.classList.toggle('hidden', !on))
+      if (move) move.classList.toggle('hidden', !on)
     })
+    // no reorder on toggle (reverted)
   }
   const savedEdit = localStorage.getItem(`wg-edit-${pid}`) === '1'
   setEdit(!!savedEdit)
@@ -953,6 +1124,210 @@ function enableDragAndDrop(root: HTMLElement): void {
 
   // Add widget button
   grid.querySelector('#addWidget')?.addEventListener('click', () => openWidgetPickerModal(root, pid))
+
+  // Resize: edges and corners (handles with .wg-rz [data-rz])
+  grid.addEventListener('mousedown', (e) => {
+    const handle = (e.target as HTMLElement).closest('.wg-rz') as HTMLElement | null
+    if (!handle) return
+    if (grid.getAttribute('data-edit') !== '1') return
+    const widget = handle.closest('.widget') as HTMLElement | null
+    if (!widget) return
+    e.preventDefault(); e.stopPropagation()
+    // no-op (reverted reorder)
+
+    const id = widget.getAttribute('data-widget') || ''
+    const meta = getWidgetMeta(pid)
+    const cur = meta[id] || {}
+    const curSize = (cur.size || 'md') as 'sm' | 'md' | 'lg'
+    let startCols = (cur as any).cols ?? (curSize === 'sm' ? 4 : curSize === 'md' ? 8 : 12)
+    const curH = (cur.h || 'md') as 'sm' | 'md' | 'lg'
+    let startRows = (cur as any).rows ?? (curH === 'sm' ? 1 : curH === 'md' ? 2 : 3)
+    let startPb = Math.max(0, Math.floor(((cur as any).pb) || 0))
+    startCols = Math.max(1, Math.min(12, startCols))
+    startRows = Math.max(1, Math.min(12, startRows))
+
+    const startX = (e as MouseEvent).clientX
+    const startY = (e as MouseEvent).clientY
+
+    const styles = getComputedStyle(grid)
+    const gapX = parseFloat((styles.columnGap || '0').toString()) || 0
+    const unitCols = 12
+    const gridRect = grid.getBoundingClientRect()
+    const colW = Math.max(1, (gridRect.width - (unitCols - 1) * gapX) / unitCols)
+    const rowH = parseFloat((styles.gridAutoRows || '24').toString()) || 24
+
+    let lastCols = startCols
+    let lastRows = startRows
+    const dir = (handle.getAttribute('data-rz') || 'se') as 'e' | 's' | 'w' | 'n' | 'se' | 'ne' | 'sw' | 'nw'
+
+    // Linked neighbor (horizontal adjacent) for 'e' (right edge) or 'w' (left edge)
+    let linkNeighbor: HTMLElement | null = null
+    let linkStartCols = 0
+    let linkStartRows = 0
+    let linkTotalCols = 0
+    if (dir === 'e' || dir === 'w') {
+      const myRect = widget.getBoundingClientRect()
+      const widgets = Array.from(grid.querySelectorAll('.widget')) as HTMLElement[]
+      const tol = gapX + 2
+      if (dir === 'e') {
+        // find neighbor on right that vertically overlaps and is flush to my right within tolerance
+        let best: { el: HTMLElement; dx: number } | null = null
+        widgets.forEach((el) => {
+          if (el === widget) return
+          const r = el.getBoundingClientRect()
+          const vertical = !(r.bottom <= myRect.top || r.top >= myRect.bottom)
+          const dx = Math.abs(r.left - myRect.right)
+          if (vertical && r.left >= myRect.right - tol && dx <= tol) {
+            if (!best || dx < best.dx) best = { el, dx }
+          }
+        })
+        if (best) linkNeighbor = best.el
+      } else if (dir === 'w') {
+        // find neighbor on left flush to my left
+        let best: { el: HTMLElement; dx: number } | null = null
+        widgets.forEach((el) => {
+          if (el === widget) return
+          const r = el.getBoundingClientRect()
+          const vertical = !(r.bottom <= myRect.top || r.top >= myRect.bottom)
+          const dx = Math.abs(myRect.left - r.right)
+          if (vertical && r.right <= myRect.left + tol && dx <= tol) {
+            if (!best || dx < best.dx) best = { el, dx }
+          }
+        })
+        if (best) linkNeighbor = best.el
+      }
+      if (linkNeighbor) {
+        const nid = linkNeighbor.getAttribute('data-widget') || ''
+        const nmeta = getWidgetMeta(pid)
+        const ncur = nmeta[nid] || {}
+        const nsize = (ncur.size || 'md') as 'sm' | 'md' | 'lg'
+        linkStartCols = Math.max(1, Math.min(12, (ncur as any).cols ?? (nsize === 'sm' ? 4 : nsize === 'md' ? 8 : 12)))
+        linkStartRows = Math.max(1, Math.min(12, (ncur as any).rows ?? ((ncur.h || 'md') === 'sm' ? 1 : (ncur.h || 'md') === 'md' ? 2 : 3)))
+        linkTotalCols = startCols + linkStartCols
+      }
+    }
+
+    const onMove = (ev: MouseEvent) => {
+      const dx = ev.clientX - startX
+      const dy = ev.clientY - startY
+      const addColsRaw = Math.round(dx / (colW + (gapX / unitCols)))
+      const addRowsRaw = Math.round(dy / rowH)
+      let addCols = 0, addRows = 0
+      switch (dir) {
+        case 'e': addCols = addColsRaw; break
+        case 'w': addCols = addColsRaw; break // 左端でも幅のみ調整（左固定）
+        case 's': addRows = addRowsRaw; break
+        case 'n': addRows = -addRowsRaw; break
+        case 'se': addCols = addColsRaw; addRows = addRowsRaw; break
+        case 'ne': addCols = addColsRaw; addRows = -addRowsRaw; break
+        case 'sw': addCols = addColsRaw; addRows = addRowsRaw; break
+        case 'nw': addCols = addColsRaw; addRows = -addRowsRaw; break
+      }
+      let nextCols = Math.max(1, Math.min(12, startCols + addCols))
+      const nextRows = Math.max(1, Math.min(12, startRows + addRows))
+      if (linkNeighbor) {
+        // keep total constant; adjust neighbor inversely
+        const minMy = 1
+        const minNei = 1
+        nextCols = Math.max(minMy, Math.min(linkTotalCols - minNei, nextCols))
+        const neiCols = Math.max(minNei, linkTotalCols - nextCols)
+        linkNeighbor.style.gridColumn = `span ${neiCols} / span ${neiCols}`
+        linkNeighbor.style.gridRow = `span ${linkStartRows} / span ${linkStartRows}`
+      }
+      if (nextCols !== lastCols) { widget.style.gridColumn = `span ${nextCols} / span ${nextCols}`; lastCols = nextCols }
+      if (nextRows !== lastRows) { widget.style.gridRow = `span ${nextRows} / span ${nextRows}`; lastRows = nextRows }
+
+      // Live pad update to keep lower rows from flowing up when shrinking height
+      try {
+        const livePadRows = 0
+        const sel = `[data-pad-for="${id}"]`
+        const pads = Array.from(grid.querySelectorAll(sel)) as HTMLElement[]
+        let pad = pads[0] || null
+        if (pads.length > 1) { pads.slice(1).forEach(n => n.remove()) }
+        if (livePadRows > 0) {
+          if (!pad) {
+            pad = document.createElement('div')
+            pad.className = 'wg-pad'
+            pad.setAttribute('data-pad-for', id)
+            if (widget.nextSibling) grid.insertBefore(pad, widget.nextSibling)
+            else grid.appendChild(pad)
+          }
+          pad.style.gridColumn = 'span 12 / span 12'
+          pad.style.gridRow = `span ${livePadRows} / span ${livePadRows}`
+          pad.style.visibility = 'hidden'
+          pad.style.pointerEvents = 'none'
+          pad.style.margin = '0'
+          pad.style.padding = '0'
+        } else if (pad) {
+          pad.remove()
+        }
+      } catch { }
+    }
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+      const meta2 = getWidgetMeta(pid)
+      const m = meta2[id] || {}
+      ;(m as any).cols = lastCols
+      ;(m as any).rows = lastRows
+      // no persistent pad bookkeeping (reverted)
+      meta2[id] = m as any
+      if (linkNeighbor) {
+        const nid = linkNeighbor.getAttribute('data-widget') || ''
+        const nm = meta2[nid] || {}
+        const neiCols = parseInt((linkNeighbor.style.gridColumn || '').match(/span\s+(\d+)/)?.[1] || String(linkStartCols), 10)
+        ;(nm as any).cols = Math.max(1, Math.min(12, isNaN(neiCols) ? linkStartCols : neiCols))
+        ;(nm as any).rows = linkStartRows
+        meta2[nid] = nm as any
+      }
+      setWidgetMeta(pid, meta2)
+      applyWidgetSizes(root, pid)
+    }
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+  })
+
+  // Auto-fit width on double-click of right edge handle
+  grid.addEventListener('dblclick', (e) => {
+    if (!isEdit()) return
+    const handle = (e.target as HTMLElement).closest('.wg-rz[data-rz="e"]') as HTMLElement | null
+    if (!handle) return
+    const widget = handle.closest('.widget') as HTMLElement | null
+    if (!widget) return
+    e.preventDefault(); e.stopPropagation()
+
+    const { gapX, gridRect, colW, unitCols, rowH } = getMetrics() as any
+    const rect = widget.getBoundingClientRect()
+    // Estimate start column from current left
+    const startCol = Math.max(0, Math.min(unitCols - 1, Math.floor((rect.left - gridRect.left) / (colW + gapX))))
+    // Find nearest right neighbor overlapping vertically
+    let neighborLeft = gridRect.right
+    grid.querySelectorAll('.widget').forEach((n) => {
+      const el = n as HTMLElement
+      if (el === widget) return
+      const r = el.getBoundingClientRect()
+      const verticalOverlap = !(r.bottom <= rect.top || r.top >= rect.bottom)
+      if (verticalOverlap && r.left > rect.left) neighborLeft = Math.min(neighborLeft, r.left)
+    })
+    const capacityPx = Math.max(colW, neighborLeft - rect.left)
+    const capacityCols = Math.max(1, Math.min(unitCols - startCol, Math.floor((capacityPx + gapX) / (colW + gapX))))
+
+    // Current columns from meta (fallback if missing)
+    const id = widget.getAttribute('data-widget') || ''
+    const meta = getWidgetMeta(pid)
+    const cur = meta[id] || {}
+    const fallbackSize = (cur.size || 'md') as 'sm' | 'md' | 'lg'
+    const curCols = Math.max(1, Math.min(unitCols, (cur as any).cols ?? (fallbackSize === 'sm' ? 4 : fallbackSize === 'md' ? 8 : 12)))
+    const rows = Math.max(1, Math.min(12, (cur as any).rows ?? ((cur.h || 'md') === 'sm' ? 1 : (cur.h || 'md') === 'md' ? 2 : 3)))
+
+    const nextCols = capacityCols
+    if (nextCols === curCols) return
+    ;(cur as any).cols = nextCols
+    ;(cur as any).rows = rows
+    meta[id] = cur as any
+    setWidgetMeta(pid, meta)
+    applyWidgetSizes(root, pid)
+  })
 
   // Size change controls
   grid.addEventListener('click', (e) => {
@@ -1086,42 +1461,34 @@ function setWidgetHeight(root: HTMLElement, pid: string, id: string, h: WidgetHe
 function applyWidgetSizes(root: HTMLElement, pid: string): void {
   const meta = getWidgetMeta(pid)
   root.querySelectorAll('.widget').forEach((w) => {
-    const id = (w as HTMLElement).getAttribute('data-widget') || ''
-    const size = (meta[id]?.size || 'md') as 'sm' | 'md' | 'lg'
-    const h = (meta[id]?.h || 'md') as 'sm' | 'md' | 'lg'
-    const cls = (w as HTMLElement).classList
-    // remove previous spans
-    cls.remove('md:col-span-4', 'md:col-span-6', 'md:col-span-8', 'md:col-span-12')
-    if (size === 'sm') cls.add('md:col-span-4')
-    else if (size === 'md') cls.add('md:col-span-8')
-    else cls.add('md:col-span-12')
-    // apply grid row span for height units
-    const hUnits = h === 'sm' ? 1 : h === 'md' ? 2 : 3
-      ; (w as HTMLElement).style.gridRow = `span ${hUnits} / span ${hUnits}`
+    const el = w as HTMLElement
+    const id = el.getAttribute('data-widget') || ''
 
-    // Highlight active controls (size / height)
-    const markActive = (btns: NodeListOf<Element>, attr: 'data-size' | 'data-h', val: string) => {
-      btns.forEach((b) => {
-        const el = b as HTMLElement
-        const isActive = el.getAttribute(attr) === val
-        el.classList.toggle('bg-emerald-700', isActive)
-        el.classList.toggle('text-white', isActive)
-        el.classList.toggle('ring-emerald-600', isActive)
-        // inactive style (subtle)
-        el.classList.toggle('bg-neutral-800/40', !isActive)
-        el.classList.toggle('text-gray-200', !isActive)
-        el.classList.toggle('ring-neutral-600', !isActive)
-        el.setAttribute('aria-pressed', isActive ? 'true' : 'false')
-      })
-    }
-    const sizeBtns = w.querySelectorAll('.w-size')
-    const hBtns = w.querySelectorAll('.w-h')
-    markActive(sizeBtns as NodeListOf<Element>, 'data-size', size)
-    markActive(hBtns as NodeListOf<Element>, 'data-h', h)
+    // 新しい柔軟なサイズ指定（cols/rows）。既存S/M/Lは後方互換として使用。
+    const fallbackSize = (meta[id]?.size || 'md') as 'sm' | 'md' | 'lg'
+    const fallbackCols = fallbackSize === 'sm' ? 4 : fallbackSize === 'md' ? 8 : 12
+    const fallbackH = (meta[id]?.h || 'md') as 'sm' | 'md' | 'lg'
+    const fallbackRows = fallbackH === 'sm' ? 1 : fallbackH === 'md' ? 2 : 3
+    const cols = Math.max(1, Math.min(12, (meta[id] as any)?.cols ?? fallbackCols))
+    const rows = Math.max(1, Math.min(12, (meta[id] as any)?.rows ?? fallbackRows))
 
-    // Apply custom background if set
+    // Tailwindのcol-spanクラスは使わない（inline styleで指定）
+    el.classList.remove('md:col-span-4', 'md:col-span-6', 'md:col-span-8', 'md:col-span-12')
+    el.style.gridColumn = `span ${cols} / span ${cols}`
+    el.style.gridRow = `span ${rows} / span ${rows}`
+
+    // 背景色の適用
     const bg = meta[id]?.bg || ''
-      ; (w as HTMLElement).style.background = bg
+    el.style.background = bg
+
+    // パディング行（下に固定の空行を確保）: 1行=12セルの不可視パッドを挿入（前方の穴埋めを抑止）
+    try {
+      const grid = root.querySelector('#widgetGrid') as HTMLElement | null
+      if (!grid) return
+      // Revert: remove any padding placeholders for this widget
+      const sel = `[data-pad-for="${id}"]`
+      Array.from(grid.querySelectorAll(sel)).forEach(n => n.remove())
+    } catch { }
   })
 }
 
@@ -1141,12 +1508,15 @@ function ensureWidgets(root: HTMLElement, pid: string): void {
       const add = grid.querySelector('#addWidget')
       if (add) grid.insertBefore(card, add)
       else grid.appendChild(card)
-      // Ensure toolbar visibility matches current edit state
+      // Ensure edit-mode overlays match current state
       const on = grid.getAttribute('data-edit') === '1'
-      const tools = (card as HTMLElement).querySelector('.wg-tools') as HTMLElement | null
-      if (tools) tools.classList.toggle('hidden', !on)
       const el = card as HTMLElement
-      el.classList.toggle('cursor-move', on)
+      const delBtn = el.querySelector('.w-del') as HTMLElement | null
+      const resHandles = el.querySelectorAll('.wg-rz') as NodeListOf<HTMLElement>
+      const move = el.querySelector('.wg-move') as HTMLElement | null
+      if (delBtn) delBtn.classList.toggle('hidden', !on)
+      resHandles.forEach(h => h.classList.toggle('hidden', !on))
+      if (move) move.classList.toggle('hidden', !on)
       el.classList.toggle('border', on)
       el.classList.toggle('border-dashed', on)
       el.classList.toggle('border-amber-500/40', on)
@@ -1272,15 +1642,19 @@ function addWidget(root: HTMLElement, pid: string, type: string): void {
     const add = grid.querySelector('#addWidget')
     if (add) grid.insertBefore(el, add)
     else grid.appendChild(el)
-    // ensure tools visibility matches current edit state
+    // ensure edit-only overlays visibility matches current edit state
     const on = grid.getAttribute('data-edit') === '1'
-    const tools = (el as HTMLElement).querySelector('.wg-tools') as HTMLElement | null
-    if (tools) tools.classList.toggle('hidden', !on)
+    const delBtn = (el as HTMLElement).querySelector('.w-del') as HTMLElement | null
+    const resHandles = (el as HTMLElement).querySelectorAll('.wg-rz') as NodeListOf<HTMLElement>
+    const move = (el as HTMLElement).querySelector('.wg-move') as HTMLElement | null
+    if (delBtn) delBtn.classList.toggle('hidden', !on)
+    resHandles.forEach(h => h.classList.toggle('hidden', !on))
+    if (move) move.classList.toggle('hidden', !on)
     // if in edit mode, immediately apply edit visuals and drag
     if (on) {
       const card = el as HTMLElement
       card.setAttribute('draggable', 'true')
-      card.classList.add('cursor-move', 'border', 'border-dashed', 'border-amber-500/40')
+      card.classList.add('border', 'border-dashed', 'border-amber-500/40')
     }
   }
   // refresh dynamic contents after adding
@@ -1574,7 +1948,7 @@ function buildTimelineTab(panel: HTMLElement, pid: string): void {
 function buildWidgetTab(panel: HTMLElement, pid: string, scope: string, defaults: string[]): void {
   panel.innerHTML = `
     <div class="space-y-3">
-      <div class="grid gap-7 md:gap-8 grid-cols-1 md:grid-cols-12" id="widgetGrid" data-pid="${pid}:${scope}" style="grid-auto-rows: 3.5rem;">
+      <div class="grid gap-3 md:gap-4 grid-cols-1 md:grid-cols-12" id="widgetGrid" data-pid="${pid}:${scope}" style="grid-auto-rows: 3.5rem;">
         ${addWidgetCard()}
       </div>
     </div>
@@ -1593,7 +1967,7 @@ function buildWidgetTab(panel: HTMLElement, pid: string, scope: string, defaults
   }
 }
 
-function detailLayout(ctx: { id: number; name: string; fullName: string }): string {
+function detailLayout(ctx: { id: number; name: string; fullName: string; owner: string; repo: string }): string {
   return `
     <div class="min-h-screen gh-canvas text-gray-100">
       <!-- Browser-like project tabs (full width) -->
@@ -1620,9 +1994,9 @@ function detailLayout(ctx: { id: number; name: string; fullName: string }): stri
           <!-- Repo / Project breadcrumb at top of rail -->
           <div class="mb-5 pt-1">
             <div class="flex items-center gap-2 text-sm">
-              <a href="#/project" class="text-gray-300 hover:text-white" id="topPathUser">User</a>
+              <a href="#/project" class="text-gray-300 hover:text-white" id="topPathUser">${ctx.owner}</a>
               <span class="text-gray-500">/</span>
-              <span class="text-gray-300" id="topPathRepo">Repo</span>
+              <span class="text-gray-300" id="topPathRepo">${ctx.repo}</span>
             </div>
           </div>
 
@@ -1653,7 +2027,7 @@ function detailLayout(ctx: { id: number; name: string; fullName: string }): stri
         <div class="flex-1 min-w-0">
           <main class="p-8">
             <section class="space-y-3" id="tab-summary" data-tab="summary">
-              <div class="grid gap-7 md:gap-8 grid-cols-1 md:grid-cols-12" id="widgetGrid" data-pid="${ctx.id}" style="grid-auto-rows: 3.5rem;">
+              <div class="grid gap-3 md:gap-4 grid-cols-1 md:grid-cols-12" id="widgetGrid" data-pid="${ctx.id}" style="grid-auto-rows: 3.5rem;">
                 ${widgetShell('contrib', 'Contributions', contributionWidget())}
                 ${widgetShell('overview', 'Overview', overviewSkeleton())}
                 ${widgetShell('committers', 'Top Committers', barSkeleton())}
