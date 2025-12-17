@@ -1,4 +1,5 @@
-# Allocate
+<img width="1049" height="290" alt="スクリーンショット 2025-12-17 12 24 46" src="https://github.com/user-attachments/assets/b90b4331-95c2-4314-a440-0a5756564931" />
+
 
 <p align="center">
   <strong>GitHub 専用タスク管理アプリ</strong><br>
@@ -18,8 +19,6 @@
   <img src="https://img.shields.io/badge/HTML-E34F26?logo=html5&logoColor=white&style=flat" />
 </p>
 
----
-
 ##  概要
 
 **Allocate** は、  GitHub 上の **Issue・Pull Request** をタスクとして一元管理できる  
@@ -27,7 +26,6 @@
 
 GitHub から離れた瞬間に形骸化しがちなタスク管理を、  **開発フローの中心に引き戻す** ことを目的にしています。
 
----
 
 ## コンセプト
 
@@ -37,34 +35,27 @@ GitHub から離れた瞬間に形骸化しがちなタスク管理を、  **開
 - Pull Request = 進捗  
 - GitHub = 開発のハブ  
 
+## アーキテクチャ
 
----
+```mermaid
+flowchart LR
+  A[Browser] --> B[Vite + TypeScript + Tailwind]
+  B -->|/api/*| C[Laravel API]
+  C --> D[(MySQL 8)]
+  C -->|Proxy| E[GitHub API]
+  subgraph Docker Compose
+    B
+    C
+    D
+  end
+```
 
-## 主な特徴
+<br>
 
--  **GitHub 前提設計**
-  - Issue / PR をそのままタスクとして扱える
--  **タスクの可視化**
-  - 状態・優先度を直感的に把握
--  **開発フローに自然に統合**
-  - ツールを増やさず、GitHub を中心に運用
--  **学生・個人開発向け**
-  - 過度に重くならないシンプル設計
+### 開発クイックガイド
 
----
-
-#
-
-
-
-
-
-
-
-
-
-# アロケート – 開発クイックガイド
-
+<details><summary>開発ガイド</summary>
+  
 ■ スタック
 - Frontend: Vite + TypeScript + Tailwind（プレーンTS）
 - Backend: Laravel + Nginx（API 専用）
@@ -100,3 +91,5 @@ GitHub から離れた瞬間に形骸化しがちなタスク管理を、  **開
 ■ branch命名ルール
 - タグ名/変更範囲/説明
 例 feature/front-main/add-login-function
+
+</detail>
