@@ -630,23 +630,25 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
 // ---------- Widgets helpers ----------
 
 function widgetShell(id: string, title: string, body: string): string {
+  // タイトルは非表示。S/M/L操作は廃止し、角からのリサイズへ移行。
   return `
-    <div class="widget group rounded-xl ring-2 ring-neutral-600 bg-neutral-900/50 p-4 md:col-span-6 flex flex-col overflow-hidden" draggable="false" data-widget="${id}">
-      <div class="flex items-center pb-2 mb-3 border-b border-neutral-600">
-        <div class="text-sm text-gray-300">${title}</div>
-        <div class="wg-tools ml-auto opacity-0 group-hover:opacity-100 transition-opacity text-gray-400 text-xs flex items-center gap-1">
-          <span class="hidden md:inline">横:</span>
-          <button class="w-size px-1 py-0.5 rounded ring-2 ring-neutral-600 hover:bg-neutral-800" data-size="sm">S</button>
-          <button class="w-size px-1 py-0.5 rounded ring-2 ring-neutral-600 hover:bg-neutral-800" data-size="md">M</button>
-          <button class="w-size px-1 py-0.5 rounded ring-2 ring-neutral-600 hover:bg-neutral-800" data-size="lg">L</button>
-          <span class="hidden md:inline ml-2">縦:</span>
-          <button class="w-h px-1 py-0.5 rounded ring-2 ring-neutral-600 hover:bg-neutral-800" data-h="sm">S</button>
-          <button class="w-h px-1 py-0.5 rounded ring-2 ring-neutral-600 hover:bg-neutral-800" data-h="md">M</button>
-          <button class="w-h px-1 py-0.5 rounded ring-2 ring-neutral-600 hover:bg-neutral-800" data-h="lg">L</button>
-          <button class="w-del px-2 py-0.5 rounded ring-2 ring-rose-600 text-rose-400 hover:bg-rose-900/30">削除</button>
-        </div>
-      </div>
+    <div class="widget group relative rounded-xl ring-2 ring-neutral-600 bg-neutral-900/50 p-3 md:col-span-6 flex flex-col overflow-hidden" draggable="false" data-widget="${id}">
       <div class="wg-content min-h-0 flex-1 overflow-auto">${body}</div>
+      <!-- Edit-only controls: move handle, delete button, resize handles (sides + corners) -->
+      <div class="wg-move hidden absolute top-1 left-1 w-7 h-7 grid place-items-center cursor-grab active:cursor-grabbing select-none">
+        <img src="/src/public/drag_indicator_24dp_E3E3E3_FILL0_wght400_GRAD0_opsz24.svg" alt="drag" class="w-5 h-5 opacity-80" draggable="false"/>
+      </div>
+      <button class="w-del hidden absolute top-1 right-1 w-7 h-7 grid place-items-center text-rose-300 hover:text-rose-400 text-xl md:text-2xl leading-none">×</button>
+      <!-- sides -->
+      <div class="wg-rz hidden absolute top-1/2 -translate-y-1/2 right-0 w-2 h-8 cursor-e-resize bg-neutral-600/50" data-rz="e"></div>
+      <div class="wg-rz hidden absolute left-0 top-1/2 -translate-y-1/2 w-2 h-8 cursor-w-resize bg-neutral-600/50" data-rz="w"></div>
+      <div class="wg-rz hidden absolute bottom-0 left-1/2 -translate-x-1/2 h-2 w-8 cursor-s-resize bg-neutral-600/50" data-rz="s"></div>
+      <div class="wg-rz hidden absolute top-0 left-1/2 -translate-x-1/2 h-2 w-8 cursor-n-resize bg-neutral-600/50" data-rz="n"></div>
+      <!-- corners -->
+      <div class="wg-rz hidden absolute bottom-0 right-0 w-3.5 h-3.5 cursor-se-resize bg-neutral-600/60" data-rz="se"></div>
+      <div class="wg-rz hidden absolute top-0 right-0 w-3.5 h-3.5 cursor-ne-resize bg-neutral-600/60" data-rz="ne"></div>
+      <div class="wg-rz hidden absolute bottom-0 left-0 w-3.5 h-3.5 cursor-sw-resize bg-neutral-600/60" data-rz="sw"></div>
+      <div class="wg-rz hidden absolute top-0 left-0 w-3.5 h-3.5 cursor-nw-resize bg-neutral-600/60" data-rz="nw"></div>
     </div>
   `
 }
@@ -777,6 +779,7 @@ function enableDragAndDrop(root: HTMLElement): void {
   const pid = grid.getAttribute('data-pid') || '0'
   let dragEl: HTMLElement | null = null
   let bgMenuEl: HTMLElement | null = null
+  let dragAllowed = false
 
   const save = () => {
     const order = Array.from(grid.querySelectorAll('.widget')).map((w) => w.getAttribute('data-widget'))
@@ -796,17 +799,33 @@ function enableDragAndDrop(root: HTMLElement): void {
   }
 
   const isEdit = () => grid.getAttribute('data-edit') === '1'
+  // Allow drag only when started from the move handle
+  document.addEventListener('mouseup', () => { dragAllowed = false })
+  grid.addEventListener('mousedown', (e) => {
+    if (!isEdit()) return
+    const onHandle = (e.target as HTMLElement).closest('.wg-move') as HTMLElement | null
+    dragAllowed = !!onHandle
+    if (onHandle) {
+      const w = onHandle.closest('.widget') as HTMLElement | null
+      if (w) w.setAttribute('draggable', 'true')
+    }
+  })
+
   grid.addEventListener('dragstart', (e) => {
     if (!isEdit()) { (e as DragEvent).preventDefault(); return }
+    if (!dragAllowed) { (e as DragEvent).preventDefault(); return }
     const t = (e.target as HTMLElement).closest('.widget') as HTMLElement | null
     if (!t) return
     dragEl = t
+    const dt = (e as DragEvent).dataTransfer
+    if (dt) { try { dt.setData('text/plain', 'widget'); dt.effectAllowed = 'move' } catch {} }
     // Hide original so it doesn't look duplicated (kanban-style)
     setTimeout(() => { t.style.display = 'none' }, 0)
   })
   grid.addEventListener('dragover', (e) => {
     if (!isEdit()) return
     e.preventDefault()
+    try { const dt = (e as DragEvent).dataTransfer; if (dt) dt.dropEffect = 'move' } catch {}
     const t = e.target as HTMLElement
     const widget = t.closest('.widget') as HTMLElement | null
     if (!widget || !dragEl || widget === dragEl) return
@@ -815,15 +834,19 @@ function enableDragAndDrop(root: HTMLElement): void {
     if (before) grid.insertBefore(dragEl, widget)
     else grid.insertBefore(dragEl, widget.nextSibling)
   })
-  grid.addEventListener('drop', () => {
+  grid.addEventListener('dragenter', (e) => { if (isEdit()) e.preventDefault() })
+  grid.addEventListener('drop', (e) => {
     if (!isEdit()) return
+    e.preventDefault()
     if (dragEl) (dragEl as HTMLElement).style.display = ''
     save()
     dragEl = null
+    dragAllowed = false
   })
   grid.addEventListener('dragend', () => {
     if (dragEl) (dragEl as HTMLElement).style.display = ''
     dragEl = null
+    dragAllowed = false
   })
 
   // Context menu: background color picker (edit mode only)
@@ -916,12 +939,16 @@ function enableDragAndDrop(root: HTMLElement): void {
     grid.classList.remove('ring-1', 'ring-amber-500/40', 'bg-amber-950/10', 'rounded-lg')
     grid.querySelectorAll('.widget').forEach((w) => {
       const el = w as HTMLElement
-      el.classList.toggle('cursor-move', on)
+      // ドラッグを示すカーソルはハンドル側にのみ付与
       el.classList.toggle('border', on)
       el.classList.toggle('border-dashed', on)
       el.classList.toggle('border-amber-500/40', on)
-      const tools = el.querySelector('.wg-tools') as HTMLElement | null
-      if (tools) tools.classList.toggle('hidden', !on)
+      const delBtn = el.querySelector('.w-del') as HTMLElement | null
+      const resHandles = el.querySelectorAll('.wg-rz') as NodeListOf<HTMLElement>
+      const move = el.querySelector('.wg-move') as HTMLElement | null
+      if (delBtn) delBtn.classList.toggle('hidden', !on)
+      resHandles.forEach(h => h.classList.toggle('hidden', !on))
+      if (move) move.classList.toggle('hidden', !on)
     })
   }
   const savedEdit = localStorage.getItem(`wg-edit-${pid}`) === '1'
@@ -964,6 +991,75 @@ function enableDragAndDrop(root: HTMLElement): void {
 
   // Add widget button
   grid.querySelector('#addWidget')?.addEventListener('click', () => openWidgetPickerModal(root, pid))
+
+  // Resize: edges and corners (handles with .wg-rz [data-rz])
+  grid.addEventListener('mousedown', (e) => {
+    const handle = (e.target as HTMLElement).closest('.wg-rz') as HTMLElement | null
+    if (!handle) return
+    if (grid.getAttribute('data-edit') !== '1') return
+    const widget = handle.closest('.widget') as HTMLElement | null
+    if (!widget) return
+    e.preventDefault(); e.stopPropagation()
+
+    const id = widget.getAttribute('data-widget') || ''
+    const meta = getWidgetMeta(pid)
+    const cur = meta[id] || {}
+    const curSize = (cur.size || 'md') as 'sm' | 'md' | 'lg'
+    let startCols = (cur as any).cols ?? (curSize === 'sm' ? 4 : curSize === 'md' ? 8 : 12)
+    const curH = (cur.h || 'md') as 'sm' | 'md' | 'lg'
+    let startRows = (cur as any).rows ?? (curH === 'sm' ? 1 : curH === 'md' ? 2 : 3)
+    startCols = Math.max(1, Math.min(12, startCols))
+    startRows = Math.max(1, Math.min(12, startRows))
+
+    const startX = (e as MouseEvent).clientX
+    const startY = (e as MouseEvent).clientY
+
+    const styles = getComputedStyle(grid)
+    const gapX = parseFloat((styles.columnGap || '0').toString()) || 0
+    const unitCols = 12
+    const gridRect = grid.getBoundingClientRect()
+    const colW = Math.max(1, (gridRect.width - (unitCols - 1) * gapX) / unitCols)
+    const rowH = parseFloat((styles.gridAutoRows || '24').toString()) || 24
+
+    let lastCols = startCols
+    let lastRows = startRows
+    const dir = (handle.getAttribute('data-rz') || 'se') as 'e' | 's' | 'w' | 'n' | 'se' | 'ne' | 'sw' | 'nw'
+
+    const onMove = (ev: MouseEvent) => {
+      const dx = ev.clientX - startX
+      const dy = ev.clientY - startY
+      const addColsRaw = Math.round(dx / (colW + (gapX / unitCols)))
+      const addRowsRaw = Math.round(dy / rowH)
+      let addCols = 0, addRows = 0
+      switch (dir) {
+        case 'e': addCols = addColsRaw; break
+        case 'w': addCols = addColsRaw; break // 左端でも幅のみ調整（左固定）
+        case 's': addRows = addRowsRaw; break
+        case 'n': addRows = -addRowsRaw; break
+        case 'se': addCols = addColsRaw; addRows = addRowsRaw; break
+        case 'ne': addCols = addColsRaw; addRows = -addRowsRaw; break
+        case 'sw': addCols = addColsRaw; addRows = addRowsRaw; break
+        case 'nw': addCols = addColsRaw; addRows = -addRowsRaw; break
+      }
+      const nextCols = Math.max(1, Math.min(12, startCols + addCols))
+      const nextRows = Math.max(1, Math.min(12, startRows + addRows))
+      if (nextCols !== lastCols) { widget.style.gridColumn = `span ${nextCols} / span ${nextCols}`; lastCols = nextCols }
+      if (nextRows !== lastRows) { widget.style.gridRow = `span ${nextRows} / span ${nextRows}`; lastRows = nextRows }
+    }
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+      const meta2 = getWidgetMeta(pid)
+      const m = meta2[id] || {}
+      ;(m as any).cols = lastCols
+      ;(m as any).rows = lastRows
+      meta2[id] = m as any
+      setWidgetMeta(pid, meta2)
+      applyWidgetSizes(root, pid)
+    }
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+  })
 
   // Size change controls
   grid.addEventListener('click', (e) => {
@@ -1097,42 +1193,25 @@ function setWidgetHeight(root: HTMLElement, pid: string, id: string, h: WidgetHe
 function applyWidgetSizes(root: HTMLElement, pid: string): void {
   const meta = getWidgetMeta(pid)
   root.querySelectorAll('.widget').forEach((w) => {
-    const id = (w as HTMLElement).getAttribute('data-widget') || ''
-    const size = (meta[id]?.size || 'md') as 'sm' | 'md' | 'lg'
-    const h = (meta[id]?.h || 'md') as 'sm' | 'md' | 'lg'
-    const cls = (w as HTMLElement).classList
-    // remove previous spans
-    cls.remove('md:col-span-4', 'md:col-span-6', 'md:col-span-8', 'md:col-span-12')
-    if (size === 'sm') cls.add('md:col-span-4')
-    else if (size === 'md') cls.add('md:col-span-8')
-    else cls.add('md:col-span-12')
-    // apply grid row span for height units
-    const hUnits = h === 'sm' ? 1 : h === 'md' ? 2 : 3
-      ; (w as HTMLElement).style.gridRow = `span ${hUnits} / span ${hUnits}`
+    const el = w as HTMLElement
+    const id = el.getAttribute('data-widget') || ''
 
-    // Highlight active controls (size / height)
-    const markActive = (btns: NodeListOf<Element>, attr: 'data-size' | 'data-h', val: string) => {
-      btns.forEach((b) => {
-        const el = b as HTMLElement
-        const isActive = el.getAttribute(attr) === val
-        el.classList.toggle('bg-emerald-700', isActive)
-        el.classList.toggle('text-white', isActive)
-        el.classList.toggle('ring-emerald-600', isActive)
-        // inactive style (subtle)
-        el.classList.toggle('bg-neutral-800/40', !isActive)
-        el.classList.toggle('text-gray-200', !isActive)
-        el.classList.toggle('ring-neutral-600', !isActive)
-        el.setAttribute('aria-pressed', isActive ? 'true' : 'false')
-      })
-    }
-    const sizeBtns = w.querySelectorAll('.w-size')
-    const hBtns = w.querySelectorAll('.w-h')
-    markActive(sizeBtns as NodeListOf<Element>, 'data-size', size)
-    markActive(hBtns as NodeListOf<Element>, 'data-h', h)
+    // 新しい柔軟なサイズ指定（cols/rows）。既存S/M/Lは後方互換として使用。
+    const fallbackSize = (meta[id]?.size || 'md') as 'sm' | 'md' | 'lg'
+    const fallbackCols = fallbackSize === 'sm' ? 4 : fallbackSize === 'md' ? 8 : 12
+    const fallbackH = (meta[id]?.h || 'md') as 'sm' | 'md' | 'lg'
+    const fallbackRows = fallbackH === 'sm' ? 1 : fallbackH === 'md' ? 2 : 3
+    const cols = Math.max(1, Math.min(12, (meta[id] as any)?.cols ?? fallbackCols))
+    const rows = Math.max(1, Math.min(12, (meta[id] as any)?.rows ?? fallbackRows))
 
-    // Apply custom background if set
+    // Tailwindのcol-spanクラスは使わない（inline styleで指定）
+    el.classList.remove('md:col-span-4', 'md:col-span-6', 'md:col-span-8', 'md:col-span-12')
+    el.style.gridColumn = `span ${cols} / span ${cols}`
+    el.style.gridRow = `span ${rows} / span ${rows}`
+
+    // 背景色の適用
     const bg = meta[id]?.bg || ''
-      ; (w as HTMLElement).style.background = bg
+    el.style.background = bg
   })
 }
 
@@ -1152,12 +1231,15 @@ function ensureWidgets(root: HTMLElement, pid: string): void {
       const add = grid.querySelector('#addWidget')
       if (add) grid.insertBefore(card, add)
       else grid.appendChild(card)
-      // Ensure toolbar visibility matches current edit state
+      // Ensure edit-mode overlays match current state
       const on = grid.getAttribute('data-edit') === '1'
-      const tools = (card as HTMLElement).querySelector('.wg-tools') as HTMLElement | null
-      if (tools) tools.classList.toggle('hidden', !on)
       const el = card as HTMLElement
-      el.classList.toggle('cursor-move', on)
+      const delBtn = el.querySelector('.w-del') as HTMLElement | null
+      const resHandles = el.querySelectorAll('.wg-rz') as NodeListOf<HTMLElement>
+      const move = el.querySelector('.wg-move') as HTMLElement | null
+      if (delBtn) delBtn.classList.toggle('hidden', !on)
+      resHandles.forEach(h => h.classList.toggle('hidden', !on))
+      if (move) move.classList.toggle('hidden', !on)
       el.classList.toggle('border', on)
       el.classList.toggle('border-dashed', on)
       el.classList.toggle('border-amber-500/40', on)
@@ -1283,15 +1365,19 @@ function addWidget(root: HTMLElement, pid: string, type: string): void {
     const add = grid.querySelector('#addWidget')
     if (add) grid.insertBefore(el, add)
     else grid.appendChild(el)
-    // ensure tools visibility matches current edit state
+    // ensure edit-only overlays visibility matches current edit state
     const on = grid.getAttribute('data-edit') === '1'
-    const tools = (el as HTMLElement).querySelector('.wg-tools') as HTMLElement | null
-    if (tools) tools.classList.toggle('hidden', !on)
+    const delBtn = (el as HTMLElement).querySelector('.w-del') as HTMLElement | null
+    const resHandles = (el as HTMLElement).querySelectorAll('.wg-rz') as NodeListOf<HTMLElement>
+    const move = (el as HTMLElement).querySelector('.wg-move') as HTMLElement | null
+    if (delBtn) delBtn.classList.toggle('hidden', !on)
+    resHandles.forEach(h => h.classList.toggle('hidden', !on))
+    if (move) move.classList.toggle('hidden', !on)
     // if in edit mode, immediately apply edit visuals and drag
     if (on) {
       const card = el as HTMLElement
       card.setAttribute('draggable', 'true')
-      card.classList.add('cursor-move', 'border', 'border-dashed', 'border-amber-500/40')
+      card.classList.add('border', 'border-dashed', 'border-amber-500/40')
     }
   }
   // refresh dynamic contents after adding
@@ -1585,7 +1671,7 @@ function buildTimelineTab(panel: HTMLElement, pid: string): void {
 function buildWidgetTab(panel: HTMLElement, pid: string, scope: string, defaults: string[]): void {
   panel.innerHTML = `
     <div class="space-y-3">
-      <div class="grid gap-7 md:gap-8 grid-cols-1 md:grid-cols-12" id="widgetGrid" data-pid="${pid}:${scope}" style="grid-auto-rows: 3.5rem;">
+      <div class="grid gap-3 md:gap-4 grid-cols-1 md:grid-cols-12" id="widgetGrid" data-pid="${pid}:${scope}" style="grid-auto-rows: 3.5rem;">
         ${addWidgetCard()}
       </div>
     </div>
@@ -1664,7 +1750,7 @@ function detailLayout(ctx: { id: number; name: string; fullName: string; owner: 
         <div class="flex-1 min-w-0">
           <main class="p-8">
             <section class="space-y-3" id="tab-summary" data-tab="summary">
-              <div class="grid gap-7 md:gap-8 grid-cols-1 md:grid-cols-12" id="widgetGrid" data-pid="${ctx.id}" style="grid-auto-rows: 3.5rem;">
+              <div class="grid gap-3 md:gap-4 grid-cols-1 md:grid-cols-12" id="widgetGrid" data-pid="${ctx.id}" style="grid-auto-rows: 3.5rem;">
                 ${widgetShell('contrib', 'Contributions', contributionWidget())}
                 ${widgetShell('overview', 'Overview', overviewSkeleton())}
                 ${widgetShell('committers', 'Top Committers', barSkeleton())}
