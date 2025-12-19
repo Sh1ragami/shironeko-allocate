@@ -763,15 +763,15 @@ function widgetShell(id: string, title: string, body: string): string {
       </div>
       <button class="w-del hidden absolute top-1 right-1 w-7 h-7 grid place-items-center text-rose-300 hover:text-rose-400 text-xl md:text-2xl leading-none">×</button>
       <!-- sides -->
-      <div class="wg-rz hidden absolute top-1/2 -translate-y-1/2 right-0 w-2 h-8 cursor-e-resize bg-neutral-600/50" data-rz="e"></div>
-      <div class="wg-rz hidden absolute left-0 top-1/2 -translate-y-1/2 w-2 h-8 cursor-w-resize bg-neutral-600/50" data-rz="w"></div>
-      <div class="wg-rz hidden absolute bottom-0 left-1/2 -translate-x-1/2 h-2 w-8 cursor-s-resize bg-neutral-600/50" data-rz="s"></div>
-      <div class="wg-rz hidden absolute top-0 left-1/2 -translate-x-1/2 h-2 w-8 cursor-n-resize bg-neutral-600/50" data-rz="n"></div>
-      <!-- corners -->
-      <div class="wg-rz hidden absolute bottom-0 right-0 w-3.5 h-3.5 cursor-se-resize bg-neutral-600/60" data-rz="se"></div>
-      <div class="wg-rz hidden absolute top-0 right-0 w-3.5 h-3.5 cursor-ne-resize bg-neutral-600/60" data-rz="ne"></div>
-      <div class="wg-rz hidden absolute bottom-0 left-0 w-3.5 h-3.5 cursor-sw-resize bg-neutral-600/60" data-rz="sw"></div>
-      <div class="wg-rz hidden absolute top-0 left-0 w-3.5 h-3.5 cursor-nw-resize bg-neutral-600/60" data-rz="nw"></div>
+      <div class="wg-rz hidden absolute top-1/2 -translate-y-1/2 right-0 w-2 h-8 cursor-e-resize" data-rz="e"></div>
+      <div class="wg-rz hidden absolute left-0 top-1/2 -translate-y-1/2 w-2 h-8 cursor-w-resize" data-rz="w"></div>
+      <div class="wg-rz hidden absolute bottom-0 left-1/2 -translate-x-1/2 h-2 w-8 cursor-s-resize" data-rz="s"></div>
+      <div class="wg-rz hidden absolute top-0 left-1/2 -translate-x-1/2 h-2 w-8 cursor-n-resize" data-rz="n"></div>
+      <!-- corners: no visible square -->
+      <div class="wg-rz hidden absolute bottom-0 right-0 w-3.5 h-3.5 cursor-se-resize" data-rz="se"></div>
+      <div class="wg-rz hidden absolute top-0 right-0 w-3.5 h-3.5 cursor-ne-resize" data-rz="ne"></div>
+      <div class="wg-rz hidden absolute bottom-0 left-0 w-3.5 h-3.5 cursor-sw-resize" data-rz="sw"></div>
+      <div class="wg-rz hidden absolute top-0 left-0 w-3.5 h-3.5 cursor-nw-resize" data-rz="nw"></div>
     </div>
   `
 }
@@ -1249,13 +1249,42 @@ function enableDragAndDrop(root: HTMLElement): void {
   grid.querySelector('#addWidget')?.addEventListener('click', () => openWidgetPickerModal(root, pid))
 
   // Resize: edges and corners (handles with .wg-rz [data-rz])
-  grid.addEventListener('mousedown', (e) => {
-    const handle = (e.target as HTMLElement).closest('.wg-rz') as HTMLElement | null
-    if (!handle) return
-    if (grid.getAttribute('data-edit') !== '1') return
-    const widget = handle.closest('.widget') as HTMLElement | null
+  // Helper: detect resize direction from pointer proximity to widget edges
+  const EDGE_TOL = 8
+  const edgeDirAtPoint = (w: HTMLElement, x: number, y: number): ('e'|'w'|'n'|'s'|'se'|'ne'|'sw'|'nw'|null) => {
+    const r = w.getBoundingClientRect()
+    const nearL = (x - r.left) <= EDGE_TOL
+    const nearR = (r.right - x) <= EDGE_TOL
+    const nearT = (y - r.top) <= EDGE_TOL
+    const nearB = (r.bottom - y) <= EDGE_TOL
+    const horiz = nearL ? 'w' : (nearR ? 'e' : '')
+    const vert = nearT ? 'n' : (nearB ? 's' : '')
+    if (horiz && vert) return (vert + horiz) as any
+    if (horiz) return horiz as any
+    if (vert) return vert as any
+    return null
+  }
+  // Hover cursor feedback for edges (do not override move handle cursor)
+  grid.addEventListener('mousemove', (e) => {
+    if (!isEdit()) return
+    const target = (e.target as HTMLElement)
+    if (target.closest('.wg-move')) return
+    const widget = target.closest('.widget') as HTMLElement | null
     if (!widget) return
-    e.preventDefault(); e.stopPropagation()
+    const dir = edgeDirAtPoint(widget, (e as MouseEvent).clientX, (e as MouseEvent).clientY)
+    const toCursor: Record<string, string> = { e: 'e-resize', w: 'w-resize', n: 'n-resize', s: 's-resize', se: 'se-resize', ne: 'ne-resize', sw: 'sw-resize', nw: 'nw-resize' }
+    widget.style.cursor = dir ? (toCursor[dir] || '') : ''
+  })
+  grid.addEventListener('mouseleave', () => { const els = grid.querySelectorAll('.widget') as NodeListOf<HTMLElement>; els.forEach(el => (el.style.cursor = '')) })
+
+  grid.addEventListener('mousedown', (e) => {
+    let handle = (e.target as HTMLElement).closest('.wg-rz') as HTMLElement | null
+    if (grid.getAttribute('data-edit') !== '1') return
+    let widget = handle?.closest('.widget') as HTMLElement | null
+    if (!widget) widget = (e.target as HTMLElement).closest('.widget') as HTMLElement | null
+    if (!widget) return
+    // If user grabbed the move handle, do not treat as resize
+    if ((e.target as HTMLElement).closest('.wg-move')) return
     // no-op (reverted reorder)
 
     const id = widget.getAttribute('data-widget') || ''
@@ -1281,7 +1310,16 @@ function enableDragAndDrop(root: HTMLElement): void {
 
     let lastCols = startCols
     let lastRows = startRows
-    const dir = (handle.getAttribute('data-rz') || 'se') as 'e' | 's' | 'w' | 'n' | 'se' | 'ne' | 'sw' | 'nw'
+    let dir = 'se' as 'e' | 's' | 'w' | 'n' | 'se' | 'ne' | 'sw' | 'nw'
+    if (handle) {
+      dir = (handle.getAttribute('data-rz') || 'se') as any
+    } else {
+      const guess = edgeDirAtPoint(widget, (e as MouseEvent).clientX, (e as MouseEvent).clientY)
+      if (!guess) return
+      dir = guess
+    }
+    // Begin resize only now; prevent default after deciding to resize
+    e.preventDefault(); e.stopPropagation()
 
     // Linked neighbor (horizontal adjacent) for 'e' (right edge) or 'w' (left edge)
     let linkNeighbor: HTMLElement | null = null
@@ -1389,6 +1427,7 @@ function enableDragAndDrop(root: HTMLElement): void {
     const onUp = () => {
       document.removeEventListener('mousemove', onMove)
       document.removeEventListener('mouseup', onUp)
+      try { widget.style.cursor = '' } catch {}
       const meta2 = getWidgetMeta(pid)
       const m = meta2[id] || {}
       ;(m as any).cols = lastCols
