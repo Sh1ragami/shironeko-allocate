@@ -85,14 +85,6 @@ flowchart LR
       </a>
       <br/>
     </td>
-    <td align="center" width="160">
-      <a href="https://github.com/manamisan0321">
-        <img src="https://github.com/manamisan0321.png?size=160" width="96" height="96" style="border-radius:50%;" alt="manamisan0321" />
-        <br/>
-        <sub><b>manamisan0321</b></sub>
-      </a>
-      <br/>
-    </td>
      <td align="center" width="160">
       <a href="https://github.com/uchinomanami">
         <img src="https://github.com/uchinomanami.png?size=160" width="96" height="96" style="border-radius:50%;" alt="uchinomanami`" />
