@@ -1,5 +1,4 @@
-<img width="1049" height="290" alt="スクリーンショット 2025-12-17 12 24 46" src="https://github.com/user-attachments/assets/b90b4331-95c2-4314-a440-0a5756564931" />
-
+<img width="1049" height="290" alt="logo" src="https://github.com/user-attachments/assets/58043b3a-9827-44ef-a50a-4d334cf98297" />
 
 <p align="center">
   <strong>GitHub 専用タスク管理アプリ</strong><br>
@@ -116,4 +115,4 @@ flowchart LR
 
 ## License
 
-MIT License © 2021 [Anthony Fu](https://github.com/antfu)
+MIT License © 2025 [Sh1ragami](https://github.com/Sh1ragami)
