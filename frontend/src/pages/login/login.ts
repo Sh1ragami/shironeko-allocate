@@ -1,3 +1,5 @@
+import { GITHUB_LOGIN_URL } from '../../env'
+
 export function renderLogin(container: HTMLElement): void {
   container.innerHTML = `
     <div class="min-h-screen gh-canvas text-gray-100">
@@ -32,7 +34,7 @@ export function renderLogin(container: HTMLElement): void {
           <p class="mt-6 text-center text-sm text-gray-300">外部サイトに遷移します。</p>
 
           <div class="mt-5 flex justify-center">
-            <a id="loginLink" href="/api/auth/github" class="inline-flex items-center justify-center rounded-md bg-emerald-600 hover:bg-emerald-500 text-white font-medium px-6 py-2.5 shadow-lg shadow-emerald-900/30 transition-colors">
+            <a id="loginLink" href="${GITHUB_LOGIN_URL}" class="inline-flex items-center justify-center rounded-md bg-emerald-600 hover:bg-emerald-500 text-white font-medium px-6 py-2.5 shadow-lg shadow-emerald-900/30 transition-colors">
               ログイン
             </a>
           </div>
@@ -52,6 +54,6 @@ export function renderLogin(container: HTMLElement): void {
   // If explicitly logged out, force re-auth on next click
   const link = container.querySelector('#loginLink') as HTMLAnchorElement | null
   const forced = localStorage.getItem('justLoggedOut') === '1'
-  if (link) link.href = forced ? '/api/auth/github?force=1' : '/api/auth/github'
+  if (link) link.href = forced ? `${GITHUB_LOGIN_URL}?force=1` : GITHUB_LOGIN_URL
   if (forced) localStorage.removeItem('justLoggedOut')
 }

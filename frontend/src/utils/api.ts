@@ -10,6 +10,14 @@ export class ApiError extends Error {
 const cache = new Map<string, { data: any; timestamp: number }>()
 const CACHE_TTL_MS = 5 * 60 * 1000 // 5 minutes
 
+import { API_BASE } from '../env'
+
+// Joins API_BASE and a path starting with '/'
+function joinApi(path: string): string {
+  const p = path.startsWith('/') ? path : `/${path}`
+  return `${API_BASE}${p}`
+}
+
 export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   const method = init.method?.toUpperCase() || 'GET'
 
@@ -25,7 +33,7 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
   const headers = new Headers(init.headers)
   if (token) headers.set('Authorization', `Bearer ${token}`)
 
-  const res = await fetch(`/api${path}`, { ...init, headers })
+  const res = await fetch(joinApi(path), { ...init, headers })
   if (!res.ok) {
     // If auth fails, clear token and redirect to login
     if (res.status === 401) {
@@ -49,4 +57,3 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
 
   return data
 }
-

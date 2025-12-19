@@ -637,6 +637,9 @@ MD;
                     'labels' => array_map(fn($l)=> $l['name'] ?? '', ($i['labels'] ?? [])),
                     'assignees' => array_map(fn($a)=> $a['login'] ?? '', ($i['assignees'] ?? [])),
                     'html_url' => $i['html_url'] ?? null,
+                    'body' => $i['body'] ?? '',
+                    'created_at' => $i['created_at'] ?? null,
+                    'author' => ($i['user']['login'] ?? null),
                 ];
             }, $issues);
             return response()->json($out);
@@ -687,6 +690,25 @@ MD;
         $project = $this->findByIdForUser($request, $id);
         if (!$project) return response()->json(['message' => 'Not found'], 404);
         try { $this->assignOneOpenIssue($request, $project, $data['login']); } catch (\Throwable $e) {}
+        return response()->json(['ok' => true]);
+    }
+
+    public function commentIssue(Request $request, int $id, int $number)
+    {
+        $data = $request->validate(['body' => ['required','string']]);
+        $project = $this->findByIdForUser($request, $id);
+        if (!$project) return response()->json(['message' => 'Not found'], 404);
+        $full = is_array($project) ? ($project['github_meta']['full_name'] ?? ($project['link_repo'] ?? null)) : ($project->github_meta['full_name'] ?? ($project->link_repo ?? null));
+        if (!$full) return response()->json(['message' => 'Not linked'], 400);
+        $tokenEnc = $request->user()?->github_access_token; if (!$tokenEnc) return response()->json(['message' => 'No token'], 400);
+        try { $gh = Crypt::decryptString($tokenEnc); } catch (\Throwable $e) { return response()->json(['message' => 'Invalid token'], 400); }
+        $headers = [ 'User-Agent' => 'shironeko-allocate', 'Authorization' => 'Bearer '.$gh, 'Accept' => 'application/vnd.github+json' ];
+        try {
+            $res = Http::withHeaders($headers)->post("https://api.github.com/repos/{$full}/issues/{$number}/comments", [ 'body' => $data['body'] ]);
+            if (!$res->ok()) return response()->json(['message' => 'Failed', 'upstream' => $res->json()], 400);
+        } catch (\Throwable $e) {
+            return response()->json(['message' => 'Failed'], 400);
+        }
         return response()->json(['ok' => true]);
     }
 

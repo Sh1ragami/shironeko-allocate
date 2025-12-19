@@ -41,6 +41,7 @@ Route::middleware('token.auth')->group(function () {
     // GitHub Issues linkage
     Route::get('/projects/{id}/issues', [\App\Http\Controllers\Api\ProjectController::class, 'listIssues']);
     Route::patch('/projects/{id}/issues/{number}', [\App\Http\Controllers\Api\ProjectController::class, 'updateIssue']);
+    Route::post('/projects/{id}/issues/{number}/comments', [\App\Http\Controllers\Api\ProjectController::class, 'commentIssue']);
     Route::post('/projects/{id}/issues/assign-next', [\App\Http\Controllers\Api\ProjectController::class, 'assignNext']);
 
     // Auth

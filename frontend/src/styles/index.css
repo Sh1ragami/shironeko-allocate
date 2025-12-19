@@ -104,6 +104,10 @@ body {
   border-color: var(--gh-border);
 }
 
+/* Browser-like project tabs: subtle hover-reveal for close button */
+.tab-proj .tab-close { opacity: 0; pointer-events: none; transform: translateX(2px); transition: opacity .15s ease, transform .15s ease; }
+.tab-proj:hover .tab-close { opacity: 1; pointer-events: auto; transform: translateX(0); }
+
 .gh-text-muted {
   color: var(--gh-muted);
 }
@@ -204,9 +208,17 @@ body {
     transform: translateY(-2px);
   }
 
-  .pop-modal {
-    animation: popIn .18s ease-out both;
-  }
+.pop-modal {
+  animation: popIn .18s ease-out both;
+}
+
+/* Consistent modal height across project (prevents layout jumps) */
+.modal-fixed {
+  height: 86vh;     /* unified modal height */
+  max-height: 86vh; /* lock height even if content is shorter */
+  display: flex;
+  flex-direction: column;
+}
 
   .btn-press {
     transition: transform .08s ease;

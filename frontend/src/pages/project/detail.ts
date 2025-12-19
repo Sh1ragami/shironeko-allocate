@@ -1,5 +1,5 @@
 import { apiFetch, ApiError } from '../../utils/api'
-import { openTaskModal } from './task-modal'
+import { openTaskModal, openTaskModalGh } from './task-modal'
 import { renderNotFound } from '../not-found/not-found'
 // (no component-level imports; keep in-page implementations)
 // Account modal helpers (duplicated to open over current page)
@@ -59,12 +59,12 @@ function openAccountModal(root: HTMLElement): void {
   overlay.id = 'accountOverlay'
   overlay.className = 'fixed inset-0 z-50 bg-black/60 backdrop-blur-[1px] grid place-items-center'
   overlay.innerHTML = `
-    <div class="relative w-[min(960px,92vw)] h-[80vh] max-h-[86vh] overflow-hidden rounded-xl bg-neutral-800 ring-2 ring-neutral-600 shadow-2xl text-gray-100">
+    <div class="relative w-[min(960px,92vw)] overflow-hidden rounded-xl bg-neutral-800 ring-2 ring-neutral-600 shadow-2xl text-gray-100 pop-modal modal-fixed">
       <div class="flex items-center h-12 px-5 border-b border-neutral-600">
         <h3 class="text-lg font-semibold">マイページ</h3>
         <button id="accountClose" class="ml-auto text-2xl text-neutral-300 hover:text-white">×</button>
       </div>
-      <div class="flex">
+      <div class="flex h-[calc(86vh-3rem)]">
         <aside class="w-48 shrink-0 p-4 border-r border-neutral-600 space-y-2">
           <button data-tab="basic" class="tab-btn w-full text-left px-3 py-2 rounded-md bg-neutral-800/60 ring-2 ring-neutral-600 text-gray-100">
             <span>基本情報</span>
@@ -283,12 +283,12 @@ function renderProjectTabsBar(root: HTMLElement, activeId: number): void {
   const html = list.map((t) => {
     const active = t.id === activeId
     const title = t.title
-    const base = 'tab-proj h-10 pl-4 pr-2 text-sm rounded-t-md whitespace-nowrap flex items-center gap-2'
+    const base = 'tab-proj h-10 pl-4 pr-2 text-sm whitespace-nowrap flex items-center gap-2 border-l border-r gh-border'
     const cls = active
       ? `${base} text-gray-100`
       : `${base} bg-neutral-700/70 text-gray-200 hover:text-gray-100`
     const style = active ? 'style="background-color: var(--gh-canvas);"' : ''
-    return `<button class="${cls}" ${style} data-pid="${t.id}" role="tab" aria-selected="${active ? 'true' : 'false'}">
+    return `<button class="${cls}" ${style} data-pid="${t.id}" role="tab" aria-selected="${active ? 'true' : 'false'}" draggable="true">
       <span class="tab-title truncate">${title}</span>
       <span class="tab-close ml-1 text-gray-400 hover:text-gray-200 px-1" title="閉じる">×</span>
     </button>`
@@ -296,7 +296,8 @@ function renderProjectTabsBar(root: HTMLElement, activeId: number): void {
   const backCls = navCanBack() ? 'text-gray-100 hover:text-white' : 'text-gray-500'
   const fwdCls = navCanFwd() ? 'text-gray-100 hover:text-white' : 'text-gray-500'
   const navHtml = `<span class=\"nav-ctrl self-stretch flex items-center gap-1 pl-0.5 pr-1.5\">\n    <button id=\"navBack\" class=\"inline-flex items-center justify-center w-7 h-7 leading-none ${backCls}\" title=\"戻る\">＜</button>\n    <button id=\"navFwd\" class=\"inline-flex items-center justify-center w-7 h-7 leading-none ${fwdCls}\" title=\"進む\">＞</button>\n  </span>`
-  host.innerHTML = navHtml + html
+  const addHtml = `<button id=\"projTabAddInBar\" class=\"tab-add h-10 px-2 text-xl text-gray-400 hover:text-gray-100 border-l gh-border\" title=\"プロジェクトを開く/追加\">＋</button>`
+  host.innerHTML = navHtml + html + addHtml
   // Delegated clicks
   // Rebind delegated handler (avoid stacking)
   const prev = (host as any)._tabsHandler as ((e: Event) => void) | undefined
@@ -332,8 +333,93 @@ function renderProjectTabsBar(root: HTMLElement, activeId: number): void {
   }
   host.addEventListener('click', handler)
   ;(host as any)._tabsHandler = handler
-  // plus button
-  const addBtn = root.querySelector('#projTabAdd') as HTMLElement | null
+
+  // Drag & drop reorder for project tabs
+  // Remove old handlers if exist
+  const prevStart = (host as any)._tabsDnDStart as ((e: DragEvent) => void) | undefined
+  const prevOver = (host as any)._tabsDnDOver as ((e: DragEvent) => void) | undefined
+  const prevDrop = (host as any)._tabsDnDDrop as ((e: DragEvent) => void) | undefined
+  const prevEnd = (host as any)._tabsDnDEnd as ((e: DragEvent) => void) | undefined
+  if (prevStart) host.removeEventListener('dragstart', prevStart as any)
+  if (prevOver) host.removeEventListener('dragover', prevOver as any)
+  if (prevDrop) host.removeEventListener('drop', prevDrop as any)
+  if (prevEnd) host.removeEventListener('dragend', prevEnd as any)
+
+  let draggingEl: HTMLElement | null = null
+  let dropMarkEl: HTMLElement | null = null
+  let dropMarkSide: 'left' | 'right' | null = null
+  const clearDropMark = () => {
+    if (dropMarkEl) dropMarkEl.style.boxShadow = ''
+    dropMarkEl = null
+    dropMarkSide = null
+  }
+  const persistOrder = () => {
+    // Build next order by DOM
+    const order = Array.from(host.querySelectorAll('.tab-proj'))
+      .map((el) => Number((el as HTMLElement).getAttribute('data-pid') || ''))
+      .filter((n) => !isNaN(n))
+    if (order.length === 0) return
+    const cur = getOpenProjTabs()
+    const map = new Map(cur.map((t) => [t.id, t]))
+    const next: OpenProjTab[] = []
+    order.forEach((id) => { const it = map.get(id); if (it) next.push(it) })
+    // Append any missing (safety)
+    cur.forEach((t) => { if (!next.find((x) => x.id === t.id)) next.push(t) })
+    saveOpenProjTabs(next)
+  }
+  const onStart = (e: DragEvent) => {
+    const target = (e.target as HTMLElement) || null
+    const tab = target?.closest && target.closest('.tab-proj') as HTMLElement | null
+    if (!tab) { e.preventDefault(); return }
+    // Ignore when started from close button
+    if ((e.target as HTMLElement).closest('.tab-close')) { e.preventDefault(); return }
+    draggingEl = tab
+    try { e.dataTransfer?.setData('text/plain', String(tab.getAttribute('data-pid') || '')); e.dataTransfer!.effectAllowed = 'move' } catch {}
+    tab.classList.add('opacity-60')
+    // Hide original element shortly after drag image snapshot is taken
+    setTimeout(() => { if (draggingEl === tab) tab.style.display = 'none' }, 0)
+  }
+  const onOver = (e: DragEvent) => {
+    if (!draggingEl) return
+    e.preventDefault()
+    const target = (e.target as HTMLElement)?.closest('.tab-proj') as HTMLElement | null
+    if (!target || target === draggingEl) return
+    const rect = target.getBoundingClientRect()
+    const before = e.clientX < rect.left + rect.width / 2
+    // Show blue indicator on insertion edge
+    const side: 'left' | 'right' = before ? 'left' : 'right'
+    if (dropMarkEl !== target || dropMarkSide !== side) {
+      clearDropMark()
+      const color = 'rgba(56,139,253,0.95)'
+      target.style.boxShadow = side === 'left' ? `inset 2px 0 0 0 ${color}` : `inset -2px 0 0 0 ${color}`
+      dropMarkEl = target
+      dropMarkSide = side
+    }
+    if (before) host.insertBefore(draggingEl, target)
+    else host.insertBefore(draggingEl, target.nextSibling)
+  }
+  const clearDrag = () => {
+    if (draggingEl) {
+      draggingEl.classList.remove('opacity-60')
+      draggingEl.style.display = ''
+    }
+    clearDropMark()
+    draggingEl = null
+  }
+  const onDrop = (_e: DragEvent) => { if (!draggingEl) return; clearDrag(); persistOrder() }
+  const onEnd = (_e: DragEvent) => { if (!draggingEl) return; clearDrag(); persistOrder() }
+  host.addEventListener('dragstart', onStart)
+  host.addEventListener('dragover', onOver)
+  host.addEventListener('drop', onDrop)
+  host.addEventListener('dragend', onEnd)
+  ;(host as any)._tabsDnDStart = onStart
+  ;(host as any)._tabsDnDOver = onOver
+  ;(host as any)._tabsDnDDrop = onDrop
+  ;(host as any)._tabsDnDEnd = onEnd
+  // plus button: inside bar (and hide legacy one outside)
+  const addBtnLegacy = root.querySelector('#projTabAdd') as HTMLElement | null
+  if (addBtnLegacy) (addBtnLegacy as HTMLElement).style.display = 'none'
+  const addBtn = root.querySelector('#projTabAddInBar') as HTMLElement | null
   addBtn?.addEventListener('click', (e) => openProjectTabPicker(root, e.currentTarget as HTMLElement))
   // nav controls (use in-app stack)
   const backEl = root.querySelector('#navBack') as HTMLElement | null
@@ -366,6 +452,16 @@ function renderProjectTabsBar(root: HTMLElement, activeId: number): void {
     if (id != null) window.location.hash = `#/project/detail?id=${encodeURIComponent(String(id))}`
     else updateNavColors()
   })
+
+  // Align tabbar padding with current rail width (persisted)
+  try {
+    const saved = parseInt(localStorage.getItem('pj-rail-width') || '0', 10)
+    if (!isNaN(saved) && saved > 0) {
+      host.style.paddingLeft = `${saved + 8}px`
+      const leftPad = root.querySelector('#tabsLeftPad') as HTMLElement | null
+      if (leftPad) leftPad.style.width = `${saved}px`
+    }
+  } catch { }
 }
 
 function openProjectTabPicker(root: HTMLElement, anchor: HTMLElement): void {
@@ -518,23 +614,22 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
     }
   } catch { }
 
-  // Account avatar click: open account modal on the current page
-  container.querySelector('#accountTopBtn')?.addEventListener('click', () => {
-    openAccountModal(container)
-  })
+  // Account settings link
+  container.querySelector('#accountSettingsLink')?.addEventListener('click', () => openAccountModal(container))
 
   // Load collaborators avatars
   loadCollaborators(container, project.id)
 
   // Bind add collaborator popover
-  const addBtn = container.querySelector('#addCollabBtn') as HTMLElement | null
-  addBtn?.addEventListener('click', (e) => openCollaboratorPopover(container, project.id, e.currentTarget as HTMLElement))
+  const addBtn = container.querySelector('#addCollabLink') as HTMLElement | null
+  addBtn?.addEventListener('click', () => openMemberInviteModal(container, String(project.id)))
 
   // Left rail collapse toggle (sticky rail remains fixed)
   const rail = container.querySelector('#leftRail') as HTMLElement | null
   const railToggle = container.querySelector('#railToggle') as HTMLButtonElement | null
   const railToggleTop = container.querySelector('#railToggleTop') as HTMLButtonElement | null
   const railKey = `pj-rail-collapsed`
+  const railWKey = `pj-rail-width`
   const setToggleIcon = () => {
     const ensure = (btn: HTMLButtonElement | null) => {
       if (!btn) return
@@ -559,6 +654,34 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
   }
   railToggle?.addEventListener('click', onToggle)
   railToggleTop?.addEventListener('click', onToggle)
+
+  // Resize (drag) support for left rail with min/max and persistence
+  const tabsLeftPad = container.querySelector('#tabsLeftPad') as HTMLElement | null
+  const tabsWrap = container.querySelector('#projTabsBar .tabs-wrap') as HTMLElement | null
+  const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v))
+  const RAIL_MIN = 220, RAIL_MAX = 520
+  const applyRailWidth = (px: number) => {
+    if (!rail) return
+    const w = clamp(Math.round(px), RAIL_MIN, RAIL_MAX)
+    rail.style.width = `${w}px`
+    if (tabsLeftPad) tabsLeftPad.style.width = `${w}px`
+    if (tabsWrap) tabsWrap.style.paddingLeft = `${w + 8}px`
+    try { localStorage.setItem(railWKey, String(w)) } catch {}
+  }
+  // initial width from storage
+  try { const saved = parseInt(localStorage.getItem(railWKey) || '0', 10); if (!isNaN(saved) && saved > 0) applyRailWidth(saved) } catch {}
+  const resizer = container.querySelector('#railResizer') as HTMLElement | null
+  if (resizer && rail) {
+    resizer.addEventListener('mousedown', (ev) => {
+      ev.preventDefault()
+      const startX = ev.clientX
+      const startW = rail.getBoundingClientRect().width
+      const onMove = (e: MouseEvent) => { const dx = e.clientX - startX; applyRailWidth(startW + dx) }
+      const onUp = () => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp) }
+      document.addEventListener('mousemove', onMove)
+      document.addEventListener('mouseup', onUp)
+    })
+  }
 
   // Back / Forward controls are bound inside renderProjectTabsBar per render
 
@@ -1528,12 +1651,12 @@ function openWidgetPickerModal(root: HTMLElement, pid: string): void {
   const overlay = document.createElement('div')
   overlay.className = 'fixed inset-0 z-[66] bg-black/60 backdrop-blur-[1px] grid place-items-center fade-overlay'
   overlay.innerHTML = `
-    <div class="relative w-[min(1200px,96vw)] max-h-[90vh] overflow-hidden rounded-xl bg-neutral-900 ring-2 ring-neutral-600 shadow-2xl text-gray-100 pop-modal">
+    <div class="relative w-[min(1200px,96vw)] overflow-hidden rounded-xl bg-neutral-900 ring-2 ring-neutral-600 shadow-2xl text-gray-100 pop-modal modal-fixed">
       <header class="h-12 flex items-center px-5 border-b border-neutral-600">
         <h3 class="text-lg font-semibold">ウィジェット一覧</h3>
         <button id="wp-close" class="ml-auto text-2xl text-neutral-300 hover:text-white">×</button>
       </header>
-      <div class="flex h-[calc(90vh-3rem)]">
+      <div class="flex h-[calc(86vh-3rem)]">
         <aside class="w-56 shrink-0 p-4 border-r border-neutral-600 space-y-2">
           <button class="wp-cat w-full text-left px-3 py-2 rounded bg-neutral-800/70 ring-2 ring-neutral-600 text-sm" data-cat="all">すべて</button>
           <button class="wp-cat w-full text-left px-3 py-2 rounded hover:bg-neutral-800/40 text-sm" data-cat="github">GitHub</button>
@@ -1974,7 +2097,7 @@ function detailLayout(ctx: { id: number; name: string; fullName: string; owner: 
       <div id="projTabsBar" class="sticky top-0 z-[80] bg-neutral-700/80 backdrop-blur-[1px]">
         <div class="bar relative flex items-center px-2 h-10">
           <!-- Left control area aligned above the rail -->
-          <div class="absolute left-0 bottom-0 h-full w-[14rem] pl-3 flex items-end gap-2">
+          <div id="tabsLeftPad" class="absolute left-0 bottom-0 h-full w-[14rem] pl-3 flex items-end gap-2">
             <button id="railToggleTop" class="w-7 h-7 grid place-items-center text-gray-200 hover:text-white" title="サイドバー表示/非表示"><span class="material-symbols-outlined text-[20px] leading-none">view_sidebar</span></button>
             
             <!-- Vertical divider aligned with rail edge -->
@@ -1991,6 +2114,7 @@ function detailLayout(ctx: { id: number; name: string; fullName: string; owner: 
       <div class="flex">
         <!-- Left rail: vertical tabs + collaborator add (sticky) -->
         <aside id="leftRail" class="relative w-56 shrink-0 p-4 border-r border-neutral-600 bg-neutral-700/80 sticky top-10 h-[calc(100vh-2.5rem)] flex flex-col">
+          <div id="railResizer" class="absolute top-0 -right-1 w-2 h-full cursor-col-resize z-[5]"></div>
           <!-- Repo / Project breadcrumb at top of rail -->
           <div class="mb-5 pt-1">
             <div class="flex items-center gap-2 text-sm">
@@ -2001,25 +2125,29 @@ function detailLayout(ctx: { id: number; name: string; fullName: string; owner: 
           </div>
 
           <div id="tabBar" class="flex-1 min-h-0 overflow-y-auto flex flex-col gap-1 text-base pr-1">
-            <span class="group relative flex w-full items-center gap-1.5">
-              <button class="tab-btn flex-1 text-left px-3 py-2 rounded-t-md text-gray-100" data-tab="summary">概要</button>
-              <button class="tab-lock p-0.5 text-gray-300 hover:text-gray-100" data-for="summary" title="ロック切替">${LOCK_SVG}</button>
+            <span class="tab-row group relative flex w-full items-center gap-1.5 rounded-md hover:bg-neutral-600/60 pr-1 -mr-1">
+              <button class="tab-btn flex-1 text-left px-3 py-2 rounded-t-md text-gray-100 text-[15px]" data-tab="summary">概要</button>
+              <button class="tab-menu opacity-0 group-hover:opacity-100 transition-opacity p-0.5 text-gray-300 hover:text-gray-100" data-for="summary" title="メニュー">⋮</button>
+              <button class="tab-lock opacity-0 group-hover:opacity-100 transition-opacity p-0.5 text-gray-300 hover:text-gray-100" data-for="summary" title="ロック切替">${LOCK_SVG}</button>
             </span>
-            <span class="group relative flex w-full items-center gap-1.5">
-              <button class="tab-btn flex-1 text-left px-3 py-2 rounded-t-md hover:bg-neutral-800/40 text-gray-100" data-tab="board">カンバンボード</button>
-              <button class="tab-lock p-0.5 text-gray-300 hover:text-gray-100" data-for="board" title="ロック切替">${LOCK_SVG}</button>
+            <span class="tab-row group relative flex w-full items-center gap-1.5 rounded-md hover:bg-neutral-600/60 pr-1 -mr-1">
+              <button class="tab-btn flex-1 text-left px-3 py-2 rounded-t-md text-gray-100 text-[15px]" data-tab="board">カンバンボード</button>
+              <button class="tab-menu opacity-0 group-hover:opacity-100 transition-opacity p-0.5 text-gray-300 hover:text-gray-100" data-for="board" title="メニュー">⋮</button>
+              <button class="tab-lock opacity-0 group-hover:opacity-100 transition-opacity p-0.5 text-gray-300 hover:text-gray-100" data-for="board" title="ロック切替">${LOCK_SVG}</button>
             </span>
-            <span class="group relative flex w-full items-center gap-1.5">
-              <button class="tab-btn flex-1 text-left px-3 py-2 rounded-md hover:bg-neutral-800/40 text-gray-100" data-tab="new">+ 新規タブ</button>
+            <span class="tab-row group relative flex w-full items-center gap-1.5 rounded-md hover:bg-neutral-600/60 pr-1 -mr-1">
+              <button class="tab-btn flex-1 text-left px-3 py-2 rounded-md text-gray-100 text-[15px]" data-tab="new">+ 新規タブ</button>
               <span class="inline-block w-5"></span>
             </span>
           </div>
           <div id="railBottom" class="mt-auto pt-3">
             <div id="collabAvatars" class="flex items-center gap-2 mb-2"></div>
-            <button id="addCollabBtn" class="w-full rounded-md bg-emerald-700 hover:bg-emerald-600 text-white text-sm font-medium px-3 py-2 shadow">コラボレーター追加</button>
-            <button id="accountTopBtn" class="mt-4 w-9 h-9 rounded-full overflow-hidden bg-neutral-700 ring-2 ring-neutral-600">
-              <img id="accountTopImg" class="w-full h-full object-cover hidden" alt="avatar" />
-            </button>
+            <div class="tab-row group relative flex w-full items-center gap-1.5 rounded-md hover:bg-neutral-600/60 pr-1 -mr-1 mt-2">
+              <button id="addCollabLink" class="tab-btn w-full text-left px-3 py-2 rounded-md text-gray-100 text-[15px]">メンバーを追加</button>
+            </div>
+            <div class="tab-row group relative flex w-full items-center gap-1.5 rounded-md hover:bg-neutral-600/60 pr-1 -mr-1">
+              <button id="accountSettingsLink" class="tab-btn w-full text-left px-3 py-2 rounded-md text-gray-100 text-[15px]">ユーザー設定</button>
+            </div>
           </div>
         </aside>
 
@@ -2046,9 +2174,11 @@ function detailLayout(ctx: { id: number; name: string; fullName: string; owner: 
 }
 
 function setupTabs(container: HTMLElement, pid: string): void {
-  container.querySelectorAll('.tab-btn').forEach((btn) => {
+  // Only bind real tabs inside #tabBar (exclude action buttons in #railBottom)
+  container.querySelectorAll('#tabBar .tab-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
       const name = (btn as HTMLElement).getAttribute('data-tab')
+      if (!name) return // guard for non-tab buttons
       if (name === 'new') {
         // open picker and create a tab on selection
         openTabPickerModal(container, {
@@ -2058,16 +2188,16 @@ function setupTabs(container: HTMLElement, pid: string): void {
       }
       container.querySelectorAll('section[data-tab]')
         .forEach((sec) => (sec as HTMLElement).classList.toggle('hidden', sec.getAttribute('data-tab') !== name))
-      container.querySelectorAll('.tab-btn').forEach((b) => {
-        // Active: left colored bar + underline; no box highlight
-        b.classList.remove('border-emerald-500', 'ring-2', 'ring-neutral-600', 'bg-neutral-800/60')
+      container.querySelectorAll('#tabBar .tab-btn').forEach((b) => {
+        // Active style: light gray background on full row; no orange borders
+        b.classList.remove('border-emerald-500', 'ring-2', 'ring-neutral-600', 'bg-neutral-800/60', 'border-l-2', 'border-b-2', 'border-orange-500')
         const active = b === btn
-        b.classList.toggle('border-l-2', active)
-        b.classList.toggle('border-b-2', active)
-        b.classList.toggle('border-orange-500', active)
+        const wrap = (b as HTMLElement).closest('.tab-row') as HTMLElement | null
+        if (wrap) {
+          wrap.classList.toggle('bg-neutral-500/50', active)
+        }
         b.classList.toggle('text-gray-100', active)
         b.classList.toggle('text-gray-400', !active)
-        b.classList.toggle('hover:bg-neutral-800/40', !active)
       })
       if (name === 'board') renderKanban(container, pid)
       // Apply saved edit state for the activated tab's widget grid (if any)
@@ -2102,22 +2232,37 @@ function applyCoreTabs(root: HTMLElement, pid: string): void {
     let wrap = btn.parentElement as HTMLElement
     if (!wrap || wrap.tagName.toLowerCase() !== 'span') {
       const span = document.createElement('span')
-      span.className = 'group relative flex w-full'
+      span.className = 'tab-row group relative flex w-full rounded-md hover:bg-neutral-600/60 pr-1 -mr-1'
       btn.replaceWith(span)
       span.appendChild(btn)
       wrap = span
     } else {
       // ensure full-width wrapper for vertical rail
-      wrap.classList.add('flex', 'w-full')
+      wrap.classList.add('flex', 'w-full', 'rounded-md', 'hover:bg-neutral-600/60', 'pr-1', '-mr-1')
+      wrap.classList.add('tab-row')
       wrap.classList.remove('inline-flex')
     }
     // Make core tabs draggable like custom tabs
     wrap.setAttribute('draggable', 'true')
-    // context menu for rename/delete
-    btn.addEventListener('contextmenu', (e) => {
-      e.preventDefault()
+    // ensure menu + lock buttons exist and are hover-revealed
+    let menuBtn = wrap.querySelector('.tab-menu') as HTMLElement | null
+    if (!menuBtn) {
+      menuBtn = document.createElement('button')
+      menuBtn.className = 'tab-menu opacity-0 group-hover:opacity-100 transition-opacity p-0.5 text-gray-300 hover:text-gray-100'
+      menuBtn.setAttribute('data-for', key)
+      menuBtn.title = 'メニュー'
+      menuBtn.textContent = '⋮'
+      wrap.appendChild(menuBtn)
+    }
+    let lockBtn = wrap.querySelector(`.tab-lock[data-for="${key}"]`) as HTMLElement | null
+    if (lockBtn) lockBtn.classList.add('opacity-0','group-hover:opacity-100','transition-opacity')
+    // open context menu on menu click
+    menuBtn.addEventListener('click', (e) => {
+      e.stopPropagation()
       openTabContextMenu(root, pid, { kind: 'core', id: key, btn })
     })
+    // also support right-click as fallback
+    btn.addEventListener('contextmenu', (e) => { e.preventDefault(); openTabContextMenu(root, pid, { kind: 'core', id: key, btn }) })
     // Double-click rename disabled (use context menu instead)
   }
 
@@ -2267,20 +2412,27 @@ function addCustomTab(root: HTMLElement, pid: string, type: TabTemplate, persist
   const newBtn = tabBar.querySelector('[data-tab="new"]') as HTMLElement | null
   // wrapper to host delete button
   const wrap = document.createElement('span')
-  wrap.className = 'group relative flex w-full items-center gap-2'
+  wrap.className = 'tab-row group relative flex w-full items-center gap-2 rounded-md hover:bg-neutral-600/60 pr-1 -mr-1'
   const btn = document.createElement('button')
   // Use symmetric spacing to keep label centered under the active underline
-  btn.className = 'tab-btn w-full text-left px-3 py-2 rounded-md hover:bg-neutral-800/40 text-gray-100'
+  btn.className = 'tab-btn w-full text-left px-3 py-2 rounded-md text-gray-100 text-[15px]'
   btn.setAttribute('data-tab', id)
   btn.textContent = preTitle || tabTitle(type)
   const lock = document.createElement('button')
-  lock.className = 'tab-lock p-0.5 text-gray-300 hover:text-gray-100'
+  lock.className = 'tab-lock opacity-0 group-hover:opacity-100 transition-opacity p-0.5 text-gray-300 hover:text-gray-100'
   lock.setAttribute('data-for', id)
   lock.title = 'ロック切替'
   // Inline SVG icon
   lock.innerHTML = LOCK_SVG
+  // menu (three-dots) button
+  const menu = document.createElement('button')
+  menu.className = 'tab-menu opacity-0 group-hover:opacity-100 transition-opacity p-0.5 text-gray-300 hover:text-gray-100'
+  menu.setAttribute('data-for', id)
+  menu.title = 'メニュー'
+  menu.textContent = '⋮'
   // order: label then lock on right
   wrap.appendChild(btn)
+  wrap.appendChild(menu)
   wrap.appendChild(lock)
   if (newBtn) {
     const refWrap = (newBtn.closest('span') as HTMLElement | null)
@@ -2328,25 +2480,23 @@ function addCustomTab(root: HTMLElement, pid: string, type: TabTemplate, persist
 
   btn.addEventListener('click', () => {
     root.querySelectorAll('section[data-tab]').forEach((sec) => (sec as HTMLElement).classList.toggle('hidden', sec.getAttribute('data-tab') !== id))
-    root.querySelectorAll('.tab-btn').forEach((b) => {
-      b.classList.remove('border-emerald-500', 'ring-2', 'ring-neutral-600', 'bg-neutral-800/60')
+    root.querySelectorAll('#tabBar .tab-btn').forEach((b) => {
+      // Active style: light gray background on full row; no orange borders
+      b.classList.remove('border-emerald-500', 'ring-2', 'ring-neutral-600', 'bg-neutral-800/60', 'border-l-2', 'border-b-2', 'border-orange-500')
       const active = b === btn
-      b.classList.toggle('border-l-2', active)
-      b.classList.toggle('border-b-2', active)
-      b.classList.toggle('border-orange-500', active)
+      const wrap = (b as HTMLElement).closest('.tab-row') as HTMLElement | null
+      if (wrap) wrap.classList.toggle('bg-neutral-500/50', active)
       b.classList.toggle('text-gray-100', active)
       b.classList.toggle('text-gray-400', !active)
-      b.classList.toggle('hover:bg-neutral-800/40', !active)
     })
   })
 
   // Double-click rename disabled (use context menu instead)
 
   // context menu
-  btn.addEventListener('contextmenu', (e) => {
-    e.preventDefault()
-    openTabContextMenu(root, pid, { kind: 'custom', id, btn, type })
-  })
+  btn.addEventListener('contextmenu', (e) => { e.preventDefault(); openTabContextMenu(root, pid, { kind: 'custom', id, btn, type }) })
+  // click three-dots to open menu
+  menu.addEventListener('click', (e) => { e.stopPropagation(); openTabContextMenu(root, pid, { kind: 'custom', id, btn, type }) })
 
   if (persist) {
     const saved = JSON.parse(localStorage.getItem(`tabs-${pid}`) || '[]') as Array<{ id: string; type: TabTemplate; title?: string }>
@@ -2374,6 +2524,8 @@ function enableTabDnD(root: HTMLElement, pid: string): void {
   const bar = root.querySelector('#tabBar') as HTMLElement | null
   if (!bar) return
   let dragEl: HTMLElement | null = null
+  let dropMarkEl: HTMLElement | null = null
+  const clearDropMark = () => { if (dropMarkEl) dropMarkEl.style.boxShadow = ''; dropMarkEl = null }
 
   const isDraggableWrap = (el: HTMLElement | null): el is HTMLElement => {
     if (!el) return false
@@ -2415,18 +2567,25 @@ function enableTabDnD(root: HTMLElement, pid: string): void {
     const rect = t.getBoundingClientRect()
     // Vertical list: compare by Y position
     const before = (e as DragEvent).clientY < rect.top + rect.height / 2
+    // visual indicator on insertion edge
+    if (dropMarkEl !== t) { clearDropMark() }
+    const color = 'rgba(56,139,253,0.95)'
+    t.style.boxShadow = before ? `inset 0 2px 0 0 ${color}` : `inset 0 -2px 0 0 ${color}`
+    dropMarkEl = t
     if (before) bar.insertBefore(dragEl, t)
     else bar.insertBefore(dragEl, t.nextSibling)
   })
   bar.addEventListener('drop', () => {
     if (!dragEl) return
     dragEl.classList.remove('opacity-60')
+    clearDropMark()
     dragEl = null
     persistOrder()
   })
   bar.addEventListener('dragend', () => {
     if (!dragEl) return
     dragEl.classList.remove('opacity-60')
+    clearDropMark()
     dragEl = null
     persistOrder()
   })
@@ -2526,6 +2685,94 @@ function openCollaboratorPopover(root: HTMLElement, projectId: number, anchor: H
     }, 250)
   })
   input.focus()
+}
+
+// Compact center modal for inviting members (search + role + message)
+function openMemberInviteModal(root: HTMLElement, pid: string): void {
+  root.querySelector('#inviteModal')?.remove()
+  const overlay = document.createElement('div')
+  overlay.id = 'inviteModal'
+  overlay.className = 'fixed inset-0 z-[86] bg-black/60 backdrop-blur-[1px] grid place-items-center fade-overlay'
+  overlay.innerHTML = `
+    <div class="relative w-[min(520px,94vw)] rounded-xl bg-neutral-900 ring-2 ring-neutral-600 shadow-2xl text-gray-100 pop-modal">
+      <div class="flex items-center h-12 px-5 border-b border-neutral-600">
+        <div class="text-lg font-semibold">メンバーを追加</div>
+        <button id="mi-close" class="ml-auto text-2xl text-neutral-300 hover:text-white">×</button>
+      </div>
+      <div class="p-5 space-y-5">
+        <p class="text-sm text-gray-400">GitHubユーザー名で検索して招待します。</p>
+        <div>
+          <input id="mi-search" type="text" class="w-full rounded-md bg-neutral-800/70 ring-2 ring-neutral-600 px-3 py-2 text-gray-100" placeholder="名前やユーザー名で検索" />
+          <div id="mi-results" class="mt-2 max-h-56 overflow-y-auto divide-y divide-neutral-700"></div>
+        </div>
+        <div>
+          <div class="text-sm text-gray-300 mb-2">ロールを選択</div>
+          <select id="mi-role" class="w-full rounded-md bg-neutral-800/60 ring-2 ring-neutral-600 px-3 py-2 text-gray-100">
+            <option value="push" selected>メンバー（書き込み）</option>
+            <option value="pull">閲覧のみ</option>
+            <option value="maintain">メンテナ</option>
+            <option value="admin">管理者</option>
+            <option value="triage">トリアージ</option>
+          </select>
+        </div>
+        <div>
+          <div class="text-sm text-gray-300 mb-2">メッセージ</div>
+          <textarea id="mi-msg" rows="3" class="w-full rounded-md bg-neutral-800/60 ring-2 ring-neutral-600 px-3 py-2 text-gray-100 placeholder:text-gray-500" placeholder="招待にメモを追加する…（任意）"></textarea>
+        </div>
+        <div class="flex justify-end gap-3 pt-1">
+          <button id="mi-cancel" class="text-sm text-gray-300 hover:text-white">キャンセル</button>
+          <button id="mi-send" class="rounded-md bg-emerald-700 hover:bg-emerald-600 text-white text-sm font-medium px-4 py-2">招待を送信</button>
+        </div>
+      </div>
+    </div>
+  `
+  const close = () => { overlay.remove(); const c = +(document.body.getAttribute('data-lock') || '0'); const n = Math.max(0, c - 1); if (n === 0) { document.body.style.overflow = ''; } document.body.setAttribute('data-lock', String(n)) }
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close() })
+  overlay.querySelector('#mi-close')?.addEventListener('click', close)
+  overlay.querySelector('#mi-cancel')?.addEventListener('click', close)
+  document.body.appendChild(overlay); (function () { const c = +(document.body.getAttribute('data-lock') || '0'); if (c === 0) { document.body.style.overflow = 'hidden' } document.body.setAttribute('data-lock', String(c + 1)) })()
+
+  const input = overlay.querySelector('#mi-search') as HTMLInputElement
+  const results = overlay.querySelector('#mi-results') as HTMLElement
+  let selected: string | null = null
+  let t: any
+  input.addEventListener('input', async () => {
+    const q = input.value.trim()
+    clearTimeout(t)
+    if (!q) { results.innerHTML = ''; selected = null; return }
+    t = setTimeout(async () => {
+      try {
+        const res = await apiFetch<any>(`/github/search/users?query=${encodeURIComponent(q)}`)
+        const items: Array<{ login: string; avatar_url?: string }> = res.items || []
+        results.innerHTML = items.map(u => `
+          <button data-login="${u.login}" class="w-full text-left flex items-center gap-3 px-2 py-2 hover:bg-neutral-800/60 ${selected===u.login ? 'bg-neutral-800/60' : ''}">
+            <img src="${u.avatar_url || ''}" class="w-7 h-7 rounded-full"/>
+            <span class="text-sm text-gray-100">${u.login}</span>
+          </button>`).join('') || '<div class="px-2 py-2 text-gray-400">見つかりません</div>'
+        results.querySelectorAll('[data-login]')?.forEach((el) => {
+          el.addEventListener('click', () => {
+            selected = (el as HTMLElement).getAttribute('data-login') || null
+            results.querySelectorAll('[data-login]')?.forEach(n => (n as HTMLElement).classList.remove('bg-neutral-800/60'))
+            ;(el as HTMLElement).classList.add('bg-neutral-800/60')
+          })
+        })
+      } catch {
+        results.innerHTML = '<div class="px-2 py-2 text-gray-400">読み込みに失敗しました</div>'
+      }
+    }, 250)
+  })
+
+  overlay.querySelector('#mi-send')?.addEventListener('click', async () => {
+    if (!selected) { input.focus(); return }
+    const role = (overlay.querySelector('#mi-role') as HTMLSelectElement).value || 'push'
+    try {
+      await apiFetch(`/projects/${pid}/collaborators`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ login: selected, permission: role }) })
+      await loadCollaborators(root, Number(pid))
+      close()
+    } catch {
+      alert('招待に失敗しました')
+    }
+  })
 }
 
 function openCollabMenu(root: HTMLElement, projectId: number, anchor: HTMLElement): void {
@@ -2650,15 +2897,41 @@ async function renderKanban(root: HTMLElement, pid: string, targetId = 'kb-board
     card.addEventListener('click', (e) => {
       if (wasDragging) { e.stopPropagation(); return }
       const id = (card as HTMLElement).getAttribute('data-task') as string
-      openTaskModal(root, pid, id)
+      if (id && id.startsWith('gh-')) { const num = id.replace('gh-', ''); openTaskModalGh(root, pid, num) }
+      else { openTaskModal(root, pid, id) }
     })
   })
+  // Visual drop indicator for columns
+  let colMarkEl: HTMLElement | null = null
+  let colMarkEdge: 'top' | 'bottom' | null = null
+  const clearColMark = () => {
+    if (colMarkEl) colMarkEl.style.boxShadow = ''
+    colMarkEl = null
+    colMarkEdge = null
+  }
+
   board.querySelectorAll('[data-col]')?.forEach((col) => {
-    col.addEventListener('dragover', (e) => e.preventDefault())
+    col.addEventListener('dragover', (e) => {
+      e.preventDefault()
+      if (!dragging) return
+      const el = col as HTMLElement
+      const r = el.getBoundingClientRect()
+      const top = (e as DragEvent).clientY < r.top + r.height / 2
+      const side: 'top' | 'bottom' = top ? 'top' : 'bottom'
+      if (colMarkEl !== el || colMarkEdge !== side) {
+        clearColMark()
+        const color = 'rgba(56,139,253,0.95)'
+        el.style.boxShadow = top ? `inset 0 2px 0 0 ${color}` : `inset 0 -2px 0 0 ${color}`
+        colMarkEl = el
+        colMarkEdge = side
+      }
+    })
+    col.addEventListener('dragleave', () => clearColMark())
     col.addEventListener('drop', async () => {
       if (!dragging) return
       const id = dragging.getAttribute('data-task') as string
       const target = (col as HTMLElement).getAttribute('data-col') as Status
+      clearColMark()
       if (id.startsWith('gh-')) {
         // Update GitHub
         const num = id.replace('gh-', '')
@@ -2743,6 +3016,9 @@ function taskCard(t: Task): string {
   `
 }
 
+// Minimal modal for GitHub-linked tasks
+// (legacy minimal GH modal removed; replaced with openTaskModalGh in task-modal.ts)
+
 // New Task modal (rich form)
 function openNewTaskModal(root: HTMLElement, pid: string, status: Status, targetId?: string): void {
   const old = document.getElementById('newTaskOverlay')
@@ -2751,12 +3027,12 @@ function openNewTaskModal(root: HTMLElement, pid: string, status: Status, target
   overlay.id = 'newTaskOverlay'
   overlay.className = 'fixed inset-0 z-[82] bg-black/60 grid place-items-center fade-overlay'
   overlay.innerHTML = `
-    <div class="relative w-[min(980px,95vw)] h-[86vh] overflow-hidden rounded-xl bg-neutral-900 ring-2 ring-neutral-600 text-gray-100 pop-modal">
-      <div class="flex items-center h-12 px-6 border-b border-neutral-600">
+    <div class="relative w-[min(980px,95vw)] overflow-hidden rounded-xl bg-neutral-900 ring-2 ring-neutral-600 text-gray-100 pop-modal modal-fixed flex flex-col">
+      <div class="flex items-center h-12 px-6 border-b border-neutral-600 shrink-0">
         <div class="text-lg font-semibold">新しいタスクを追加</div>
         <button class="ml-auto text-2xl text-neutral-300 hover:text-white" id="nt-close">×</button>
       </div>
-      <div class="p-6 space-y-8 overflow-y-auto" style="max-height: calc(86vh - 3rem);">
+      <div class="flex-1 p-6 space-y-8 overflow-y-auto">
         <!-- Section 1: General -->
         <div class="flex items-start gap-3">
           <div class="w-6 h-6 rounded-full bg-neutral-800 ring-2 ring-neutral-600 grid place-items-center text-sm">1</div>
@@ -2808,7 +3084,7 @@ function openNewTaskModal(root: HTMLElement, pid: string, status: Status, target
           </section>
         </div>
       </div>
-      <div class="absolute bottom-0 inset-x-0 p-4 border-t border-neutral-600 bg-neutral-900/80 flex justify-end">
+      <div class="p-4 border-t border-neutral-600 bg-neutral-900/80 flex justify-end shrink-0">
         <button id="nt-submit" class="rounded-md bg-emerald-700 hover:bg-emerald-600 text-white text-sm font-medium px-4 py-2">タスクを追加</button>
       </div>
     </div>`
