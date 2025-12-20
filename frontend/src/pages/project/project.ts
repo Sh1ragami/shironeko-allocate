@@ -1233,6 +1233,20 @@ function renderNewProjectForm(me?: { name?: string }): string {
           </div>
         </div>
       </section>
+      <section class="space-y-3">
+        <div class="rounded-lg ring-2 ring-neutral-600 bg-neutral-900/40 p-4">
+          <div class="text-sm text-gray-300 mb-3">GitHubへの初期設定（任意）</div>
+          <label class="flex items-center gap-3 py-1">
+            <input id="pj-setup-readme" type="checkbox" class="w-4 h-4" />
+            <span class="text-sm text-gray-200">README.md を初期化・更新する</span>
+          </label>
+          <label class="flex items-center gap-3 py-1">
+            <input id="pj-setup-issues" type="checkbox" class="w-4 h-4" />
+            <span class="text-sm text-gray-200">AIプランから初期Issueを作成する</span>
+          </label>
+          <p class="text-xs text-gray-500 mt-1">チェックしない場合、既存のREADMEやIssueは変更されません。</p>
+        </div>
+      </section>
     </div>
   `
 }
@@ -1290,6 +1304,18 @@ function renderExistingRepoPanel(): string {
               ${skills.map((s, i) => `<button class="ex-skill px-3 py-1.5 rounded-full text-sm ring-2 ${i % 5 === 0 ? 'bg-emerald-700 text-white ring-emerald-600' : 'bg-neutral-800/60 text-gray-200 ring-neutral-600'}" data-skill="${s}">${s}</button>`).join('')}
             </div>
           </div>
+          <div class="pt-2 border-t border-neutral-700">
+            <div class="text-sm text-gray-300 mb-3">GitHubへの初期設定（任意）</div>
+            <label class="flex items-center gap-3 py-1">
+              <input id="ex-setup-readme" type="checkbox" class="w-4 h-4" />
+              <span class="text-sm text-gray-200">README.md を初期化・更新する</span>
+            </label>
+            <label class="flex items-center gap-3 py-1">
+              <input id="ex-setup-issues" type="checkbox" class="w-4 h-4" />
+              <span class="text-sm text-gray-200">AIプランから初期Issueを作成する</span>
+            </label>
+            <p class="text-xs text-gray-500 mt-1">チェックしない場合、既存のREADMEやIssueは変更されません。</p>
+          </div>
         </div>
       </div>
     </div>
@@ -1333,6 +1359,8 @@ function readNewProjectForm(scope: HTMLElement): any {
     start: q('#pj-start')?.value?.trim(),
     end: q('#pj-end')?.value?.trim(),
     skills: selectedSkills,
+    setupReadme: (scope.querySelector('#pj-setup-readme') as HTMLInputElement | null)?.checked || false,
+    setupIssues: (scope.querySelector('#pj-setup-issues') as HTMLInputElement | null)?.checked || false,
   }
 }
 
@@ -1353,6 +1381,8 @@ function readExistingProjectForm(scope: HTMLElement): any {
     start,
     end,
     skills: selectedSkills,
+    setupReadme: (scope.querySelector('#ex-setup-readme') as HTMLInputElement | null)?.checked || false,
+    setupIssues: (scope.querySelector('#ex-setup-issues') as HTMLInputElement | null)?.checked || false,
   }
 }
 

@@ -102,7 +102,12 @@ class ProjectController extends Controller
             'end' => ['nullable', 'string', 'max:32'],
             'skills' => ['nullable', 'array'],
             'linkRepo' => ['nullable', 'string'], // e.g. owner/repo
+            'setupReadme' => ['nullable', 'boolean'],
+            'setupIssues' => ['nullable', 'boolean'],
         ]);
+
+        $doReadme = $request->boolean('setupReadme');
+        $doIssues = $request->boolean('setupIssues');
 
         $repoMeta = null;
         // Prepare AI-generated README and tasks (best-effort)
@@ -153,9 +158,9 @@ class ProjectController extends Controller
                 $repoMeta = $res->json();
                 if (empty($data['name'])) $data['name'] = $repoMeta['name'] ?? $repo;
                 if (empty($data['description'])) $data['description'] = $repoMeta['description'] ?? null;
-                // Best-effort: ensure issues are enabled, then create issues from AI tasks when linking existing repo
+                // Optional: ensure issues are enabled, then create issues from AI tasks when linking existing repo
                 $fullName = $repoMeta['full_name'] ?? $repo;
-                if ($fullName && is_array($aiTasks) && count($aiTasks) > 0) {
+                if ($fullName && $doIssues && is_array($aiTasks) && count($aiTasks) > 0) {
                     try {
                         // Try enabling issues
                         try {
@@ -177,8 +182,9 @@ class ProjectController extends Controller
                         }
                     } catch (\Throwable $e) {}
                 }
-                // Best-effort: update README for existing repo as well (AI > template)
+                // Optional: update README for existing repo as well (AI > template)
                 try {
+                    if (!$doReadme) { throw new \Exception('skip readme'); }
                     $readme = $aiReadme ?: $this->readmeTemplate($data['name'] ?? $repo, $data['description'] ?? '');
                     $get = Http::withHeaders($headers)->get("https://api.github.com/repos/{$fullName}/contents/README.md");
                     $sha = $get->ok() ? ($get->json()['sha'] ?? null) : null;
@@ -222,21 +228,22 @@ class ProjectController extends Controller
                         $fullName = $repoMeta['full_name'] ?? null;
                         if ($fullName) {
                             $metaFlags['gh_repo_created'] = true;
-                            // craft README content (AI > template)
-                            $readme = $aiReadme ?: $this->readmeTemplate($data['name'], $data['description'] ?? '');
-                            // get existing README to obtain sha (safe to try)
-                            $get = Http::withHeaders($headers)->get("https://api.github.com/repos/{$fullName}/contents/README.md");
-                            $sha = $get->ok() ? ($get->json()['sha'] ?? null) : null;
-                            $put = Http::withHeaders($headers)->put("https://api.github.com/repos/{$fullName}/contents/README.md", [
-                                'message' => 'chore: initialize README',
-                                'content' => base64_encode($readme),
-                                'sha' => $sha,
-                                'branch' => $repoMeta['default_branch'] ?? null,
-                            ]);
-                            $metaFlags['gh_readme_status'] = $put->status();
-                            if ($put->ok()) $metaFlags['gh_readme_updated'] = true;
-                            // Create issues from AI tasks (best-effort): enable issues then post
-                            if (is_array($aiTasks) && count($aiTasks) > 0) {
+                            // Optional README update
+                            if ($doReadme) {
+                                $readme = $aiReadme ?: $this->readmeTemplate($data['name'], $data['description'] ?? '');
+                                $get = Http::withHeaders($headers)->get("https://api.github.com/repos/{$fullName}/contents/README.md");
+                                $sha = $get->ok() ? ($get->json()['sha'] ?? null) : null;
+                                $put = Http::withHeaders($headers)->put("https://api.github.com/repos/{$fullName}/contents/README.md", [
+                                    'message' => 'chore: initialize README',
+                                    'content' => base64_encode($readme),
+                                    'sha' => $sha,
+                                    'branch' => $repoMeta['default_branch'] ?? null,
+                                ]);
+                                $metaFlags['gh_readme_status'] = $put->status();
+                                if ($put->ok()) $metaFlags['gh_readme_updated'] = true;
+                            }
+                            // Optional issue creation from AI tasks
+                            if ($doIssues && is_array($aiTasks) && count($aiTasks) > 0) {
                                 try { $en = Http::withHeaders($headers)->patch("https://api.github.com/repos/{$fullName}", ['has_issues' => true]); $metaFlags['gh_enable_issues_status'] = $en->status(); } catch (\Throwable $e) {}
                                 $logins = $this->collaboratorLogins($project ?? null, $headers, $fullName);
                                 $i = 0; $n = count($logins);

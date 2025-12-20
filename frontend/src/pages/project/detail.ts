@@ -740,6 +740,10 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
       const readmeText = res.ok ? await res.text() : 'README not found'
       hydrateReadme(container, readmeText)
     } catch { }
+    // Contributions heatmap (use caching to avoid heavy calls)
+    try {
+      await hydrateContribHeatmap(container, fullName)
+    } catch { }
   }
 
   // Update avatar image if user was fetched
@@ -782,15 +786,12 @@ function addWidgetCard(): string {
 }
 
 function contributionWidget(): string {
-  // simple placeholder heatmap
-  const rows = 7, cols = 52
-  const cells = Array.from({ length: rows * cols }, () => {
-    const v = Math.floor(Math.random() * 5)
-    // Higher visibility palette (GitHub-like): neutral + 4 greens (lighter)
-    const color = ['bg-neutral-800', 'bg-emerald-800', 'bg-emerald-600', 'bg-emerald-500', 'bg-emerald-400'][v]
-    return `<div class="w-3 h-3 ${color} rounded-sm"></div>`
-  }).join('')
-  return `<div class="h-72 overflow-x-auto"><div class="inline-grid" style="grid-template-columns: repeat(${cols}, 0.75rem); gap: 4px;">${cells}</div></div>`
+  // Heatmap container; size adapts to widget (full height/width)
+  return `
+    <div class="contrib-body h-full overflow-x-auto overflow-y-hidden">
+      <div class="contrib-grid inline-grid" style="grid-auto-flow: column; grid-template-columns: repeat(52, 12px); grid-template-rows: repeat(7, 12px); gap: 3px;"></div>
+    </div>
+  `
 }
 
 function overviewSkeleton(): string {
@@ -921,6 +922,181 @@ function hydrateReadme(root: HTMLElement, text: string): void {
       densifyReadme(w, scale)
     }
   } catch {}
+}
+
+// ------- Contributions heatmap (GitHub-like) -------
+type ContribCache = { at: number; start: string; days: Record<string, number> }
+
+function contribCacheKey(full: string): string { return `pj-contrib-cache-v1-${full}` }
+function contribGetCache(full: string): ContribCache | null {
+  try {
+    const raw = localStorage.getItem(contribCacheKey(full))
+    if (!raw) return null
+    const obj = JSON.parse(raw) as ContribCache
+    return obj || null
+  } catch { return null }
+}
+function contribSetCache(full: string, data: ContribCache): void {
+  try { localStorage.setItem(contribCacheKey(full), JSON.stringify(data)) } catch {}
+}
+
+function formatDate(d: Date): string {
+  const y = d.getUTCFullYear()
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0')
+  const day = String(d.getUTCDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+function buildContribRangeFrom(start: Date, end: Date): { start: Date; end: Date; days: string[]; weeks: number } {
+  const s = new Date(start)
+  const e = new Date(end)
+  s.setUTCHours(0, 0, 0, 0)
+  e.setUTCHours(0, 0, 0, 0)
+  // align start to previous Sunday
+  const dow = s.getUTCDay()
+  s.setUTCDate(s.getUTCDate() - dow)
+  const days: string[] = []
+  const cur = new Date(s)
+  while (cur <= e) {
+    days.push(formatDate(cur))
+    cur.setUTCDate(cur.getUTCDate() + 1)
+  }
+  const weeks = Math.ceil(days.length / 7)
+  return { start: s, end: e, days, weeks }
+}
+
+async function fetchCommitsPaged(full: string, sinceIso: string): Promise<any[]> {
+  const per = 100
+  const items: any[] = []
+  // Attempt to fetch up to 20 pages to cover active repos
+  for (let page = 1; page <= 20; page += 1) {
+    let url = `/github/commits?full_name=${encodeURIComponent(full)}&since=${encodeURIComponent(sinceIso)}&per_page=${per}&page=${page}`
+    try {
+      const chunk = await apiFetch<any[]>(url)
+      if (!Array.isArray(chunk) || chunk.length === 0) break
+      items.push(...chunk)
+      if (chunk.length < per) break
+      // Optional: stop early if oldest commit in chunk older than since
+      const last = chunk[chunk.length - 1]
+      const dt = (last?.commit?.author?.date || last?.commit?.committer?.date || '') as string
+      if (dt && new Date(dt).getTime() < new Date(sinceIso).getTime()) break
+    } catch {
+      break
+    }
+  }
+  return items
+}
+
+async function ensureContribData(full: string): Promise<ContribCache> {
+  const ttl = 6 * 60 * 60 * 1000 // 6 hours
+  const now = Date.now()
+  const cached = contribGetCache(full)
+  const range = buildContribRange()
+  if (cached && (now - cached.at) < ttl) {
+    // Reuse cached within TTL
+    return cached
+  }
+  // Fetch from GitHub commits API (fetch broadly; capped by paging)
+  const since = '1970-01-01T00:00:00.000Z'
+  const commits = await fetchCommitsPaged(full, since)
+  const days: Record<string, number> = {}
+  commits.forEach((c) => {
+    const ts = (c?.commit?.author?.date || c?.commit?.committer?.date || '') as string
+    if (!ts) return
+    // Prefer YYYY-MM-DD from ISO string head to avoid TZ drift
+    const m = ts.match(/^(\d{4}-\d{2}-\d{2})/)
+    const key = m ? m[1] : formatDate(new Date(ts))
+    if (!days[key]) days[key] = 0
+    days[key] += 1
+  })
+  // cache start from earliest day we observed
+  const keys = Object.keys(days)
+  const earliest = keys.length ? keys.sort()[0] : formatDate(range.start)
+  const data: ContribCache = { at: now, start: earliest, days }
+  contribSetCache(full, data)
+  return data
+}
+
+function renderContribHeatmap(root: HTMLElement, full: string, cache: ContribCache): void {
+  // Build dynamic range from earliest commit to today
+  const end = new Date(); end.setUTCHours(0,0,0,0)
+  const start = cache.start ? new Date(cache.start + 'T00:00:00Z') : new Date(end.getTime() - 364*24*60*60*1000)
+  const range = buildContribRangeFrom(start, end)
+  let days = range.days
+  // Determine levels by max
+  let max = 0
+  days.forEach((d) => { max = Math.max(max, cache.days[d] || 0) })
+  const toLevel = (n: number): number => {
+    if (n <= 0) return 0
+    if (max <= 4) return Math.min(4, n) // low activity repos
+    const ratio = n / max
+    const s = Math.sqrt(ratio) // emphasize low counts
+    if (s < 0.25) return 1
+    if (s < 0.5) return 2
+    if (s < 0.75) return 3
+    return 4
+  }
+  const palette = ['bg-neutral-800', 'bg-emerald-900', 'bg-emerald-700', 'bg-emerald-600', 'bg-emerald-500']
+  let weeks = range.weeks
+
+  const nodes = root.querySelectorAll('.contrib-body .contrib-grid') as NodeListOf<HTMLElement>
+  nodes.forEach((grid) => {
+    // Compute cell size to fit vertically; width can scroll
+    const wrap = grid.closest('.contrib-body') as HTMLElement | null
+    const rect = (wrap || grid).getBoundingClientRect()
+    const gap = 2
+    const ROWS = 7
+    let cell = Math.max(5, Math.floor((rect.height - (ROWS - 1) * gap) / ROWS))
+    if (!isFinite(cell) || cell <= 0) return
+    // Use full range (from first commit to today) and allow horizontal scroll
+    const usedDays = days
+    weeks = Math.max(1, Math.ceil(usedDays.length / ROWS))
+
+    grid.style.gridTemplateColumns = `repeat(${weeks}, ${cell}px)`
+    grid.style.gridTemplateRows = `repeat(${ROWS}, ${cell}px)`
+    grid.style.gridAutoFlow = 'column'
+    grid.style.gap = `${gap}px`
+    grid.innerHTML = usedDays.map((d) => {
+      const n = cache.days[d] || 0
+      const lv = toLevel(n)
+      const cls = palette[lv]
+      return `<div class="rounded-sm ${cls}" style="width:${cell}px; height:${cell}px" title="${d}: ${n} commits" aria-label="${d}: ${n} commits"></div>`
+    }).join('')
+    // Scroll to show the most recent weeks by default (right edge)
+    try {
+      const body = wrap || (grid.parentElement as HTMLElement | null)
+      if (body) body.scrollLeft = Math.max(0, grid.scrollWidth - body.clientWidth)
+    } catch {}
+  })
+}
+
+async function hydrateContribHeatmap(root: HTMLElement, full: string): Promise<void> {
+  try {
+    const data = await ensureContribData(full)
+    renderContribHeatmap(root, full, data)
+    // Observe size changes to keep grid fitted to widget
+    try {
+      const bodies = root.querySelectorAll('.contrib-body') as NodeListOf<HTMLElement>
+      bodies.forEach((b) => {
+        if ((b as any)._contribRO) return
+        if ('ResizeObserver' in window) {
+          const ro = new (window as any).ResizeObserver(() => {
+            const cache = contribGetCache(full); if (cache) renderContribHeatmap(root, full, cache)
+          })
+          ro.observe(b)
+          ;(b as any)._contribRO = ro
+        }
+      })
+    } catch {}
+  } catch { }
+}
+
+function refreshContribLayout(root: HTMLElement): void {
+  const full = (root.getAttribute('data-repo-full') || (document.querySelector('[data-repo-full]') as HTMLElement | null)?.getAttribute('data-repo-full') || '')
+  if (!full) return
+  const cache = contribGetCache(full)
+  if (!cache) return
+  renderContribHeatmap(root, full, cache)
 }
 
 function enableDragAndDrop(root: HTMLElement): void {
@@ -1722,6 +1898,7 @@ function applyWidgetSizes(root: HTMLElement, pid: string): void {
     } catch { }
   })
   try { applyContentDensity(root, pid) } catch { }
+  try { refreshContribLayout(root) } catch { }
 }
 
 // Adjust widget content density (font size, paddings) to use space efficiently
@@ -1995,6 +2172,12 @@ function addWidget(root: HTMLElement, pid: string, type: string): void {
       if (editBtn) editBtn.classList.add('hidden')
       const status = wrap?.querySelector('.md-status') as HTMLElement | null
       if (status) status.textContent = ''
+    }
+    // If this is a contributions widget, hydrate from cache/network
+    if (type === 'contrib') {
+      const host = root as HTMLElement
+      const full = host.getAttribute('data-repo-full') || (document.querySelector('[data-repo-full]') as HTMLElement | null)?.getAttribute('data-repo-full') || ''
+      if (full) { try { hydrateContribHeatmap(host, full) } catch {} }
     }
   }
   // refresh dynamic contents after adding
