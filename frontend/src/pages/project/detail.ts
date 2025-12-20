@@ -789,7 +789,7 @@ function contributionWidget(): string {
   // Heatmap container; size adapts to widget (full height/width)
   return `
     <div class="contrib-body h-full overflow-x-auto overflow-y-hidden">
-      <div class="contrib-grid inline-grid" style="grid-auto-flow: column; grid-template-columns: repeat(52, 12px); grid-template-rows: repeat(7, 12px); gap: 3px;"></div>
+      <div class="contrib-grid inline-grid"></div>
     </div>
   `
 }
@@ -1041,15 +1041,43 @@ function renderContribHeatmap(root: HTMLElement, full: string, cache: ContribCac
 
   const nodes = root.querySelectorAll('.contrib-body .contrib-grid') as NodeListOf<HTMLElement>
   nodes.forEach((grid) => {
-    // Compute cell size to fit vertically; width can scroll
+    // Compute cell size to fill widget height naturally; width can scroll
     const wrap = grid.closest('.contrib-body') as HTMLElement | null
     const rect = (wrap || grid).getBoundingClientRect()
     const gap = 2
-    const ROWS = 7
-    let cell = Math.max(5, Math.floor((rect.height - (ROWS - 1) * gap) / ROWS))
-    if (!isFinite(cell) || cell <= 0) return
-    // Use full range (from first commit to today) and allow horizontal scroll
-    const usedDays = days
+    // Decide dynamic rows/cell to minimize leftover height and keep natural cell size
+    const minRows = 6, maxRows = 24, minCell = 7
+    let bestRows = 7
+    let bestCell = 0
+    let bestLeft = Number.POSITIVE_INFINITY
+    for (let r = minRows; r <= maxRows; r++) {
+      const c = Math.floor((rect.height - (r - 1) * gap) / r)
+      if (!isFinite(c) || c < minCell) continue
+      const total = r * c + (r - 1) * gap
+      const left = Math.max(0, rect.height - total)
+      const better = (left < bestLeft) || (left === bestLeft && c > bestCell)
+      if (better) { bestRows = r; bestCell = c; bestLeft = left }
+    }
+    if (bestCell <= 0) {
+      // layout not settled; retry next frame
+      try {
+        const body = (wrap || grid.parentElement) as HTMLElement | null
+        if (body) {
+          const cnt = parseInt(body.getAttribute('data-contrib-retry') || '0', 10)
+          if (cnt < 3) {
+            body.setAttribute('data-contrib-retry', String(cnt + 1))
+            requestAnimationFrame(() => { const cache2 = contribGetCache(full); if (cache2) renderContribHeatmap(root, full, cache2) })
+            return
+          } else { body.removeAttribute('data-contrib-retry') }
+        }
+      } catch {}
+      bestRows = 7
+      bestCell = Math.max(minCell, Math.floor((rect.height - (bestRows - 1) * gap) / bestRows))
+    }
+    const ROWS = bestRows
+    const cell = bestCell
+    // Use full range (from first commit to today); do NOT pad earlier than first commit
+    const usedDays = days.slice()
     weeks = Math.max(1, Math.ceil(usedDays.length / ROWS))
 
     grid.style.gridTemplateColumns = `repeat(${weeks}, ${cell}px)`
@@ -2511,26 +2539,26 @@ function detailLayout(ctx: { id: number; name: string; fullName: string; owner: 
           <div id="railResizer" class="absolute top-0 -right-1 w-2 h-full cursor-col-resize z-[5]"></div>
           <!-- Repo / Project breadcrumb at top of rail -->
           <div class="mb-5 pt-1">
-            <div class="flex items-center gap-2 text-sm">
-              <a href="#/project" class="text-gray-300 hover:text-white" id="topPathUser">${ctx.owner}</a>
-              <span class="text-gray-500">/</span>
-              <span class="text-gray-300" id="topPathRepo">${ctx.repo}</span>
+            <div class="flex items-center gap-2 text-sm min-w-0 overflow-hidden">
+              <a href="#/project" class="text-gray-300 hover:text-white truncate max-w-[5rem] flex-none" id="topPathUser" title="${ctx.owner}">${ctx.owner}</a>
+              <span class="text-gray-500 flex-shrink-0">/</span>
+              <span class="text-gray-300 truncate min-w-0 flex-1" id="topPathRepo" title="${ctx.repo}">${ctx.repo}</span>
             </div>
           </div>
 
           <div id="tabBar" class="flex-1 min-h-0 overflow-y-auto flex flex-col gap-1 text-base pr-1">
-            <span class="tab-row group relative flex w-full items-center gap-1.5 rounded-md hover:bg-neutral-600/60 pr-1 -mr-1">
-              <button class="tab-btn flex-1 text-left px-3 py-2 rounded-t-md text-gray-100 text-[15px]" data-tab="summary">概要</button>
+            <span class="tab-row group relative flex w-full items-center gap-1.5 rounded-md hover:bg-neutral-600/60 pr-1 -mr-1 min-w-0">
+              <button class="tab-btn flex-1 min-w-0 text-left px-3 py-2 rounded-t-md text-gray-100 text-[15px] truncate" data-tab="summary">概要</button>
               <button class="tab-menu opacity-0 group-hover:opacity-100 transition-opacity p-0.5 text-gray-300 hover:text-gray-100" data-for="summary" title="メニュー">⋮</button>
               <button class="tab-lock opacity-0 group-hover:opacity-100 transition-opacity p-0.5 text-gray-300 hover:text-gray-100" data-for="summary" title="ロック切替">${LOCK_SVG}</button>
             </span>
-            <span class="tab-row group relative flex w-full items-center gap-1.5 rounded-md hover:bg-neutral-600/60 pr-1 -mr-1">
-              <button class="tab-btn flex-1 text-left px-3 py-2 rounded-t-md text-gray-100 text-[15px]" data-tab="board">カンバンボード</button>
+            <span class="tab-row group relative flex w-full items-center gap-1.5 rounded-md hover:bg-neutral-600/60 pr-1 -mr-1 min-w-0">
+              <button class="tab-btn flex-1 min-w-0 text-left px-3 py-2 rounded-t-md text-gray-100 text-[15px] truncate" data-tab="board">カンバンボード</button>
               <button class="tab-menu opacity-0 group-hover:opacity-100 transition-opacity p-0.5 text-gray-300 hover:text-gray-100" data-for="board" title="メニュー">⋮</button>
               <button class="tab-lock opacity-0 group-hover:opacity-100 transition-opacity p-0.5 text-gray-300 hover:text-gray-100" data-for="board" title="ロック切替">${LOCK_SVG}</button>
             </span>
-            <span class="tab-row group relative flex w-full items-center gap-1.5 rounded-md hover:bg-neutral-600/60 pr-1 -mr-1">
-              <button class="tab-btn flex-1 text-left px-3 py-2 rounded-md text-gray-100 text-[15px]" data-tab="new">+ 新規タブ</button>
+            <span class="tab-row group relative flex w-full items-center gap-1.5 rounded-md hover:bg-neutral-600/60 pr-1 -mr-1 min-w-0">
+              <button class="tab-btn flex-1 min-w-0 text-left px-3 py-2 rounded-md text-gray-100 text-[15px] truncate" data-tab="new">+ 新規タブ</button>
               <span class="inline-block w-5"></span>
             </span>
           </div>
