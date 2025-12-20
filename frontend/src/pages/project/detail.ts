@@ -756,22 +756,22 @@ function widgetShell(id: string, title: string, body: string): string {
   // タイトルは非表示。S/M/L操作は廃止し、角からのリサイズへ移行。
   return `
     <div class="widget group relative rounded-xl ring-2 ring-neutral-600 bg-neutral-900/50 p-3 md:col-span-6 flex flex-col overflow-hidden" draggable="false" data-widget="${id}">
-      <div class="wg-content min-h-0 flex-1 overflow-auto">${body}</div>
+      <div class="wg-content relative min-h-0 flex-1 overflow-auto">${body}</div>
       <!-- Edit-only controls: move handle, delete button, resize handles (sides + corners) -->
-      <div class="wg-move hidden absolute top-1 left-1 w-7 h-7 grid place-items-center cursor-grab active:cursor-grabbing select-none">
+      <div class="wg-move hidden absolute z-20 top-1 left-1 w-7 h-7 grid place-items-center cursor-grab active:cursor-grabbing select-none">
         <img src="/src/public/drag_indicator_24dp_E3E3E3_FILL0_wght400_GRAD0_opsz24.svg" alt="drag" class="w-5 h-5 opacity-80" draggable="false"/>
       </div>
-      <button class="w-del hidden absolute top-1 right-1 w-7 h-7 grid place-items-center text-rose-300 hover:text-rose-400 text-xl md:text-2xl leading-none">×</button>
+      <button class="w-del hidden absolute z-20 top-1 right-1 w-7 h-7 grid place-items-center text-rose-300 hover:text-rose-400 text-xl md:text-2xl leading-none">×</button>
       <!-- sides -->
-      <div class="wg-rz hidden absolute top-1/2 -translate-y-1/2 right-0 w-2 h-8 cursor-e-resize" data-rz="e"></div>
-      <div class="wg-rz hidden absolute left-0 top-1/2 -translate-y-1/2 w-2 h-8 cursor-w-resize" data-rz="w"></div>
-      <div class="wg-rz hidden absolute bottom-0 left-1/2 -translate-x-1/2 h-2 w-8 cursor-s-resize" data-rz="s"></div>
-      <div class="wg-rz hidden absolute top-0 left-1/2 -translate-x-1/2 h-2 w-8 cursor-n-resize" data-rz="n"></div>
+      <div class="wg-rz hidden absolute z-20 top-1/2 -translate-y-1/2 right-0 w-2 h-8 cursor-e-resize" data-rz="e"></div>
+      <div class="wg-rz hidden absolute z-20 left-0 top-1/2 -translate-y-1/2 w-2 h-8 cursor-w-resize" data-rz="w"></div>
+      <div class="wg-rz hidden absolute z-20 bottom-0 left-1/2 -translate-x-1/2 h-2 w-8 cursor-s-resize" data-rz="s"></div>
+      <div class="wg-rz hidden absolute z-20 top-0 left-1/2 -translate-x-1/2 h-2 w-8 cursor-n-resize" data-rz="n"></div>
       <!-- corners: no visible square -->
-      <div class="wg-rz hidden absolute bottom-0 right-0 w-3.5 h-3.5 cursor-se-resize" data-rz="se"></div>
-      <div class="wg-rz hidden absolute top-0 right-0 w-3.5 h-3.5 cursor-ne-resize" data-rz="ne"></div>
-      <div class="wg-rz hidden absolute bottom-0 left-0 w-3.5 h-3.5 cursor-sw-resize" data-rz="sw"></div>
-      <div class="wg-rz hidden absolute top-0 left-0 w-3.5 h-3.5 cursor-nw-resize" data-rz="nw"></div>
+      <div class="wg-rz hidden absolute z-20 bottom-0 right-0 w-3.5 h-3.5 cursor-se-resize" data-rz="se"></div>
+      <div class="wg-rz hidden absolute z-20 top-0 right-0 w-3.5 h-3.5 cursor-ne-resize" data-rz="ne"></div>
+      <div class="wg-rz hidden absolute z-20 bottom-0 left-0 w-3.5 h-3.5 cursor-sw-resize" data-rz="sw"></div>
+      <div class="wg-rz hidden absolute z-20 top-0 left-0 w-3.5 h-3.5 cursor-nw-resize" data-rz="nw"></div>
     </div>
   `
 }
@@ -828,6 +828,13 @@ function hydrateOverview(root: HTMLElement, repo: any): void {
     </div>
     <div class="mt-4 text-xs text-gray-400">Language: ${repo.language || 'N/A'} / Stars: ${repo.stargazers_count || 0}</div>
   `
+  try {
+    const cols = parseInt((widget.getAttribute('data-cols') || '8'), 10)
+    const rows = parseInt((widget.getAttribute('data-rows') || '2'), 10)
+    const area = Math.max(1, cols * rows)
+    const scale = Math.max(0.9, Math.min(1.4, Math.sqrt(area / 16)))
+    densifyGeneric(widget, scale)
+  } catch {}
 }
 
 function committersRender(root: HTMLElement, stats: Array<{ login: string; avatar_url?: string; count: number }>): void {
@@ -868,6 +875,16 @@ function committersRender(root: HTMLElement, stats: Array<{ login: string; avata
       .join('')}
       </div>
     </div>`
+  try {
+    const widget = root.querySelector('[data-widget="committers"]') as HTMLElement | null
+    if (widget) {
+      const cols = parseInt((widget.getAttribute('data-cols') || '8'), 10)
+      const rows = parseInt((widget.getAttribute('data-rows') || '2'), 10)
+      const area = Math.max(1, cols * rows)
+      const scale = Math.max(0.9, Math.min(1.4, Math.sqrt(area / 16)))
+      densifyCommitters(widget, scale)
+    }
+  } catch {}
 }
 
 function hydrateCommittersFromContributors(root: HTMLElement, list: any[]): void {
@@ -894,6 +911,16 @@ function hydrateReadme(root: HTMLElement, text: string): void {
   const el = root.querySelector('[data-widget="readme"] .whitespace-pre-wrap') as HTMLElement | null
   if (!el) return
   el.innerHTML = mdRenderToHtml(text || 'README not found')
+  try {
+    const w = el.closest('.widget') as HTMLElement | null
+    if (w) {
+      const cols = parseInt((w.getAttribute('data-cols') || '8'), 10)
+      const rows = parseInt((w.getAttribute('data-rows') || '2'), 10)
+      const area = Math.max(1, cols * rows)
+      const scale = Math.max(0.9, Math.min(1.4, Math.sqrt(area / 16)))
+      densifyReadme(w, scale)
+    }
+  } catch {}
 }
 
 function enableDragAndDrop(root: HTMLElement): void {
@@ -1206,6 +1233,8 @@ function enableDragAndDrop(root: HTMLElement): void {
       if (move) move.classList.toggle('hidden', !on)
     })
     // no reorder on toggle (reverted)
+    // Sync markdown widgets' editor/preview visibility to edit state
+    try { setTimeout(() => { try { (syncMdWidgets as any)(on) } catch {} }, 0) } catch {}
   }
   const savedEdit = localStorage.getItem(`wg-edit-${pid}`) === '1'
   setEdit(!!savedEdit)
@@ -1376,13 +1405,13 @@ function enableDragAndDrop(root: HTMLElement): void {
       let addCols = 0, addRows = 0
       switch (dir) {
         case 'e': addCols = addColsRaw; break
-        case 'w': addCols = addColsRaw; break // 左端でも幅のみ調整（左固定）
+        case 'w': addCols = -addColsRaw; break // 左端をドラッグ: 左へ動かすと幅が増える
         case 's': addRows = addRowsRaw; break
         case 'n': addRows = -addRowsRaw; break
         case 'se': addCols = addColsRaw; addRows = addRowsRaw; break
         case 'ne': addCols = addColsRaw; addRows = -addRowsRaw; break
-        case 'sw': addCols = addColsRaw; addRows = addRowsRaw; break
-        case 'nw': addCols = addColsRaw; addRows = -addRowsRaw; break
+        case 'sw': addCols = -addColsRaw; addRows = addRowsRaw; break
+        case 'nw': addCols = -addColsRaw; addRows = -addRowsRaw; break
       }
       let nextCols = Math.max(1, Math.min(12, startCols + addCols))
       const nextRows = Math.max(1, Math.min(12, startRows + addRows))
@@ -1530,38 +1559,44 @@ function enableDragAndDrop(root: HTMLElement): void {
 
   // Markdown widget delegated handlers
   const getWid = (el: HTMLElement | null) => (el?.closest('.widget') as HTMLElement | null)
-  grid.addEventListener('click', (e) => {
-    const edit = (e.target as HTMLElement).closest('.md-edit') as HTMLElement | null
-    if (edit) {
-      const w = getWid(edit); if (!w) return
-      const id = w.getAttribute('data-widget') || ''
+  // Helper: sync markdown widget UI with edit/lock state
+  const syncMdWidgets = (on: boolean) => {
+    grid.querySelectorAll('.md-widget').forEach((wrap) => {
+      const w = (wrap as HTMLElement).closest('.widget') as HTMLElement | null
+      const id = w?.getAttribute('data-widget') || ''
+      const editor = (wrap as HTMLElement).querySelector('.md-editor') as HTMLElement | null
+      const preview = (wrap as HTMLElement).querySelector('.md-preview') as HTMLElement | null
+      const ta = (wrap as HTMLElement).querySelector('.md-text') as HTMLTextAreaElement | null
+      const status = (wrap as HTMLElement).querySelector('.md-status') as HTMLElement | null
       const map = mdGetMap(pid)
       const txt = map[id] || ''
-      const editor = w.querySelector('.md-editor') as HTMLElement | null
-      const ta = w.querySelector('.md-text') as HTMLTextAreaElement | null
-      editor?.classList.remove('hidden'); if (ta) ta.value = txt
-      return
-    }
-    const save = (e.target as HTMLElement).closest('.md-save') as HTMLElement | null
-    if (save) {
-      const w = getWid(save); if (!w) return
-      const id = w.getAttribute('data-widget') || ''
-      const ta = w.querySelector('.md-text') as HTMLTextAreaElement | null
-      const preview = w.querySelector('.md-preview') as HTMLElement | null
-      const val = (ta?.value || '').trim()
-      mdSet(pid, id, val)
-      if (preview) preview.innerHTML = mdRenderToHtml(val)
-      const editor = w.querySelector('.md-editor') as HTMLElement | null
-      editor?.classList.add('hidden')
-      return
-    }
-    const cancel = (e.target as HTMLElement).closest('.md-cancel') as HTMLElement | null
-    if (cancel) {
-      const w = getWid(cancel); if (!w) return
-      const editor = w.querySelector('.md-editor') as HTMLElement | null
-      editor?.classList.add('hidden')
-      return
-    }
+      // 非編集モードでの「ロック中」などの文言は表示しない
+      if (status) status.textContent = ''
+      // load current content into proper view
+      if (on) {
+        if (ta) ta.value = txt
+        if (editor) editor.classList.remove('hidden')
+        if (preview) preview.classList.add('hidden')
+      } else {
+        if (preview) preview.innerHTML = mdRenderToHtml(txt || 'ここにMarkdownを書いてください')
+        if (editor) editor.classList.add('hidden')
+        if (preview) preview.classList.remove('hidden')
+      }
+      // Hide the inline edit trigger since global edit mode controls this
+      const editBtn = (wrap as HTMLElement).querySelector('.md-edit') as HTMLElement | null
+      if (editBtn) editBtn.classList.add('hidden')
+      // apply density scaling for this widget
+      try {
+        const cols = parseInt((w?.getAttribute('data-cols') || '8'), 10)
+        const rows = parseInt((w?.getAttribute('data-rows') || '2'), 10)
+        const area = Math.max(1, cols * rows)
+        const scale = Math.max(0.9, Math.min(1.4, Math.sqrt(area / 16)))
+        densifyMarkdown(w as HTMLElement, scale)
+      } catch {}
+    })
+  }
+  grid.addEventListener('click', (e) => {
+    // 旧UI（編集/保存/キャンセル）ボタンは廃止済み
     // Links: add
     const add = (e.target as HTMLElement).closest('.lnk-add') as HTMLElement | null
     if (add) {
@@ -1579,7 +1614,7 @@ function enableDragAndDrop(root: HTMLElement): void {
     }
   })
 
-  // Initialize markdown previews from storage
+  // Initialize markdown previews from storage and sync to current mode
   const mdMap = mdGetMap(pid)
   grid.querySelectorAll('.md-widget').forEach((wrap) => {
     const w = (wrap as HTMLElement).closest('.widget') as HTMLElement | null
@@ -1587,6 +1622,37 @@ function enableDragAndDrop(root: HTMLElement): void {
     const preview = (wrap as HTMLElement).querySelector('.md-preview') as HTMLElement | null
     const txt = mdMap[id] || ''
     if (preview) preview.innerHTML = mdRenderToHtml(txt || 'ここにMarkdownを書いてください')
+  })
+  // Apply visibility (editor vs preview) per edit state
+  try { syncMdWidgets(grid.getAttribute('data-edit') === '1') } catch {}
+
+  // Auto-save markdown on input while in edit mode (with lightweight debounce)
+  const mdTimers = new WeakMap<any, number>()
+  grid.addEventListener('input', (e) => {
+    const ta = (e.target as HTMLElement).closest('.md-text') as HTMLTextAreaElement | null
+    if (!ta) return
+    if (!isEdit()) return
+    const w = (ta.closest('.widget') as HTMLElement | null)
+    if (!w) return
+    const id = w.getAttribute('data-widget') || ''
+    const wrap = w.querySelector('.md-widget') as HTMLElement | null
+    const preview = wrap?.querySelector('.md-preview') as HTMLElement | null
+    const val = ta.value || ''
+    const prevTimer = mdTimers.get(ta as any)
+    if (prevTimer) { try { clearTimeout(prevTimer) } catch {} }
+    const t = window.setTimeout(() => {
+      mdSet(pid, id, val)
+      if (preview) preview.innerHTML = mdRenderToHtml(val || 'ここにMarkdownを書いてください')
+      // re-apply density scaling after re-render
+      try {
+        const cols = parseInt((w.getAttribute('data-cols') || '8'), 10)
+        const rows = parseInt((w.getAttribute('data-rows') || '2'), 10)
+        const area = Math.max(1, cols * rows)
+        const scale = Math.max(0.9, Math.min(1.4, Math.sqrt(area / 16)))
+        densifyMarkdown(w, scale)
+      } catch {}
+    }, 250)
+    mdTimers.set(ta as any, t as any)
   })
 
   // Render task summary
@@ -1638,6 +1704,9 @@ function applyWidgetSizes(root: HTMLElement, pid: string): void {
     el.classList.remove('md:col-span-4', 'md:col-span-6', 'md:col-span-8', 'md:col-span-12')
     el.style.gridColumn = `span ${cols} / span ${cols}`
     el.style.gridRow = `span ${rows} / span ${rows}`
+    // expose current size for content adaptation
+    el.setAttribute('data-cols', String(cols))
+    el.setAttribute('data-rows', String(rows))
 
     // 背景色の適用
     const bg = meta[id]?.bg || ''
@@ -1652,6 +1721,94 @@ function applyWidgetSizes(root: HTMLElement, pid: string): void {
       Array.from(grid.querySelectorAll(sel)).forEach(n => n.remove())
     } catch { }
   })
+  try { applyContentDensity(root, pid) } catch { }
+}
+
+// Adjust widget content density (font size, paddings) to use space efficiently
+function applyContentDensity(root: HTMLElement, pid: string): void {
+  const meta = getWidgetMeta(pid)
+  root.querySelectorAll('.widget').forEach((w) => {
+    const el = w as HTMLElement
+    const id = el.getAttribute('data-widget') || ''
+    const m = meta[id] || ({} as any)
+    const type = (m as any).type || ''
+    const cols = parseInt(el.getAttribute('data-cols') || '8', 10)
+    const rows = parseInt(el.getAttribute('data-rows') || '2', 10)
+    const area = Math.max(1, cols * rows)
+    const baseArea = 16 // md default (8x2)
+    let scale = Math.sqrt(area / baseArea)
+    scale = Math.max(0.9, Math.min(1.4, scale))
+    // Apply per-type strategies
+    if (type === 'markdown') {
+      densifyMarkdown(el, scale)
+    } else if (type === 'readme') {
+      densifyReadme(el, scale)
+    } else if (type === 'overview' || type === 'links' || type === 'milestones' || type === 'tasksum' || type === 'team' || type === 'todo' || type === 'progress') {
+      densifyGeneric(el, scale)
+    } else if (type === 'committers') {
+      // committers widget adapts by height; just scale label text a bit
+      densifyCommitters(el, scale)
+    }
+  })
+}
+
+function densifyMarkdown(widgetEl: HTMLElement, scale: number): void {
+  const wrap = widgetEl.querySelector('.md-widget') as HTMLElement | null
+  if (!wrap) return
+  const preview = wrap.querySelector('.md-preview') as HTMLElement | null
+  const editor = wrap.querySelector('.md-editor') as HTMLElement | null
+  const ta = wrap.querySelector('.md-text') as HTMLTextAreaElement | null
+  const base = 13
+  const fs = Math.round(Math.max(12, Math.min(18, base * scale)))
+  if (preview) { preview.style.fontSize = `${fs}px`; preview.style.lineHeight = '1.6' }
+  if (ta) { ta.style.fontSize = `${fs}px`; ta.style.lineHeight = '1.6' }
+  if (editor) { const pad = Math.round(8 * scale + 4); editor.style.padding = `${pad}px` }
+  if (preview) scaleMarkdownHeadings(preview, fs)
+}
+
+function scaleMarkdownHeadings(container: HTMLElement, basePx: number): void {
+  const set = (sel: string, mult: number) => {
+    container.querySelectorAll(sel).forEach((n) => {
+      (n as HTMLElement).style.fontSize = `${Math.round(basePx * mult)}px`
+      ; (n as HTMLElement).style.lineHeight = '1.4'
+      ; (n as HTMLElement).style.marginTop = '0.6em'
+    })
+  }
+  set('h1', 1.6); set('h2', 1.4); set('h3', 1.25); set('h4', 1.15); set('h5', 1.05); set('h6', 0.95)
+  container.querySelectorAll('code').forEach((n) => { (n as HTMLElement).style.fontSize = `${Math.round(basePx * 0.95)}px` })
+  container.querySelectorAll('pre code').forEach((n) => { (n as HTMLElement).style.fontSize = `${Math.round(basePx * 0.95)}px` })
+}
+
+function densifyReadme(widgetEl: HTMLElement, scale: number): void {
+  const el = widgetEl.querySelector('.whitespace-pre-wrap') as HTMLElement | null
+  if (!el) return
+  const base = 14
+  const fs = Math.round(Math.max(12, Math.min(18, base * scale)))
+  el.style.fontSize = `${fs}px`
+  el.style.lineHeight = '1.7'
+  scaleMarkdownHeadings(el, fs)
+}
+
+function densifyGeneric(widgetEl: HTMLElement, scale: number): void {
+  const content = widgetEl.querySelector('.wg-content') as HTMLElement | null
+  if (!content) return
+  const base = 14
+  const fs = Math.round(Math.max(12, Math.min(18, base * scale)))
+  content.style.fontSize = `${fs}px`
+  // upgrade typical small text classes if present
+  const map: Record<string, number> = { 'text-xs': 12, 'text-sm': 14, 'text-base': 16 }
+  Object.entries(map).forEach(([cls, px]) => {
+    content.querySelectorAll(`.${cls}`).forEach((n) => {
+      (n as HTMLElement).style.fontSize = `${Math.round((px) * (fs / base))}px`
+    })
+  })
+}
+
+function densifyCommitters(widgetEl: HTMLElement, scale: number): void {
+  const labels = widgetEl.querySelectorAll('.wg-content div[class*="text-"]') as NodeListOf<HTMLElement>
+  const base = 12
+  const fs = Math.round(Math.max(10, Math.min(16, base * scale)))
+  labels.forEach((n) => { n.style.fontSize = `${fs}px` })
 }
 
 function ensureWidgets(root: HTMLElement, pid: string): void {
@@ -1818,6 +1975,27 @@ function addWidget(root: HTMLElement, pid: string, type: string): void {
       card.setAttribute('draggable', 'true')
       card.classList.add('border', 'border-dashed', 'border-amber-500/40')
     }
+    // If this is a markdown widget, initialize its view and sync to edit state
+    if (type === 'markdown') {
+      const card = el as HTMLElement
+      const wrap = card.querySelector('.md-widget') as HTMLElement | null
+      const preview = wrap?.querySelector('.md-preview') as HTMLElement | null
+      const ta = wrap?.querySelector('.md-text') as HTMLTextAreaElement | null
+      const idAttr = (card.getAttribute('data-widget') || '')
+      const map = mdGetMap(pid)
+      const txt = map[idAttr] || ''
+      if (preview) preview.innerHTML = mdRenderToHtml(txt || 'ここにMarkdownを書いてください')
+      if (on) {
+        if (ta) ta.value = txt
+        const ed = wrap?.querySelector('.md-editor') as HTMLElement | null
+        ed?.classList.remove('hidden')
+        if (preview) preview.classList.add('hidden')
+      }
+      const editBtn = wrap?.querySelector('.md-edit') as HTMLElement | null
+      if (editBtn) editBtn.classList.add('hidden')
+      const status = wrap?.querySelector('.md-status') as HTMLElement | null
+      if (status) status.textContent = ''
+    }
   }
   // refresh dynamic contents after adding
   try { refreshDynamicWidgets(root, pid) } catch { }
@@ -1828,6 +2006,8 @@ function addWidget(root: HTMLElement, pid: string, type: string): void {
   const meta = getWidgetMeta(pid)
   meta[id] = { size: 'md', h: 'md', type }
   setWidgetMeta(pid, meta)
+  // apply sizes and density for newly added widget
+  try { applyWidgetSizes(root, pid) } catch { }
 }
 
 function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
@@ -1899,18 +2079,10 @@ function buildWidgetBody(type: string): string {
 // ------- Markdown widget -------
 function markdownWidget(): string {
   return `
-    <div class="md-widget">
-      <div class="md-toolbar text-xs text-gray-400 flex gap-2">
-        <button class="md-edit rounded ring-2 ring-neutral-600 px-2 py-0.5 hover:bg-neutral-800">編集</button>
-        <span class="md-status text-gray-500"></span>
-      </div>
-      <div class="md-preview whitespace-pre-wrap text-sm text-gray-200 mt-2"></div>
-      <div class="md-editor hidden mt-3">
-        <textarea class="md-text w-full h-36 rounded-md bg-neutral-800/60 ring-2 ring-neutral-600 px-3 py-2 text-gray-100 placeholder:text-gray-500" placeholder="ここにMarkdownを書いてください"></textarea>
-        <div class="mt-2 flex gap-2">
-          <button class="md-save rounded bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-medium px-3 py-1.5">保存</button>
-          <button class="md-cancel rounded bg-neutral-800/60 ring-2 ring-neutral-600 text-gray-200 text-xs px-3 py-1.5">キャンセル</button>
-        </div>
+    <div class="md-widget h-full">
+      <div class="md-preview whitespace-pre-wrap text-sm text-gray-200"></div>
+      <div class="md-editor hidden absolute inset-0 z-10 p-2">
+        <textarea class="md-text w-full h-full resize-none rounded-md bg-neutral-800/60 ring-2 ring-neutral-600 px-3 py-2 text-gray-100 placeholder:text-gray-500" placeholder="ここにMarkdownを書いてください"></textarea>
       </div>
     </div>
   `
