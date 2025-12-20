@@ -1436,9 +1436,13 @@ function enableDragAndDrop(root: HTMLElement): void {
       resHandles.forEach(h => h.classList.toggle('hidden', !on))
       if (move) move.classList.toggle('hidden', !on)
     })
+    // Toggle elements that are explicitly edit-only
+    grid.querySelectorAll('.edit-only').forEach((el) => (el as HTMLElement).classList.toggle('hidden', !on))
     // no reorder on toggle (reverted)
     // Sync markdown widgets' editor/preview visibility to edit state
     try { setTimeout(() => { try { (syncMdWidgets as any)(on) } catch {} }, 0) } catch {}
+    // Rerender link cards to reflect mode (controls vs preview default)
+    try { setTimeout(() => { try { refreshDynamicWidgets(root, pid) } catch {} }, 0) } catch {}
   }
   const savedEdit = localStorage.getItem(`wg-edit-${pid}`) === '1'
   setEdit(!!savedEdit)
@@ -1801,19 +1805,110 @@ function enableDragAndDrop(root: HTMLElement): void {
   }
   grid.addEventListener('click', (e) => {
     // 旧UI（編集/保存/キャンセル）ボタンは廃止済み
-    // Links: add
+    // Links: toggle add form
     const add = (e.target as HTMLElement).closest('.lnk-add') as HTMLElement | null
     if (add) {
       const w = getWid(add); if (!w) return
-      // simple prompt-based add
-      const title = (prompt('リンクのタイトル') || '').trim()
-      const url = (prompt('URL (https://...)') || '').trim()
-      if (!url) return
+      const form = w.querySelector('.lnk-form') as HTMLElement | null
+      if (form) {
+        form.classList.toggle('hidden')
+        // Reset inputs and errors when opening
+        if (!form.classList.contains('hidden')) {
+          const t = form.querySelector('.lnk-title') as HTMLInputElement | null
+          const u = form.querySelector('.lnk-url') as HTMLInputElement | null
+          const err = form.querySelector('.lnk-error') as HTMLElement | null
+          if (t) t.value = ''
+          if (u) u.value = ''
+          if (err) { err.textContent = ''; err.classList.add('hidden') }
+          ;(u as HTMLInputElement | null)?.focus()
+        }
+      }
+      return
+    }
+
+    // Links: save new (single URL per widget)
+    const save = (e.target as HTMLElement).closest('.lnk-save') as HTMLElement | null
+    if (save) {
+      const w = getWid(save); if (!w) return
+      const form = w.querySelector('.lnk-form') as HTMLElement | null
+      const titleEl = form?.querySelector('.lnk-title') as HTMLInputElement | null
+      const urlEl = form?.querySelector('.lnk-url') as HTMLInputElement | null
+      const err = form?.querySelector('.lnk-error') as HTMLElement | null
+      const title = (titleEl?.value || '').trim()
+      let url = (urlEl?.value || '').trim()
+      // Auto-prefix scheme if missing
+      if (url && !/^https?:\/\//i.test(url)) url = `https://${url}`
+      // basic URL validation
+      const gridEl = w.closest('#widgetGrid') as HTMLElement | null
+      const isEdit = gridEl?.getAttribute('data-edit') === '1'
+      if (!url) {
+        // In edit mode, empty URL clears the link
+        mdSetLinks(pid, id, [])
+        try { refreshDynamicWidgets(root, pid) } catch {}
+        if (err) { err.textContent = ''; err.classList.add('hidden') }
+        return
+      }
+      let ok = true
+      try { new URL(url) } catch { ok = false }
+      if (!ok) {
+        if (err) { err.textContent = 'URLが正しくありません'; err.classList.remove('hidden') }
+        return
+      }
+      const id = w.getAttribute('data-widget') || ''
+      // Overwrite to keep exactly one link
+      mdSetLinks(pid, id, [{ title, url }])
+      try { refreshDynamicWidgets(root, pid) } catch {}
+      // Keep the form visible in edit mode; hide only if not editing
+      // const gridEl = w.closest('#widgetGrid') as HTMLElement | null
+      // const isEdit = gridEl?.getAttribute('data-edit') === '1'
+      if (!isEdit && form) form.classList.add('hidden')
+      return
+    }
+
+    // Links: cancel form
+    const cancel = (e.target as HTMLElement).closest('.lnk-cancel') as HTMLElement | null
+    if (cancel) {
+      const w = getWid(cancel); if (!w) return
+      const form = w.querySelector('.lnk-form') as HTMLElement | null
+      if (form) form.classList.add('hidden')
+      return
+    }
+
+    // Links: delete (clear the single link)
+    const delLink = (e.target as HTMLElement).closest('.lnk-del') as HTMLElement | null
+    if (delLink) {
+      const w = getWid(delLink); if (!w) return
+      const id = w.getAttribute('data-widget') || ''
+      mdSetLinks(pid, id, [])
+      try { refreshDynamicWidgets(root, pid) } catch {}
+      return
+    }
+
+    // Links: edit (prefill form and open)
+    const editLink = (e.target as HTMLElement).closest('.lnk-edit') as HTMLElement | null
+    if (editLink) {
+      const w = getWid(editLink); if (!w) return
       const id = w.getAttribute('data-widget') || ''
       const list = mdGetLinks(pid, id)
-      list.push({ title, url })
-      mdSetLinks(pid, id, list)
-      refreshDynamicWidgets(root, pid)
+      const cur = list && list[0]
+      const form = w.querySelector('.lnk-form') as HTMLElement | null
+      const titleEl = form?.querySelector('.lnk-title') as HTMLInputElement | null
+      const urlEl = form?.querySelector('.lnk-url') as HTMLInputElement | null
+      const err = form?.querySelector('.lnk-error') as HTMLElement | null
+      if (titleEl) titleEl.value = (cur?.title || '')
+      if (urlEl) urlEl.value = (cur?.url || '')
+      if (err) { err.textContent = ''; err.classList.add('hidden') }
+      if (form) form.classList.remove('hidden')
+      ;(urlEl as HTMLInputElement | null)?.focus()
+      return
+    }
+
+    // Links: toggle preview
+    const toggle = (e.target as HTMLElement).closest('.lnk-toggle-preview') as HTMLElement | null
+    if (toggle) {
+      const card = toggle.closest('.lnk-card') as HTMLElement | null
+      const pv = card?.querySelector('.lnk-preview') as HTMLElement | null
+      if (pv) pv.classList.toggle('hidden')
       return
     }
   })
@@ -2041,6 +2136,8 @@ function ensureWidgets(root: HTMLElement, pid: string): void {
       if (delBtn) delBtn.classList.toggle('hidden', !on)
       resHandles.forEach(h => h.classList.toggle('hidden', !on))
       if (move) move.classList.toggle('hidden', !on)
+      // toggle edit-only elements within the new card
+      ;(card as HTMLElement).querySelectorAll('.edit-only').forEach((el) => (el as HTMLElement).classList.toggle('hidden', !on))
       el.classList.toggle('border', on)
       el.classList.toggle('border-dashed', on)
       el.classList.toggle('border-amber-500/40', on)
@@ -2180,6 +2277,8 @@ function addWidget(root: HTMLElement, pid: string, type: string): void {
       card.setAttribute('draggable', 'true')
       card.classList.add('border', 'border-dashed', 'border-amber-500/40')
     }
+    // Toggle any edit-only bits in this widget to match current edit mode
+    ;(el as HTMLElement).querySelectorAll('.edit-only').forEach((n) => (n as HTMLElement).classList.toggle('hidden', !on))
     // If this is a markdown widget, initialize its view and sync to edit state
     if (type === 'markdown') {
       const card = el as HTMLElement
@@ -2221,6 +2320,315 @@ function addWidget(root: HTMLElement, pid: string, type: string): void {
   try { applyWidgetSizes(root, pid) } catch { }
 }
 
+// ---- Quick Links helpers ----
+function escHtml(s: string): string {
+  return (s || '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string))
+}
+function linkDomain(u: string): string {
+  try { return new URL(u).host } catch { return '' }
+}
+function faviconSrc(u: string): string {
+  const d = linkDomain(u)
+  if (!d) return ''
+  return `https://www.google.com/s2/favicons?sz=64&domain_url=${encodeURIComponent('https://' + d)}`
+}
+function youTubeId(u: string): string | null {
+  try {
+    const url = new URL(u)
+    if (url.hostname.includes('youtu.be')) return url.pathname.slice(1) || null
+    if (url.hostname.includes('youtube.com')) return url.searchParams.get('v')
+    return null
+  } catch { return null }
+}
+function vimeoId(u: string): string | null {
+  try {
+    const url = new URL(u)
+    if (url.hostname.includes('vimeo.com')) {
+      const seg = url.pathname.split('/').filter(Boolean)
+      return seg[0] || null
+    }
+    return null
+  } catch { return null }
+}
+function loomId(u: string): string | null {
+  try {
+    const url = new URL(u)
+    if (url.hostname.includes('loom.com')) {
+      const seg = url.pathname.split('/').filter(Boolean)
+      const i = seg.indexOf('share')
+      return (i >= 0 && seg[i + 1]) ? seg[i + 1] : (seg[0] || null)
+    }
+    return null
+  } catch { return null }
+}
+function figmaEmbed(u: string): string | null {
+  try { const url = new URL(u); if (url.hostname.includes('figma.com')) return `https://www.figma.com/embed?embed_host=share&url=${encodeURIComponent(u)}`; return null } catch { return null }
+}
+function googleDocEmbed(u: string): string | null {
+  try {
+    const url = new URL(u)
+    if (url.hostname.includes('docs.google.com') || url.hostname.includes('drive.google.com')) {
+      const qp = url.search ? `${url.search}&embedded=true` : '?embedded=true'
+      return `${url.origin}${url.pathname}${qp}${url.hash}`
+    }
+    return null
+  } catch { return null }
+}
+function renderGenericFrame(url: string, full: boolean): string {
+  try { new URL(url) } catch { return '' }
+  const containerCls = full ? 'h-full min-h-[220px] overflow-hidden bg-neutral-900' : 'h-56 overflow-hidden rounded-md ring-1 ring-neutral-600 bg-neutral-900'
+  const iframeCls = full ? 'w-full h-full' : 'w-full h-full'
+  const safe = escHtml(url)
+  // Use sandbox for safety; we do not need to access the content
+  return `
+    <div class=\"${containerCls} relative\">
+      <div class=\"lnk-fb absolute inset-0 grid place-items-center text-center p-4 text-[12px] text-gray-400\">
+        <div>
+          <div class=\"mb-1\">埋め込みを読み込めない場合があります</div>
+          <a href=\"${safe}\" target=\"_blank\" class=\"text-sky-400 hover:text-sky-300\">新しいタブで開く ↗</a>
+        </div>
+      </div>
+      <iframe class=\"${iframeCls}\" src=\"${safe}\" sandbox=\"allow-scripts allow-same-origin allow-forms allow-popups\" referrerpolicy=\"no-referrer\" onload=\"try{this.previousElementSibling?.classList.add('hidden')}catch(e){}\"></iframe>
+    </div>
+  `
+}
+function renderLinkPreview(url: string, full: boolean = false): string {
+  // Known providers
+  const yt = youTubeId(url)
+  if (yt) return full
+    ? `<div class=\"h-full min-h-[220px] overflow-hidden bg-black\"><iframe class=\"w-full h-full\" src=\"https://www.youtube.com/embed/${escHtml(yt)}\" allow=\"accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share\" referrerpolicy=\"strict-origin-when-cross-origin\" allowfullscreen></iframe></div>`
+    : `<div class=\"aspect-video overflow-hidden rounded-md ring-1 ring-neutral-600 bg-black\"><iframe class=\"w-full h-full\" src=\"https://www.youtube.com/embed/${escHtml(yt)}\" allow=\"accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share\" referrerpolicy=\"strict-origin-when-cross-origin\" allowfullscreen></iframe></div>`
+  const vm = vimeoId(url)
+  if (vm) return full
+    ? `<div class=\"h-full min-h-[220px] overflow-hidden bg-black\"><iframe class=\"w-full h-full\" src=\"https://player.vimeo.com/video/${escHtml(vm)}\" allow=\"autoplay; fullscreen; picture-in-picture\" allowfullscreen></iframe></div>`
+    : `<div class=\"aspect-video overflow-hidden rounded-md ring-1 ring-neutral-600 bg-black\"><iframe class=\"w-full h-full\" src=\"https://player.vimeo.com/video/${escHtml(vm)}\" allow=\"autoplay; fullscreen; picture-in-picture\" allowfullscreen></iframe></div>`
+  const lm = loomId(url)
+  if (lm) return full
+    ? `<div class=\"h-full min-h-[220px] overflow-hidden bg-black\"><iframe class=\"w-full h-full\" src=\"https://www.loom.com/embed/${escHtml(lm)}\" allowfullscreen></iframe></div>`
+    : `<div class=\"aspect-video overflow-hidden rounded-md ring-1 ring-neutral-600 bg-black\"><iframe class=\"w-full h-full\" src=\"https://www.loom.com/embed/${escHtml(lm)}\" allowfullscreen></iframe></div>`
+  const fg = figmaEmbed(url)
+  if (fg) return full
+    ? `<div class=\"h-full min-h-[220px] overflow-hidden bg-neutral-900\"><iframe class=\"w-full h-full\" src=\"${escHtml(fg)}\" allowfullscreen></iframe></div>`
+    : `<div class=\"aspect-video overflow-hidden rounded-md ring-1 ring-neutral-600 bg-neutral-900\"><iframe class=\"w-full h-full\" src=\"${escHtml(fg)}\" allowfullscreen></iframe></div>`
+  const gd = googleDocEmbed(url)
+  if (gd) return full
+    ? `<div class=\"h-full min-h-[220px] overflow-hidden bg-neutral-900\"><iframe class=\"w-full h-full\" src=\"${escHtml(gd)}\"></iframe></div>`
+    : `<div class=\"h-56 overflow-hidden rounded-md ring-1 ring-neutral-600 bg-neutral-900\"><iframe class=\"w-full h-full\" src=\"${escHtml(gd)}\"></iframe></div>`
+  // GitHub lightweight card
+  try {
+    const u = new URL(url)
+    if (u.hostname.includes('github.com')) {
+      const path = u.pathname.replace(/^\/+/, '')
+      return `<div class=\"rounded-md bg-neutral-900 ring-1 ring-neutral-700 p-3 text-xs\">GitHub: <span class=\"text-gray-300\">${escHtml(path || '')}</span></div>`
+    }
+  } catch {}
+  // Generic iframe attempt as best-effort
+  const gen = renderGenericFrame(url, full)
+  if (gen) return gen
+  // Fallback text
+  return `<div class=\"rounded-md bg-neutral-900 ring-1 ring-neutral-700 p-6 text-xs text-gray-400 grid place-items-center\">プレビュー未対応</div>`
+}
+// OpenGraph/Twitter Card unfurl (server-assisted)
+type LinkMeta = { url?: string; title?: string; description?: string; image?: string; site_name?: string; favicon?: string }
+const UNFURL_TTL = 24 * 60 * 60 * 1000
+function unfurlKey(url: string): string { return `unfurl-v1-${encodeURIComponent(url)}` }
+function unfurlLoad(url: string): { meta: LinkMeta; ts: number } | null {
+  try { const raw = localStorage.getItem(unfurlKey(url)); return raw ? JSON.parse(raw) : null } catch { return null }
+}
+function unfurlSave(url: string, meta: LinkMeta): void {
+  try { localStorage.setItem(unfurlKey(url), JSON.stringify({ meta, ts: Date.now() })) } catch {}
+}
+async function unfurlFetch(url: string): Promise<LinkMeta | null> {
+  try {
+    const token = localStorage.getItem('apiToken')
+    const res = await fetch(`/api/unfurl?url=${encodeURIComponent(url)}`, { headers: token ? { Authorization: `Bearer ${token}` } : undefined })
+    if (!res.ok) return null
+    const meta = await res.json() as LinkMeta
+    return meta
+  } catch { return null }
+}
+function renderUnfurlSkeleton(hero: boolean): string {
+  if (hero) {
+    return `
+      <div class=\"h-full flex flex-col\">
+        <div class=\"flex-1 min-h-[220px] bg-neutral-800/60\"></div>
+        <div class=\"p-4 border-t border-neutral-700/60 bg-neutral-900/60\">
+          <div class=\"h-4 w-2/3 bg-neutral-800 rounded mb-2\"></div>
+          <div class=\"h-3 w-4/5 bg-neutral-800 rounded\"></div>
+        </div>
+      </div>
+    `
+  }
+  return `
+    <div>
+      <div class=\"h-40 bg-neutral-800/60\"></div>
+      <div class=\"p-3\">
+        <div class=\"h-4 w-3/4 bg-neutral-800 rounded mb-1\"></div>
+        <div class=\"h-3 w-5/6 bg-neutral-800 rounded\"></div>
+      </div>
+    </div>
+  `
+}
+function renderUnfurlCard(meta: LinkMeta, url: string, hero: boolean): string {
+  const u = escHtml((meta.url || url))
+  const title = escHtml(meta.title || '')
+  const desc = escHtml(meta.description || '')
+  const site = escHtml(meta.site_name || linkDomain(url))
+  const img = meta.image ? escHtml(meta.image) : ''
+  const favicon = meta.favicon ? escHtml(meta.favicon) : ''
+  const media = img ? `<img src=\"${img}\" alt=\"\" class=\"w-full ${hero ? 'h-full min-h-[220px]' : 'h-40'} object-cover bg-neutral-800\" loading=\"lazy\"/>` : `<div class=\"${hero ? 'h-full min-h-[220px]' : 'h-40'} bg-neutral-800/60\"></div>`
+  if (hero) {
+    return `
+      <a href=\"${u}\" target=\"_blank\" class=\"block h-full flex flex-col\">
+        <div class=\"flex-1\">${media}</div>
+        <div class=\"px-4 py-3 border-t border-neutral-700/60 bg-neutral-900/60\">
+          <div class=\"text-[15px] text-gray-100 font-medium truncate\">${title || u}</div>
+          <div class=\"text-[12px] text-gray-400 mt-0.5 line-clamp-2\">${desc}</div>
+          <div class=\"text-[11px] text-gray-400 mt-1 flex items-center gap-2\">${favicon ? `<img src=\"${favicon}\" class=\"w-4 h-4\"/>` : ''}<span class=\"inline-block px-1.5 py-0.5 rounded bg-neutral-800/70 ring-1 ring-neutral-700\">${site}</span></div>
+        </div>
+      </a>
+    `
+  }
+  return `
+    <a href=\"${u}\" target=\"_blank\" class=\"block\">
+      ${media}
+      <div class=\"p-3\">
+        <div class=\"text-[15px] text-gray-100 font-medium truncate\">${title || u}</div>
+        <div class=\"text-[12px] text-gray-400 mt-0.5 line-clamp-2\">${desc}</div>
+        <div class=\"text-[11px] text-gray-400 mt-1 flex items-center gap-2\">${favicon ? `<img src=\"${favicon}\" class=\"w-4 h-4\"/>` : ''}<span class=\"inline-block px-1.5 py-0.5 rounded bg-neutral-800/70 ring-1 ring-neutral-700\">${site}</span></div>
+      </div>
+    </a>
+  `
+}
+function renderSimpleTile(url: string, hero: boolean): string {
+  const domain = escHtml(linkDomain(url))
+  const safeUrl = escHtml(url)
+  const inner = `
+    <div class=\"p-4 md:p-5\">
+      <div class=\"text-[16px] md:text-[17px] font-medium text-gray-100 truncate\">${domain || safeUrl}</div>
+      <div class=\"text-[12px] text-gray-400 mt-1 truncate\">${safeUrl}</div>
+    </div>
+  `
+  if (hero) return `<a href=\"${safeUrl}\" target=\"_blank\" class=\"block h-full rounded-xl ring-1 ring-neutral-600 bg-gradient-to-br from-neutral-900 to-neutral-800 hover:ring-neutral-500 transition-colors\">${inner}</a>`
+  return `<a href=\"${safeUrl}\" target=\"_blank\" class=\"block rounded-xl ring-1 ring-neutral-600 bg-gradient-to-br from-neutral-900 to-neutral-800 hover:ring-neutral-500 transition-colors\">${inner}</a>`
+}
+function renderLinkCardsUnfurl(list: QuickLink[], edit: boolean): string {
+  if (!list || list.length === 0) return '<p class="text-gray-400">リンクはまだありません。</p>'
+  const l = list[0]
+  const single = !edit // in single-link model, view mode is always hero when alone
+  const title = escHtml(l.title || '')
+  const url = escHtml(l.url)
+  const domain = escHtml(linkDomain(l.url))
+  const fav = faviconSrc(l.url)
+  if (!edit) {
+    const hero = single
+    return `
+      <div class=\"lnk-card lnk-unfurl ${hero ? 'h-full' : ''} rounded-xl ring-1 ring-neutral-600 bg-neutral-900/50 overflow-hidden\" data-url=\"${url}\" data-hero=\"${hero ? '1' : '0'}\">\
+        <div class=\"lnk-body ${hero ? 'h-full' : ''}\">${renderUnfurlSkeleton(hero)}</div>\
+      </div>
+    `
+  }
+  // Edit mode: simple header + delete action, unfurl body below
+  return `
+    <div class=\"lnk-card lnk-unfurl rounded-xl ring-1 ring-neutral-600 bg-neutral-900/50 overflow-hidden\" data-url=\"${url}\" data-hero=\"0\">\
+      <div class=\"flex items-start gap-3 p-3 edit-only\">\
+        <img src=\"${fav}\" alt=\"\" class=\"w-5 h-5 mt-0.5 opacity-90\" onerror=\"this.style.display='none'\" />\
+        <div class=\"min-w-0 flex-1\">\
+          <div class=\"text-[15px] text-sky-400 font-medium truncate\">${title || url}</div>\
+          <div class=\"text-[11px] text-gray-400 mt-0.5\"><span class=\"inline-block px-1.5 py-0.5 rounded bg-neutral-800/70 ring-1 ring-neutral-700\">${domain}</span></div>\
+        </div>\
+        <div class=\"edit-only flex items-center gap-2\">\
+          <button class=\"lnk-edit text-xs px-2 py-0.5 rounded ring-2 ring-neutral-600 hover:bg-neutral-800\">変更</button>\
+          <button class=\"lnk-del text-xs px-2 py-0.5 rounded ring-2 ring-rose-800 text-rose-200 hover:bg-rose-900/50\">削除</button>\
+        </div>\
+      </div>\
+      <div class=\"lnk-body\">${renderUnfurlSkeleton(false)}</div>\
+    </div>
+  `
+}
+
+async function hydrateLinkCards(widget: HTMLElement): Promise<void> {
+  const cards = widget.querySelectorAll('.lnk-card.lnk-unfurl[data-url]') as NodeListOf<HTMLElement>
+  const token = localStorage.getItem('apiToken')
+  for (const card of Array.from(cards)) {
+    try {
+      if (card.getAttribute('data-hydrated') === '1') continue
+      card.setAttribute('data-hydrated', '1')
+      const url = (card.getAttribute('data-url') || '').trim()
+      const hero = card.getAttribute('data-hero') === '1'
+      const body = card.querySelector('.lnk-body') as HTMLElement | null
+      if (!url || !body) continue
+      // cache
+      let cached = unfurlLoad(url)
+      let meta: LinkMeta | null = null
+      if (cached && (Date.now() - (cached.ts || 0)) < UNFURL_TTL) {
+        meta = cached.meta
+      } else {
+        meta = await unfurlFetch(url)
+        if (meta) unfurlSave(url, meta)
+      }
+      if (meta) {
+        body.innerHTML = renderUnfurlCard(meta, url, hero)
+      } else {
+        body.innerHTML = renderSimpleTile(url, hero)
+      }
+    } catch { }
+  }
+}
+function renderLinkCards(list: QuickLink[], edit: boolean): string {
+  if (!list || list.length === 0) return '<p class="text-gray-400">リンクはまだありません。</p>'
+  const single = !edit && list.length === 1
+  return list.map((l, idx) => {
+    const title = escHtml(l.title || '')
+    const url = escHtml(l.url)
+    const domain = escHtml(linkDomain(l.url))
+    const fav = faviconSrc(l.url)
+    if (!edit) {
+      const body = renderLinkPreview(l.url, single)
+      if (single) {
+        // Full-bleed single card uses entire widget height
+        return `
+          <div class=\"lnk-card h-full flex flex-col rounded-xl ring-1 ring-neutral-600 bg-neutral-900/50 overflow-hidden\">
+            <div class=\"flex-1 min-h-[200px]\">${body}</div>
+            <div class=\"px-4 py-3 border-t border-neutral-700/60 bg-neutral-900/60 flex items-center gap-2\">
+              <img src=\"${fav}\" alt=\"\" class=\"w-4 h-4 opacity-90\" onerror=\"this.style.display='none'\" />
+              <div class=\"min-w-0 flex-1\">
+                <a href=\"${url}\" target=\"_blank\" class=\"text-[15px] text-sky-400 hover:text-sky-300 font-medium truncate inline-block max-w-full\">${title || url}</a>
+                <div class=\"text-[11px] text-gray-400\">${domain}</div>
+              </div>
+              <span class=\"text-gray-500\">↗</span>
+            </div>
+          </div>
+        `
+      }
+      return `
+        <div class=\"lnk-card rounded-xl ring-1 ring-neutral-600 bg-neutral-900/50 overflow-hidden\">
+          ${body}
+        </div>
+      `
+    }
+    const actions = edit ? `
+      <div class=\"lnk-actions edit-only flex items-center gap-1 shrink-0\">
+        <button class=\"lnk-toggle-preview text-xs px-2 py-0.5 rounded ring-2 ring-neutral-600 hover:bg-neutral-800\">プレビュー</button>
+        <button class=\"lnk-del text-xs px-2 py-0.5 rounded ring-2 ring-rose-800 text-rose-200 hover:bg-rose-900/50\" data-idx=\"${idx}\">削除</button>
+      </div>` : ''
+    const previewCls = edit ? 'lnk-preview hidden mt-3' : 'lnk-preview mt-3'
+    return `
+      <div class=\"lnk-card rounded-xl ring-1 ring-neutral-600 bg-neutral-900/50 p-3 shadow-[0_0_0_1px_rgba(255,255,255,0.02)_inset] hover:ring-neutral-500 transition-colors\">
+        <div class=\"flex items-start gap-3\">
+          <img src=\"${fav}\" alt=\"\" class=\"w-5 h-5 mt-0.5 opacity-90\" onerror=\"this.style.display='none'\" />
+          <div class=\"min-w-0 flex-1\">
+            <a href=\"${url}\" target=\"_blank\" class=\"text-[15px] text-sky-400 hover:text-sky-300 font-medium truncate inline-block max-w-full\">${title || url}</a>
+            <div class=\"text-[11px] text-gray-400 mt-0.5\"><span class=\"inline-block px-1.5 py-0.5 rounded bg-neutral-800/70 ring-1 ring-neutral-700\">${domain}</span></div>
+          </div>
+          ${actions}
+        </div>
+        <div class=\"${previewCls}\">${renderLinkPreview(l.url)}</div>
+      </div>
+    `
+  }).join('')
+}
+
 function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
   // Task summary
   const meta = getWidgetMeta(pid)
@@ -2245,7 +2653,34 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
       const box = w.querySelector('.links-body') as HTMLElement | null
       if (box) {
         const links = mdGetLinks(pid, id)
-        box.innerHTML = links.length ? `<ul class=\"list-disc ml-5 space-y-1\">${links.map(l => `<li><a href=\"${l.url}\" target=\"_blank\" class=\"text-sky-400 hover:text-sky-300\">${l.title || l.url}</a></li>`).join('')}</ul>` : '<p class="text-gray-400">リンクはまだありません。</p>'
+        const gridEl = w.closest('#widgetGrid') as HTMLElement | null
+        const edit = gridEl?.getAttribute('data-edit') === '1'
+        const form = w.querySelector('.lnk-form') as HTMLElement | null
+        const addBtn = w.querySelector('.lnk-add') as HTMLElement | null
+        if (edit) {
+          // Edit mode: show only the input area (hide preview area completely)
+          box.innerHTML = ''
+          box.classList.add('hidden')
+          if (addBtn) addBtn.classList.add('hidden')
+          if (form) {
+            form.classList.remove('hidden')
+            try { form.classList.remove('mt-2') } catch {}
+            const titleEl = form.querySelector('.lnk-title') as HTMLInputElement | null
+            const urlEl = form.querySelector('.lnk-url') as HTMLInputElement | null
+            const err = form.querySelector('.lnk-error') as HTMLElement | null
+            const cur = (links && links[0]) || null
+            if (titleEl) titleEl.value = cur?.title || ''
+            if (urlEl) urlEl.value = cur?.url || ''
+            if (err) { err.textContent = ''; err.classList.add('hidden') }
+          }
+        } else {
+          // View mode: render unfurl card, hide form
+          box.classList.remove('hidden')
+          box.innerHTML = renderLinkCardsUnfurl(links, false)
+          try { hydrateLinkCards(w) } catch {}
+          if (form) form.classList.add('hidden')
+          if (addBtn) addBtn.classList.add('hidden') // view mode never shows add
+        }
       }
     }
   })
@@ -2278,7 +2713,22 @@ function buildWidgetBody(type: string): string {
     case 'markdown': return markdownWidget()
     case 'tasksum': return `<div class=\"tasksum-body text-sm text-gray-200\"></div>`
     case 'milestones': return `<ul class=\"text-sm text-gray-200 space-y-2\"><li>企画 <span class=\"text-gray-400\">(完了)</span></li><li>実装 <span class=\"text-gray-400\">(進行中)</span></li><li>リリース <span class=\"text-gray-400\">(未着手)</span></li></ul>`
-    case 'links': return `<div class=\"links-body text-sm text-gray-200\"></div><div class=\"mt-2 text-xs\"><button class=\"lnk-add rounded ring-2 ring-neutral-600 px-2 py-0.5 hover:bg-neutral-800\">リンク追加</button></div>`
+    case 'links': return `
+      <div class=\"links-body h-full flex flex-col gap-3 text-sm text-gray-200\"></div>
+      <div class=\"mt-2 text-xs edit-only\">
+        <button class=\"lnk-add rounded ring-2 ring-neutral-600 px-2 py-0.5 hover:bg-neutral-800\">リンク追加</button>
+      </div>
+      <div class=\"lnk-form mt-2 p-2 rounded bg-neutral-900/60 ring-2 ring-neutral-600 hidden edit-only\">
+        <div class=\"grid grid-cols-1 md:grid-cols-6 gap-2 items-center\">
+          <input class=\"lnk-title md:col-span-2 rounded bg-neutral-800/60 ring-2 ring-neutral-600 px-2 py-1 text-gray-100\" placeholder=\"タイトル (任意)\" />
+          <input class=\"lnk-url md:col-span-3 rounded bg-neutral-800/60 ring-2 ring-neutral-600 px-2 py-1 text-gray-100\" placeholder=\"URL (https://...)\" />
+          <div class=\"flex gap-2 justify-end md:col-span-6\">
+            <button class=\"lnk-save whitespace-nowrap rounded bg-emerald-700 hover:bg-emerald-600 text-white px-3 py-1\">追加</button>
+            <button class=\"lnk-cancel whitespace-nowrap rounded ring-2 ring-neutral-600 px-3 py-1 hover:bg-neutral-800\">キャンセル</button>
+          </div>
+        </div>
+        <p class=\"lnk-error mt-1 text-red-400 text-xs hidden\"></p>
+      </div>`
     case 'progress': return `<div class=\"progress-body\"><div class=\"h-2 bg-neutral-800 rounded\"><div class=\"h-2 bg-emerald-600 rounded w-0\"></div></div><div class=\"text-xs text-gray-400 mt-1\">0%</div></div>`
     case 'team': return `<div class=\"team-body text-sm text-gray-200\"><p class=\"text-gray-400\">読み込み中...</p></div>`
     case 'todo': return `<div class=\"todo-body text-sm text-gray-200\"></div><div class=\"mt-2 text-xs\"><button class=\"todo-add rounded ring-2 ring-neutral-600 px-2 py-0.5 hover:bg-neutral-800\">項目追加</button></div>`

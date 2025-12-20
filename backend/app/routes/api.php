@@ -28,6 +28,9 @@ Route::middleware('token.auth')->group(function () {
     Route::get('/github/search/users', [\App\Http\Controllers\Api\GitHubProxyController::class, 'searchUsers']);
     Route::get('/github/commits', [\App\Http\Controllers\Api\GitHubProxyController::class, 'commits']);
 
+    // Link unfurl (OpenGraph/Twitter Card)
+    Route::get('/unfurl', [\App\Http\Controllers\Api\UnfurlController::class, 'unfurl']);
+
     // Projects
     Route::post('/projects', [\App\Http\Controllers\Api\ProjectController::class, 'store']);
     Route::get('/projects', [\App\Http\Controllers\Api\ProjectController::class, 'index']);
