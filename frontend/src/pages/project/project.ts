@@ -891,10 +891,7 @@ function openCreateProjectModal(root: HTMLElement): void {
         if (id && name) {
           const color = randomCardColor()
           addProjectToGrid(root, { id, name, start, end, color })
-          // Save initial tasks (if AI provided)
-          if (Array.isArray(created?.initial_tasks)) {
-            try { localStorage.setItem(`kb-${id}`, JSON.stringify(created.initial_tasks)) } catch { }
-          }
+          // 初期タスクは保存しない（ローカル生成を廃止）
           // Persist chosen color
           try { await apiFetch(`/projects/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ color }) }) } catch { }
           // Update progress steps from server meta
@@ -925,9 +922,7 @@ function openCreateProjectModal(root: HTMLElement): void {
         if (id && name) {
           const color = randomCardColor()
           addProjectToGrid(root, { id, name, start: extra.start, end: extra.end, color })
-          if (Array.isArray(created?.initial_tasks)) {
-            try { localStorage.setItem(`kb-${id}`, JSON.stringify(created.initial_tasks)) } catch { }
-          }
+          // 初期タスクは保存しない（ローカル生成を廃止）
           try { await apiFetch(`/projects/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ color }) }) } catch { }
           prog.updateFromMeta(created)
           close(); loadProjects(root); prog.showSuccess(id)

@@ -317,7 +317,7 @@ function renderProjectTabsBar(root: HTMLElement, activeId: number): void {
       if (pid === activeId) {
         // decide where to go
         const cand = nextList[idx] || nextList[idx - 1]
-        if (cand) { try { navVisit(cand.id) } catch {}; window.location.hash = `#/project/detail?id=${encodeURIComponent(String(cand.id))}` }
+        if (cand) { try { navVisit(cand.id) } catch { }; window.location.hash = `#/project/detail?id=${encodeURIComponent(String(cand.id))}` }
         else window.location.hash = '#/project'
         return
       }
@@ -327,12 +327,12 @@ function renderProjectTabsBar(root: HTMLElement, activeId: number): void {
     }
     // navigate to tab
     if (pid !== activeId) {
-      try { navVisit(pid) } catch {}
+      try { navVisit(pid) } catch { }
       window.location.hash = `#/project/detail?id=${encodeURIComponent(String(pid))}`
     }
   }
   host.addEventListener('click', handler)
-  ;(host as any)._tabsHandler = handler
+    ; (host as any)._tabsHandler = handler
 
   // Drag & drop reorder for project tabs
   // Remove old handlers if exist
@@ -374,7 +374,7 @@ function renderProjectTabsBar(root: HTMLElement, activeId: number): void {
     // Ignore when started from close button
     if ((e.target as HTMLElement).closest('.tab-close')) { e.preventDefault(); return }
     draggingEl = tab
-    try { e.dataTransfer?.setData('text/plain', String(tab.getAttribute('data-pid') || '')); e.dataTransfer!.effectAllowed = 'move' } catch {}
+    try { e.dataTransfer?.setData('text/plain', String(tab.getAttribute('data-pid') || '')); e.dataTransfer!.effectAllowed = 'move' } catch { }
     tab.classList.add('opacity-60')
     // Hide original element shortly after drag image snapshot is taken
     setTimeout(() => { if (draggingEl === tab) tab.style.display = 'none' }, 0)
@@ -412,10 +412,10 @@ function renderProjectTabsBar(root: HTMLElement, activeId: number): void {
   host.addEventListener('dragover', onOver)
   host.addEventListener('drop', onDrop)
   host.addEventListener('dragend', onEnd)
-  ;(host as any)._tabsDnDStart = onStart
-  ;(host as any)._tabsDnDOver = onOver
-  ;(host as any)._tabsDnDDrop = onDrop
-  ;(host as any)._tabsDnDEnd = onEnd
+    ; (host as any)._tabsDnDStart = onStart
+    ; (host as any)._tabsDnDOver = onOver
+    ; (host as any)._tabsDnDDrop = onDrop
+    ; (host as any)._tabsDnDEnd = onEnd
   // plus button: inside bar (and hide legacy one outside)
   const addBtnLegacy = root.querySelector('#projTabAdd') as HTMLElement | null
   if (addBtnLegacy) (addBtnLegacy as HTMLElement).style.display = 'none'
@@ -506,7 +506,7 @@ function openProjectTabPicker(root: HTMLElement, anchor: HTMLElement): void {
     const q = (input.value || '').toLowerCase()
     listEl.querySelectorAll('button[data-id]')?.forEach((b) => {
       const t = (b as HTMLElement).textContent || ''
-      ;(b as HTMLElement).classList.toggle('hidden', !t.toLowerCase().includes(q))
+        ; (b as HTMLElement).classList.toggle('hidden', !t.toLowerCase().includes(q))
     })
   })
   // open new
@@ -517,7 +517,7 @@ function openProjectTabPicker(root: HTMLElement, anchor: HTMLElement): void {
     if (!b) return
     const id = b.getAttribute('data-id') || ''
     if (!id) return
-    try { navVisit(Number(id)) } catch {}
+    try { navVisit(Number(id)) } catch { }
     window.location.hash = `#/project/detail?id=${encodeURIComponent(id)}`
     pop.remove()
   })
@@ -567,7 +567,7 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
   // Render the full layout once with all available data
   container.innerHTML = detailLayout({ id: project.id, name: project.name, fullName, owner, repo: repoName })
   if (fullName) (container as HTMLElement).setAttribute('data-repo-full', fullName)
-  
+
   // Store user data if fetched
   if (me) {
     (container as any)._me = me
@@ -576,10 +576,10 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
   // --- Start of post-render setup ---
 
   // Record visit unless this render was triggered by back/forward
-  try { const mode = consumeNavMode(); if (mode !== 'back' && mode !== 'forward') navVisit(project.id) } catch {}
+  try { const mode = consumeNavMode(); if (mode !== 'back' && mode !== 'forward') navVisit(project.id) } catch { }
   // Ensure this project is in the top project-tabs and render the bar
-  try { ensureProjectOpenTab({ id: project.id, title: project.name, fullName }) } catch {}
-  try { renderProjectTabsBar(container, project.id) } catch {}
+  try { ensureProjectOpenTab({ id: project.id, title: project.name, fullName }) } catch { }
+  try { renderProjectTabsBar(container, project.id) } catch { }
 
   setupTabs(container, String(project.id))
   applyCoreTabs(container, String(project.id))
@@ -666,10 +666,10 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
     rail.style.width = `${w}px`
     if (tabsLeftPad) tabsLeftPad.style.width = `${w}px`
     if (tabsWrap) tabsWrap.style.paddingLeft = `${w + 8}px`
-    try { localStorage.setItem(railWKey, String(w)) } catch {}
+    try { localStorage.setItem(railWKey, String(w)) } catch { }
   }
   // initial width from storage
-  try { const saved = parseInt(localStorage.getItem(railWKey) || '0', 10); if (!isNaN(saved) && saved > 0) applyRailWidth(saved) } catch {}
+  try { const saved = parseInt(localStorage.getItem(railWKey) || '0', 10); if (!isNaN(saved) && saved > 0) applyRailWidth(saved) } catch { }
   const resizer = container.querySelector('#railResizer') as HTMLElement | null
   if (resizer && rail) {
     resizer.addEventListener('mousedown', (ev) => {
@@ -711,7 +711,7 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
       sumBtn.innerHTML = on ? LOCK_OPEN_RIGHT_SVG : LOCK_SVG
       sumBtn.setAttribute('aria-pressed', on ? 'true' : 'false')
     }
-  } catch {}
+  } catch { }
 
   // Load data for widgets from GitHub proxy (independent fallbacks)
   if (fullName) {
@@ -758,8 +758,9 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
 
 function widgetShell(id: string, title: string, body: string): string {
   // タイトルは非表示。S/M/L操作は廃止し、角からのリサイズへ移行。
+  // 枠線の代わりに、背景＋シャドウで“盛り上がり”を表現。
   return `
-    <div class="widget group relative rounded-xl ring-2 ring-neutral-600 bg-neutral-900/50 p-3 md:col-span-6 flex flex-col overflow-hidden" draggable="false" data-widget="${id}">
+    <div class="widget group relative rounded-xl bg-neutral-800/70 shadow-[0_1px_0_rgba(255,255,255,0.04)_inset,0_8px_24px_rgba(0,0,0,0.35)] p-3 md:col-span-6 flex flex-col overflow-hidden" draggable="false" data-widget="${id}">
       <div class="wg-content relative min-h-0 flex-1 overflow-auto">${body}</div>
       <!-- Edit-only controls: move handle, delete button, resize handles (sides + corners) -->
       <div class="wg-move hidden absolute z-20 top-1 left-1 w-7 h-7 grid place-items-center cursor-grab active:cursor-grabbing select-none">
@@ -782,7 +783,7 @@ function widgetShell(id: string, title: string, body: string): string {
 
 function addWidgetCard(): string {
   // Always stay at the bottom and take full width on desktop so it doesn't get in the way
-  return `<button id="addWidget" class="order-last md:col-span-12 rounded-xl ring-2 ring-neutral-600 bg-neutral-900/40 grid place-items-center text-gray-400 h-24 md:h-28">ウィジェット追加<br/><span class="text-2xl md:text-3xl">＋</span></button>`
+  return `<button id="addWidget" class="order-last md:col-span-12 rounded-xl bg-neutral-800/50 shadow-[0_1px_0_rgba(255,255,255,0.04)_inset,0_6px_18px_rgba(0,0,0,0.3)] grid place-items-center text-gray-400 h-24 md:h-28 hover:bg-neutral-800/60">ウィジェット追加<br/><span class="text-2xl md:text-3xl">＋</span></button>`
 }
 
 function contributionWidget(): string {
@@ -806,7 +807,8 @@ function barSkeleton(): string {
 }
 
 function readmeSkeleton(): string {
-  return `<div class="h-full overflow-auto rounded bg-neutral-900/40 ring-2 ring-neutral-600 p-4 text-gray-200 whitespace-pre-wrap">Loading README...</div>`
+  // 内側の枠線も撤去し、読みやすいプレーンな背景に
+  return `<div class="h-full overflow-auto rounded bg-neutral-900/30 p-4 text-gray-200 whitespace-pre-wrap">Loading README...</div>`
 }
 
 function hydrateOverview(root: HTMLElement, repo: any): void {
@@ -835,7 +837,7 @@ function hydrateOverview(root: HTMLElement, repo: any): void {
     const area = Math.max(1, cols * rows)
     const scale = Math.max(0.9, Math.min(1.4, Math.sqrt(area / 16)))
     densifyGeneric(widget, scale)
-  } catch {}
+  } catch { }
 }
 
 function committersRender(root: HTMLElement, stats: Array<{ login: string; avatar_url?: string; count: number }>): void {
@@ -885,7 +887,7 @@ function committersRender(root: HTMLElement, stats: Array<{ login: string; avata
       const scale = Math.max(0.9, Math.min(1.4, Math.sqrt(area / 16)))
       densifyCommitters(widget, scale)
     }
-  } catch {}
+  } catch { }
 }
 
 function hydrateCommittersFromContributors(root: HTMLElement, list: any[]): void {
@@ -921,7 +923,7 @@ function hydrateReadme(root: HTMLElement, text: string): void {
       const scale = Math.max(0.9, Math.min(1.4, Math.sqrt(area / 16)))
       densifyReadme(w, scale)
     }
-  } catch {}
+  } catch { }
 }
 
 // ------- Contributions heatmap (GitHub-like) -------
@@ -937,7 +939,7 @@ function contribGetCache(full: string): ContribCache | null {
   } catch { return null }
 }
 function contribSetCache(full: string, data: ContribCache): void {
-  try { localStorage.setItem(contribCacheKey(full), JSON.stringify(data)) } catch {}
+  try { localStorage.setItem(contribCacheKey(full), JSON.stringify(data)) } catch { }
 }
 
 function formatDate(d: Date): string {
@@ -1019,8 +1021,8 @@ async function ensureContribData(full: string): Promise<ContribCache> {
 
 function renderContribHeatmap(root: HTMLElement, full: string, cache: ContribCache): void {
   // Build dynamic range from earliest commit to today
-  const end = new Date(); end.setUTCHours(0,0,0,0)
-  const start = cache.start ? new Date(cache.start + 'T00:00:00Z') : new Date(end.getTime() - 364*24*60*60*1000)
+  const end = new Date(); end.setUTCHours(0, 0, 0, 0)
+  const start = cache.start ? new Date(cache.start + 'T00:00:00Z') : new Date(end.getTime() - 364 * 24 * 60 * 60 * 1000)
   const range = buildContribRangeFrom(start, end)
   let days = range.days
   // Determine levels by max
@@ -1070,7 +1072,7 @@ function renderContribHeatmap(root: HTMLElement, full: string, cache: ContribCac
             return
           } else { body.removeAttribute('data-contrib-retry') }
         }
-      } catch {}
+      } catch { }
       bestRows = 7
       bestCell = Math.max(minCell, Math.floor((rect.height - (bestRows - 1) * gap) / bestRows))
     }
@@ -1094,7 +1096,7 @@ function renderContribHeatmap(root: HTMLElement, full: string, cache: ContribCac
     try {
       const body = wrap || (grid.parentElement as HTMLElement | null)
       if (body) body.scrollLeft = Math.max(0, grid.scrollWidth - body.clientWidth)
-    } catch {}
+    } catch { }
   })
 }
 
@@ -1112,10 +1114,10 @@ async function hydrateContribHeatmap(root: HTMLElement, full: string): Promise<v
             const cache = contribGetCache(full); if (cache) renderContribHeatmap(root, full, cache)
           })
           ro.observe(b)
-          ;(b as any)._contribRO = ro
+            ; (b as any)._contribRO = ro
         }
       })
-    } catch {}
+    } catch { }
   } catch { }
 }
 
@@ -1131,6 +1133,21 @@ function enableDragAndDrop(root: HTMLElement): void {
   const grid = root.querySelector('#widgetGrid') as HTMLElement | null
   if (!grid) return
   const pid = grid.getAttribute('data-pid') || '0'
+  // Remove deprecated widgets from saved meta and DOM (overview, milestones)
+  try {
+    const meta = getWidgetMeta(pid)
+    let changed = false
+    Object.entries(meta).forEach(([id, m]) => {
+      const t = (m as any)?.type
+      if (t === 'overview' || t === 'milestones') {
+        delete (meta as any)[id]
+        changed = true
+        const node = grid.querySelector(`[data-widget="${id}"]`)
+        if (node) node.remove()
+      }
+    })
+    if (changed) setWidgetMeta(pid, meta)
+  } catch { }
   let dragEl: HTMLElement | null = null
   let bgMenuEl: HTMLElement | null = null
   let dragAllowed = false
@@ -1253,7 +1270,7 @@ function enableDragAndDrop(root: HTMLElement): void {
     if (!t) return
     dragEl = t
     const dt = (e as DragEvent).dataTransfer
-    if (dt) { try { dt.setData('text/plain', 'widget'); dt.effectAllowed = 'move' } catch {} }
+    if (dt) { try { dt.setData('text/plain', 'widget'); dt.effectAllowed = 'move' } catch { } }
     // Keep layout by hiding visually (not removing flow)
     setTimeout(() => { t.style.visibility = 'hidden' }, 0)
     // Move add button out of the way while dragging
@@ -1263,7 +1280,7 @@ function enableDragAndDrop(root: HTMLElement): void {
   grid.addEventListener('dragover', (e) => {
     if (!isEdit()) return
     e.preventDefault()
-    try { const dt = (e as DragEvent).dataTransfer; if (dt) dt.dropEffect = 'move' } catch {}
+    try { const dt = (e as DragEvent).dataTransfer; if (dt) dt.dropEffect = 'move' } catch { }
     const t = e.target as HTMLElement
     const widget = t.closest('.widget') as HTMLElement | null
     if (!dragEl) return
@@ -1301,8 +1318,8 @@ function enableDragAndDrop(root: HTMLElement): void {
         const id = dragEl.getAttribute('data-widget') || ''
         const meta2 = getWidgetMeta(pid)
         const m = meta2[id] || {}
-        ;(m as any).cols = cols
-        ;(m as any).rows = rows
+          ; (m as any).cols = cols
+          ; (m as any).rows = rows
         meta2[id] = m as any
         setWidgetMeta(pid, meta2)
         applyWidgetSizes(root, pid)
@@ -1440,13 +1457,13 @@ function enableDragAndDrop(root: HTMLElement): void {
     grid.querySelectorAll('.edit-only').forEach((el) => (el as HTMLElement).classList.toggle('hidden', !on))
     // no reorder on toggle (reverted)
     // Sync markdown widgets' editor/preview visibility to edit state
-    try { setTimeout(() => { try { (syncMdWidgets as any)(on) } catch {} }, 0) } catch {}
+    try { setTimeout(() => { try { (syncMdWidgets as any)(on) } catch { } }, 0) } catch { }
     // Rerender link cards to reflect mode (controls vs preview default)
-    try { setTimeout(() => { try { refreshDynamicWidgets(root, pid) } catch {} }, 0) } catch {}
+    try { setTimeout(() => { try { refreshDynamicWidgets(root, pid) } catch { } }, 0) } catch { }
   }
   const savedEdit = localStorage.getItem(`wg-edit-${pid}`) === '1'
   setEdit(!!savedEdit)
-  ;(grid as any)._setEdit = (on: boolean) => setEdit(on)
+    ; (grid as any)._setEdit = (on: boolean) => setEdit(on)
 
   // Initialize: ensure all meta-defined widgets exist, then apply saved order, then sizes
   ensureWidgets(root, pid)
@@ -1488,7 +1505,7 @@ function enableDragAndDrop(root: HTMLElement): void {
   // Resize: edges and corners (handles with .wg-rz [data-rz])
   // Helper: detect resize direction from pointer proximity to widget edges
   const EDGE_TOL = 8
-  const edgeDirAtPoint = (w: HTMLElement, x: number, y: number): ('e'|'w'|'n'|'s'|'se'|'ne'|'sw'|'nw'|null) => {
+  const edgeDirAtPoint = (w: HTMLElement, x: number, y: number): ('e' | 'w' | 'n' | 's' | 'se' | 'ne' | 'sw' | 'nw' | null) => {
     const r = w.getBoundingClientRect()
     const nearL = (x - r.left) <= EDGE_TOL
     const nearR = (r.right - x) <= EDGE_TOL
@@ -1664,19 +1681,19 @@ function enableDragAndDrop(root: HTMLElement): void {
     const onUp = () => {
       document.removeEventListener('mousemove', onMove)
       document.removeEventListener('mouseup', onUp)
-      try { widget.style.cursor = '' } catch {}
+      try { widget.style.cursor = '' } catch { }
       const meta2 = getWidgetMeta(pid)
       const m = meta2[id] || {}
-      ;(m as any).cols = lastCols
-      ;(m as any).rows = lastRows
+        ; (m as any).cols = lastCols
+        ; (m as any).rows = lastRows
       // no persistent pad bookkeeping (reverted)
       meta2[id] = m as any
       if (linkNeighbor) {
         const nid = linkNeighbor.getAttribute('data-widget') || ''
         const nm = meta2[nid] || {}
         const neiCols = parseInt((linkNeighbor.style.gridColumn || '').match(/span\s+(\d+)/)?.[1] || String(linkStartCols), 10)
-        ;(nm as any).cols = Math.max(1, Math.min(12, isNaN(neiCols) ? linkStartCols : neiCols))
-        ;(nm as any).rows = linkStartRows
+          ; (nm as any).cols = Math.max(1, Math.min(12, isNaN(neiCols) ? linkStartCols : neiCols))
+          ; (nm as any).rows = linkStartRows
         meta2[nid] = nm as any
       }
       setWidgetMeta(pid, meta2)
@@ -1721,8 +1738,8 @@ function enableDragAndDrop(root: HTMLElement): void {
 
     const nextCols = capacityCols
     if (nextCols === curCols) return
-    ;(cur as any).cols = nextCols
-    ;(cur as any).rows = rows
+      ; (cur as any).cols = nextCols
+      ; (cur as any).rows = rows
     meta[id] = cur as any
     setWidgetMeta(pid, meta)
     applyWidgetSizes(root, pid)
@@ -1800,7 +1817,7 @@ function enableDragAndDrop(root: HTMLElement): void {
         const area = Math.max(1, cols * rows)
         const scale = Math.max(0.9, Math.min(1.4, Math.sqrt(area / 16)))
         densifyMarkdown(w as HTMLElement, scale)
-      } catch {}
+      } catch { }
     })
   }
   grid.addEventListener('click', (e) => {
@@ -1820,7 +1837,7 @@ function enableDragAndDrop(root: HTMLElement): void {
           if (t) t.value = ''
           if (u) u.value = ''
           if (err) { err.textContent = ''; err.classList.add('hidden') }
-          ;(u as HTMLInputElement | null)?.focus()
+          ; (u as HTMLInputElement | null)?.focus()
         }
       }
       return
@@ -1844,7 +1861,7 @@ function enableDragAndDrop(root: HTMLElement): void {
       if (!url) {
         // In edit mode, empty URL clears the link
         mdSetLinks(pid, id, [])
-        try { refreshDynamicWidgets(root, pid) } catch {}
+        try { refreshDynamicWidgets(root, pid) } catch { }
         if (err) { err.textContent = ''; err.classList.add('hidden') }
         return
       }
@@ -1857,7 +1874,7 @@ function enableDragAndDrop(root: HTMLElement): void {
       const id = w.getAttribute('data-widget') || ''
       // Overwrite to keep exactly one link
       mdSetLinks(pid, id, [{ title, url }])
-      try { refreshDynamicWidgets(root, pid) } catch {}
+      try { refreshDynamicWidgets(root, pid) } catch { }
       // Keep the form visible in edit mode; hide only if not editing
       // const gridEl = w.closest('#widgetGrid') as HTMLElement | null
       // const isEdit = gridEl?.getAttribute('data-edit') === '1'
@@ -1880,7 +1897,7 @@ function enableDragAndDrop(root: HTMLElement): void {
       const w = getWid(delLink); if (!w) return
       const id = w.getAttribute('data-widget') || ''
       mdSetLinks(pid, id, [])
-      try { refreshDynamicWidgets(root, pid) } catch {}
+      try { refreshDynamicWidgets(root, pid) } catch { }
       return
     }
 
@@ -1899,7 +1916,7 @@ function enableDragAndDrop(root: HTMLElement): void {
       if (urlEl) urlEl.value = (cur?.url || '')
       if (err) { err.textContent = ''; err.classList.add('hidden') }
       if (form) form.classList.remove('hidden')
-      ;(urlEl as HTMLInputElement | null)?.focus()
+        ; (urlEl as HTMLInputElement | null)?.focus()
       return
     }
 
@@ -1923,7 +1940,7 @@ function enableDragAndDrop(root: HTMLElement): void {
     if (preview) preview.innerHTML = mdRenderToHtml(txt || 'ここにMarkdownを書いてください')
   })
   // Apply visibility (editor vs preview) per edit state
-  try { syncMdWidgets(grid.getAttribute('data-edit') === '1') } catch {}
+  try { syncMdWidgets(grid.getAttribute('data-edit') === '1') } catch { }
 
   // Auto-save markdown on input while in edit mode (with lightweight debounce)
   const mdTimers = new WeakMap<any, number>()
@@ -1938,7 +1955,7 @@ function enableDragAndDrop(root: HTMLElement): void {
     const preview = wrap?.querySelector('.md-preview') as HTMLElement | null
     const val = ta.value || ''
     const prevTimer = mdTimers.get(ta as any)
-    if (prevTimer) { try { clearTimeout(prevTimer) } catch {} }
+    if (prevTimer) { try { clearTimeout(prevTimer) } catch { } }
     const t = window.setTimeout(() => {
       mdSet(pid, id, val)
       if (preview) preview.innerHTML = mdRenderToHtml(val || 'ここにMarkdownを書いてください')
@@ -1949,7 +1966,7 @@ function enableDragAndDrop(root: HTMLElement): void {
         const area = Math.max(1, cols * rows)
         const scale = Math.max(0.9, Math.min(1.4, Math.sqrt(area / 16)))
         densifyMarkdown(w, scale)
-      } catch {}
+      } catch { }
     }, 250)
     mdTimers.set(ta as any, t as any)
   })
@@ -2072,8 +2089,8 @@ function scaleMarkdownHeadings(container: HTMLElement, basePx: number): void {
   const set = (sel: string, mult: number) => {
     container.querySelectorAll(sel).forEach((n) => {
       (n as HTMLElement).style.fontSize = `${Math.round(basePx * mult)}px`
-      ; (n as HTMLElement).style.lineHeight = '1.4'
-      ; (n as HTMLElement).style.marginTop = '0.6em'
+        ; (n as HTMLElement).style.lineHeight = '1.4'
+        ; (n as HTMLElement).style.marginTop = '0.6em'
     })
   }
   set('h1', 1.6); set('h2', 1.4); set('h3', 1.25); set('h4', 1.15); set('h5', 1.05); set('h6', 0.95)
@@ -2117,7 +2134,7 @@ function densifyTaskSummary(widgetEl: HTMLElement, scale: number): void {
   const content = widgetEl.querySelector('.wg-content') as HTMLElement | null
   const body = widgetEl.querySelector('.tasksum-body') as HTMLElement | null
   if (!body) return
-  try { body.classList.add('h-full') } catch {}
+  try { body.classList.add('h-full') } catch { }
   if (content) content.style.overflow = 'hidden'
   const grid = widgetEl.querySelector('.ts-grid') as HTMLElement | null
   const areaEl = (grid || body || content || widgetEl) as HTMLElement
@@ -2162,8 +2179,8 @@ function ensureWidgets(root: HTMLElement, pid: string): void {
       if (delBtn) delBtn.classList.toggle('hidden', !on)
       resHandles.forEach(h => h.classList.toggle('hidden', !on))
       if (move) move.classList.toggle('hidden', !on)
-      // toggle edit-only elements within the new card
-      ;(card as HTMLElement).querySelectorAll('.edit-only').forEach((el) => (el as HTMLElement).classList.toggle('hidden', !on))
+        // toggle edit-only elements within the new card
+        ; (card as HTMLElement).querySelectorAll('.edit-only').forEach((el) => (el as HTMLElement).classList.toggle('hidden', !on))
       el.classList.toggle('border', on)
       el.classList.toggle('border-dashed', on)
       el.classList.toggle('border-amber-500/40', on)
@@ -2190,12 +2207,10 @@ function openWidgetPickerModal(root: HTMLElement, pid: string): void {
         <section class="flex-1 p-8 overflow-y-auto h-full">
           <div id="wp-grid" class="grid grid-cols-3 lg:grid-cols-4 auto-rows-min gap-x-12 gap-y-10 min-h-[28rem]">
             ${widgetCard('readme', 'README表示')}
-            ${widgetCard('overview', 'オーバービュー')}
             ${widgetCard('contrib', 'コントリビューショングラフ')}
             ${widgetCard('committers', 'ユーザーコミットグラフ')}
             ${widgetCard('markdown', 'Markdownブロック')}
             ${widgetCard('tasksum', 'タスクサマリー')}
-            ${widgetCard('milestones', 'マイルストーン')}
             ${widgetCard('links', 'クイックリンク')}
           </div>
         </section>
@@ -2217,9 +2232,9 @@ function openWidgetPickerModal(root: HTMLElement, pid: string): void {
   // Category filtering
   const cats = overlay.querySelectorAll('.wp-cat')
   const getCat = (t: string): string => {
-    if (['readme', 'overview', 'contrib', 'committers'].includes(t)) return 'github'
+    if (['readme', 'contrib', 'committers'].includes(t)) return 'github'
     if (['markdown'].includes(t)) return 'text'
-    if (['tasksum', 'milestones', 'links'].includes(t)) return 'manage'
+    if (['tasksum', 'links'].includes(t)) return 'manage'
     return 'other'
   }
   const applyCat = (cat: string) => {
@@ -2304,7 +2319,7 @@ function addWidget(root: HTMLElement, pid: string, type: string): void {
       card.classList.add('border', 'border-dashed', 'border-amber-500/40')
     }
     // Toggle any edit-only bits in this widget to match current edit mode
-    ;(el as HTMLElement).querySelectorAll('.edit-only').forEach((n) => (n as HTMLElement).classList.toggle('hidden', !on))
+    ; (el as HTMLElement).querySelectorAll('.edit-only').forEach((n) => (n as HTMLElement).classList.toggle('hidden', !on))
     // If this is a markdown widget, initialize its view and sync to edit state
     if (type === 'markdown') {
       const card = el as HTMLElement
@@ -2330,7 +2345,7 @@ function addWidget(root: HTMLElement, pid: string, type: string): void {
     if (type === 'contrib') {
       const host = root as HTMLElement
       const full = host.getAttribute('data-repo-full') || (document.querySelector('[data-repo-full]') as HTMLElement | null)?.getAttribute('data-repo-full') || ''
-      if (full) { try { hydrateContribHeatmap(host, full) } catch {} }
+      if (full) { try { hydrateContribHeatmap(host, full) } catch { } }
     }
   }
   // refresh dynamic contents after adding
@@ -2447,7 +2462,7 @@ function renderLinkPreview(url: string, full: boolean = false): string {
       const path = u.pathname.replace(/^\/+/, '')
       return `<div class=\"rounded-md bg-neutral-900 ring-1 ring-neutral-700 p-3 text-xs\">GitHub: <span class=\"text-gray-300\">${escHtml(path || '')}</span></div>`
     }
-  } catch {}
+  } catch { }
   // Generic iframe attempt as best-effort
   const gen = renderGenericFrame(url, full)
   if (gen) return gen
@@ -2462,7 +2477,7 @@ function unfurlLoad(url: string): { meta: LinkMeta; ts: number } | null {
   try { const raw = localStorage.getItem(unfurlKey(url)); return raw ? JSON.parse(raw) : null } catch { return null }
 }
 function unfurlSave(url: string, meta: LinkMeta): void {
-  try { localStorage.setItem(unfurlKey(url), JSON.stringify({ meta, ts: Date.now() })) } catch {}
+  try { localStorage.setItem(unfurlKey(url), JSON.stringify({ meta, ts: Date.now() })) } catch { }
 }
 async function unfurlFetch(url: string): Promise<LinkMeta | null> {
   try {
@@ -2668,7 +2683,7 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
           box.innerHTML = `
             <div class="ts-grid h-full grid grid-cols-2 md:grid-cols-4 grid-rows-2 md:grid-rows-1 gap-2 md:gap-3 place-items-stretch">
               ${[['todo', 'TODO'], ['doing', 'DOING'], ['review', 'REVIEW'], ['done', 'DONE']]
-                .map(([k, label]) => `
+              .map(([k, label]) => `
                   <div class=\"stat h-full rounded ring-2 ring-neutral-600 bg-neutral-800/40 p-2 md:p-3 flex flex-col items-center justify-center\">\
                     <div class=\"ts-label text-center text-gray-300\">${label}</div>\
                     <div class=\"ts-count text-emerald-400 font-semibold mt-1\">${counts[k] || 0}</div>\
@@ -2676,7 +2691,7 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
                 `).join('')}
             </div>
           `
-          try { densifyTaskSummary(w, 1) } catch {}
+          try { densifyTaskSummary(w, 1) } catch { }
         }
         // Start with local tasks immediately
         const local = loadTasks(pid)
@@ -2687,7 +2702,7 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
         const host = root as HTMLElement
         const full = host.getAttribute('data-repo-full') || (document.querySelector('[data-repo-full]') as HTMLElement | null)?.getAttribute('data-repo-full') || ''
         if (full) {
-          ;(async () => {
+          ; (async () => {
             try {
               const issues = await apiFetch<any[]>(`/projects/${pid}/issues?state=all`)
               const ghTasks = (issues || []).map((it) => {
@@ -2722,7 +2737,7 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
           if (addBtn) addBtn.classList.add('hidden')
           if (form) {
             form.classList.remove('hidden')
-            try { form.classList.remove('mt-2') } catch {}
+            try { form.classList.remove('mt-2') } catch { }
             const titleEl = form.querySelector('.lnk-title') as HTMLInputElement | null
             const urlEl = form.querySelector('.lnk-url') as HTMLInputElement | null
             const err = form.querySelector('.lnk-error') as HTMLElement | null
@@ -2735,7 +2750,7 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
           // View mode: render unfurl card, hide form
           box.classList.remove('hidden')
           box.innerHTML = renderLinkCardsUnfurl(links, false)
-          try { hydrateLinkCards(w) } catch {}
+          try { hydrateLinkCards(w) } catch { }
           if (form) form.classList.add('hidden')
           if (addBtn) addBtn.classList.add('hidden') // view mode never shows add
         }
@@ -3087,7 +3102,6 @@ function detailLayout(ctx: { id: number; name: string; fullName: string; owner: 
             <section class="space-y-3" id="tab-summary" data-tab="summary">
               <div class="grid gap-3 md:gap-4 grid-cols-1 md:grid-cols-12" id="widgetGrid" data-pid="${ctx.id}" style="grid-auto-rows: 3.5rem;">
                 ${widgetShell('contrib', 'Contributions', contributionWidget())}
-                ${widgetShell('overview', 'Overview', overviewSkeleton())}
                 ${widgetShell('committers', 'Top Committers', barSkeleton())}
                 ${widgetShell('readme', 'README', readmeSkeleton())}
               </div>
@@ -3136,7 +3150,7 @@ function setupTabs(container: HTMLElement, pid: string): void {
       if (grid && (grid as any)._setEdit) {
         const scoped = grid.getAttribute('data-pid') || ''
         const on = localStorage.getItem(`wg-edit-${scoped}`) === '1'
-        ;(grid as any)._setEdit(on)
+          ; (grid as any)._setEdit(on)
       }
     })
   })
@@ -3185,7 +3199,7 @@ function applyCoreTabs(root: HTMLElement, pid: string): void {
       wrap.appendChild(menuBtn)
     }
     let lockBtn = wrap.querySelector(`.tab-lock[data-for="${key}"]`) as HTMLElement | null
-    if (lockBtn) lockBtn.classList.add('opacity-0','group-hover:opacity-100','transition-opacity')
+    if (lockBtn) lockBtn.classList.add('opacity-0', 'group-hover:opacity-100', 'transition-opacity')
     // open context menu on menu click
     menuBtn.addEventListener('click', (e) => {
       e.stopPropagation()
@@ -3395,7 +3409,7 @@ function addCustomTab(root: HTMLElement, pid: string, type: TabTemplate, persist
     buildWidgetTab(panel, pid, id, ['tasksum'])
     root.querySelector('main')?.appendChild(panel)
   } else if (type === 'roadmap') {
-    buildWidgetTab(panel, pid, id, ['milestones'])
+    buildWidgetTab(panel, pid, id, [])
     root.querySelector('main')?.appendChild(panel)
   } else if (type === 'burndown') {
     buildWidgetTab(panel, pid, id, [])
@@ -3563,26 +3577,26 @@ function openCollaboratorPopover(root: HTMLElement, projectId: number, anchor: H
   const input = pop.querySelector('#collabSearch') as HTMLInputElement
   const results = pop.querySelector('#collabResults') as HTMLElement
 
-  // Ensure popover stays within viewport (flip if necessary)
-  ;(() => {
-    const vw = window.innerWidth
-    const vh = window.innerHeight
-    const w = pop.offsetWidth
-    const h = pop.offsetHeight || 220 // rough fallback before images load
-    // Prefer aligning right edge of popover to anchor right
-    let left = Math.min(vw - w - 12, Math.max(12, rect.right - w))
-    // Default show below
-    let top = rect.bottom + 8
-    // If bottom overflows, flip above
-    if (top + h > vh - 12) {
-      top = Math.max(12, rect.top - h - 8)
-    }
-    // Final clamps
-    left = Math.max(12, Math.min(left, vw - w - 12))
-    top = Math.max(12, Math.min(top, vh - h - 12))
-    pop.style.left = `${left}px`
-    pop.style.top = `${top}px`
-  })()
+    // Ensure popover stays within viewport (flip if necessary)
+    ; (() => {
+      const vw = window.innerWidth
+      const vh = window.innerHeight
+      const w = pop.offsetWidth
+      const h = pop.offsetHeight || 220 // rough fallback before images load
+      // Prefer aligning right edge of popover to anchor right
+      let left = Math.min(vw - w - 12, Math.max(12, rect.right - w))
+      // Default show below
+      let top = rect.bottom + 8
+      // If bottom overflows, flip above
+      if (top + h > vh - 12) {
+        top = Math.max(12, rect.top - h - 8)
+      }
+      // Final clamps
+      left = Math.max(12, Math.min(left, vw - w - 12))
+      top = Math.max(12, Math.min(top, vh - h - 12))
+      pop.style.left = `${left}px`
+      pop.style.top = `${top}px`
+    })()
   let t: any
   input.addEventListener('input', async () => {
     const q = input.value.trim()
@@ -3675,7 +3689,7 @@ function openMemberInviteModal(root: HTMLElement, pid: string): void {
         const res = await apiFetch<any>(`/github/search/users?query=${encodeURIComponent(q)}`)
         const items: Array<{ login: string; avatar_url?: string }> = res.items || []
         results.innerHTML = items.map(u => `
-          <button data-login="${u.login}" class="w-full text-left flex items-center gap-3 px-2 py-2 hover:bg-neutral-800/60 ${selected===u.login ? 'bg-neutral-800/60' : ''}">
+          <button data-login="${u.login}" class="w-full text-left flex items-center gap-3 px-2 py-2 hover:bg-neutral-800/60 ${selected === u.login ? 'bg-neutral-800/60' : ''}">
             <img src="${u.avatar_url || ''}" class="w-7 h-7 rounded-full"/>
             <span class="text-sm text-gray-100">${u.login}</span>
           </button>`).join('') || '<div class="px-2 py-2 text-gray-400">見つかりません</div>'
@@ -3683,7 +3697,7 @@ function openMemberInviteModal(root: HTMLElement, pid: string): void {
           el.addEventListener('click', () => {
             selected = (el as HTMLElement).getAttribute('data-login') || null
             results.querySelectorAll('[data-login]')?.forEach(n => (n as HTMLElement).classList.remove('bg-neutral-800/60'))
-            ;(el as HTMLElement).classList.add('bg-neutral-800/60')
+              ; (el as HTMLElement).classList.add('bg-neutral-800/60')
           })
         })
       } catch {
@@ -3771,10 +3785,8 @@ const STATUS_DEF: Record<Status, { label: string; color: string }> = {
 }
 
 function kanbanShell(id = 'kb-board'): string {
+  // タスク追加UIは撤去（ローカル生成は行わない方針）
   return `
-    <div class="flex items-center gap-3 mb-4">
-      <button id="kb-add-${id}" class="rounded-md bg-emerald-700 hover:bg-emerald-600 text-white text-sm font-medium px-3 py-1.5">タスクを追加</button>
-    </div>
     <div id="${id}" class="grid md:grid-cols-4 gap-4"></div>
   `
 }
@@ -3782,8 +3794,9 @@ function kanbanShell(id = 'kb-board'): string {
 async function renderKanban(root: HTMLElement, pid: string, targetId = 'kb-board'): Promise<void> {
   const board = root.querySelector(`#${targetId}`) as HTMLElement | null
   if (!board) return
-  // Load tasks: if linked to GitHub, merge issues into tasks
-  const state = loadTasks(pid)
+  // ローカルタスクは使用しない（GitHub連携のみ表示）。残存データもクリーンアップ。
+  try { localStorage.removeItem(`kb-${pid}`) } catch {}
+  const state: Task[] = []
   const repoFull = (root as HTMLElement).getAttribute('data-repo-full') || ''
   let ghTasks: any[] = []
   if (repoFull) {
@@ -3804,7 +3817,7 @@ async function renderKanban(root: HTMLElement, pid: string, targetId = 'kb-board
       })
     } catch { }
   }
-  const merged = [...ghTasks, ...state.filter(t => !String(t.id).startsWith('gh-'))]
+  const merged = [...ghTasks]
   board.innerHTML = ['todo', 'doing', 'review', 'done']
     .map((st) => columnHtml(st as Status, merged.filter((t) => t.status === st)))
     .join('')
@@ -3881,7 +3894,7 @@ async function renderKanban(root: HTMLElement, pid: string, targetId = 'kb-board
         saveTasks(pid, tasks)
       }
       renderKanban(root, pid, targetId)
-      try { refreshDynamicWidgets(root, pid) } catch {}
+      try { refreshDynamicWidgets(root, pid) } catch { }
     })
   })
 
@@ -3895,20 +3908,10 @@ async function renderKanban(root: HTMLElement, pid: string, targetId = 'kb-board
     })
   })
 
-  // Add task global button (unique per board)
-  const addBtn = document.getElementById(`kb-add-${targetId}`)
-  addBtn?.addEventListener('click', () => openNewTaskModal(root, pid, 'todo', targetId))
-
-  // Add task per column
-  board.querySelectorAll('[data-add]')?.forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const st = (btn as HTMLElement).getAttribute('data-add') as Status
-      openNewTaskModal(root, pid, st, targetId)
-    })
-  })
+  // 追加UIは存在しないため、イベントは付与しない
 
   // Sync Task Summary widget with current board state
-  try { refreshDynamicWidgets(root, pid) } catch {}
+  try { refreshDynamicWidgets(root, pid) } catch { }
 }
 
 // (global delegated handler removed to avoid multiple popups)
@@ -3920,7 +3923,6 @@ function columnHtml(status: Status, tasks: Task[]): string {
       <header class="px-3 py-2 ${def.color} text-white text-sm">${def.label}</header>
       <div class="p-2 space-y-3 min-h-[300px]">
         ${tasks.map(taskCard).join('')}
-        <button class="w-full text-center text-sm text-gray-400 hover:text-gray-200 py-1" data-add="${status}">+ タスクを追加</button>
       </div>
     </section>
   `
@@ -4072,7 +4074,7 @@ function openNewTaskModal(root: HTMLElement, pid: string, status: Status, target
     const tasks = loadTasks(pid)
     const t: Task = { id: String(Date.now()), title, due, status, priority: pr === '自動設定' ? '中' : pr, assignee: asg, description: desc, comments: [], history: [{ at: new Date().toLocaleString(), by: 'あなた', text: 'タスクを作成しました。' }] }
     tasks.push(t); saveTasks(pid, tasks)
-    close(); renderKanban(root, pid, targetId || 'kb-board'); try { refreshDynamicWidgets(root, pid) } catch {}
+    close(); renderKanban(root, pid, targetId || 'kb-board'); try { refreshDynamicWidgets(root, pid) } catch { }
   })
   document.body.appendChild(overlay)
 }
@@ -4082,22 +4084,8 @@ function loadTasks(pid: string): Task[] {
   if (raw) {
     try { return JSON.parse(raw) as Task[] } catch { }
   }
-  // default sample
-  return [
-    {
-      id: '1',
-      title: 'API連携の実装',
-      due: '2025/05/23',
-      status: 'todo',
-      priority: '中',
-      description: 'バックエンドAPIとフロントの連携を実装する。',
-      comments: [],
-      history: [{ at: '2025/02/14', by: 'Sh1ragami', text: 'タスクを作成しました。' }],
-    },
-    { id: '2', title: 'テストケースの作成', due: '2025/05/23', status: 'doing', priority: '低', description: '', comments: [], history: [] },
-    { id: '3', title: 'レビュー対応', due: '2025/06/10', status: 'review', priority: '高', description: '', comments: [], history: [] },
-    { id: '4', title: '初期README整備', due: '2025/05/20', status: 'done', priority: '低', description: '', comments: [], history: [] },
-  ]
+  // no default tasks; start empty when not linked to GitHub
+  return []
 }
 
 function saveTasks(pid: string, tasks: Task[]): void {
