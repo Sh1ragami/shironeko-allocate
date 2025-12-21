@@ -2854,8 +2854,21 @@ function calSet(pid: string, id: string, url: string): void {
 function renderCalendarFrame(url: string): string {
   let safe = url.trim()
   if (safe && !/^https?:\/\//i.test(safe)) safe = `https://${safe}`
-  // Best-effort embed; many providers (Google Calendar) support embedding via a special URL
-  return `<div class=\"h-full min-h-[220px] overflow-hidden bg-neutral-900\"><iframe class=\"w-full h-full\" src=\"${escHtml(safe)}\" sandbox=\"allow-scripts allow-same-origin allow-forms allow-popups\" referrerpolicy=\"no-referrer\"></iframe></div>`
+  // Detect Google Calendar embed and apply a dark-mode workaround
+  let isGcal = false
+  try {
+    const u = new URL(safe)
+    isGcal = /(^|\.)calendar\.google\.com$/i.test(u.hostname) && u.pathname.includes('/calendar/')
+    if (isGcal) {
+      // Force a dark background where supported
+      u.searchParams.set('bgcolor', '#121212')
+      safe = u.toString()
+    }
+  } catch { /* ignore URL parse errors */ }
+
+  const iframeStyle = isGcal ? 'filter: invert(0.9) hue-rotate(180deg);' : ''
+  // Best-effort embed; apply sandbox and referrer policy consistently
+  return `<div class=\"h-full min-h-[220px] overflow-hidden bg-neutral-900\"><iframe class=\"w-full h-full\" style=\"${iframeStyle}\" src=\"${escHtml(safe)}\" sandbox=\"allow-scripts allow-same-origin allow-forms allow-popups\" referrerpolicy=\"no-referrer\"></iframe></div>`
 }
 
 function widgetTitle(type: string): string {
