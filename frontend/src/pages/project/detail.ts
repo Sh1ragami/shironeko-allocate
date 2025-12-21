@@ -2043,7 +2043,9 @@ function applyContentDensity(root: HTMLElement, pid: string): void {
       densifyMarkdown(el, scale)
     } else if (type === 'readme') {
       densifyReadme(el, scale)
-    } else if (type === 'overview' || type === 'links' || type === 'milestones' || type === 'tasksum' || type === 'team' || type === 'todo' || type === 'progress') {
+    } else if (type === 'tasksum') {
+      densifyTaskSummary(el, scale)
+    } else if (type === 'overview' || type === 'links' || type === 'milestones' || type === 'team' || type === 'todo' || type === 'progress') {
       densifyGeneric(el, scale)
     } else if (type === 'committers') {
       // committers widget adapts by height; just scale label text a bit
@@ -2109,6 +2111,30 @@ function densifyCommitters(widgetEl: HTMLElement, scale: number): void {
   const base = 12
   const fs = Math.round(Math.max(10, Math.min(16, base * scale)))
   labels.forEach((n) => { n.style.fontSize = `${fs}px` })
+}
+
+function densifyTaskSummary(widgetEl: HTMLElement, scale: number): void {
+  const content = widgetEl.querySelector('.wg-content') as HTMLElement | null
+  const body = widgetEl.querySelector('.tasksum-body') as HTMLElement | null
+  if (!body) return
+  try { body.classList.add('h-full') } catch {}
+  if (content) content.style.overflow = 'hidden'
+  const grid = widgetEl.querySelector('.ts-grid') as HTMLElement | null
+  const areaEl = (grid || body || content || widgetEl) as HTMLElement
+  const rect = areaEl.getBoundingClientRect()
+  const h = Math.max(1, rect.height || areaEl.clientHeight || 0)
+  const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v))
+  // Base sizes from available height; clamp to sensible bounds
+  const labelPx = Math.round(clamp(h * 0.10, 12, 20))
+  const countPx = Math.round(clamp(h * 0.32, 20, 56))
+  const padPx = Math.round(clamp(h * 0.06, 8, 18))
+  // Apply
+  const labels = widgetEl.querySelectorAll('.tasksum-body .ts-label') as NodeListOf<HTMLElement>
+  const counts = widgetEl.querySelectorAll('.tasksum-body .ts-count') as NodeListOf<HTMLElement>
+  const stats = widgetEl.querySelectorAll('.tasksum-body .stat') as NodeListOf<HTMLElement>
+  labels.forEach((n) => { n.style.fontSize = `${labelPx}px`; n.style.lineHeight = '1.2' })
+  counts.forEach((n) => { n.style.fontSize = `${countPx}px`; n.style.lineHeight = '1.1' })
+  stats.forEach((n) => { n.style.padding = `${padPx}px` })
 }
 
 function ensureWidgets(root: HTMLElement, pid: string): void {
@@ -2638,15 +2664,47 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
     if (m.type === 'tasksum') {
       const box = w.querySelector('.tasksum-body') as HTMLElement | null
       if (box) {
-        // load from Kanban storage
-        const tasks = loadTasks(pid)
-        const counts = { todo: 0, doing: 0, review: 0, done: 0 } as Record<string, number>
-        tasks.forEach(t => counts[t.status] = (counts[t.status] || 0) + 1)
-        box.innerHTML = `
-          <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
-            ${[['todo', 'TODO'], ['doing', 'DOING'], ['review', 'REVIEW'], ['done', 'DONE']].map(([k, label]) => `<div class=\"rounded ring-2 ring-neutral-600 bg-neutral-800/40 p-2 text-center\">${label}<div class=\"text-2xl text-emerald-400\">${counts[k] || 0}</div></div>`).join('')}
-          </div>
-        `
+        const render = (counts: Record<string, number>) => {
+          box.innerHTML = `
+            <div class="ts-grid h-full grid grid-cols-2 md:grid-cols-4 grid-rows-2 md:grid-rows-1 gap-2 md:gap-3 place-items-stretch">
+              ${[['todo', 'TODO'], ['doing', 'DOING'], ['review', 'REVIEW'], ['done', 'DONE']]
+                .map(([k, label]) => `
+                  <div class=\"stat h-full rounded ring-2 ring-neutral-600 bg-neutral-800/40 p-2 md:p-3 flex flex-col items-center justify-center\">\
+                    <div class=\"ts-label text-center text-gray-300\">${label}</div>\
+                    <div class=\"ts-count text-emerald-400 font-semibold mt-1\">${counts[k] || 0}</div>\
+                  </div>
+                `).join('')}
+            </div>
+          `
+          try { densifyTaskSummary(w, 1) } catch {}
+        }
+        // Start with local tasks immediately
+        const local = loadTasks(pid)
+        const base = { todo: 0, doing: 0, review: 0, done: 0 } as Record<string, number>
+        local.forEach(t => base[t.status] = (base[t.status] || 0) + 1)
+        render(base)
+        // If GitHub linked, merge issues just like Kanban and update
+        const host = root as HTMLElement
+        const full = host.getAttribute('data-repo-full') || (document.querySelector('[data-repo-full]') as HTMLElement | null)?.getAttribute('data-repo-full') || ''
+        if (full) {
+          ;(async () => {
+            try {
+              const issues = await apiFetch<any[]>(`/projects/${pid}/issues?state=all`)
+              const ghTasks = (issues || []).map((it) => {
+                const labels: string[] = (it as any).labels || []
+                const lane = labels.find((l) => typeof l === 'string' && l.startsWith('kanban:'))?.split(':')[1] || (it.state === 'closed' ? 'done' : 'todo')
+                const st = (lane === 'todo' || lane === 'doing' || lane === 'review' || lane === 'done') ? lane : (it.state === 'closed' ? 'done' : 'todo')
+                return { id: `gh-${it.number}`, status: st as 'todo' | 'doing' | 'review' | 'done' }
+              })
+              const mergedCounts = { todo: 0, doing: 0, review: 0, done: 0 } as Record<string, number>
+              // include GH
+              ghTasks.forEach(t => mergedCounts[t.status] = (mergedCounts[t.status] || 0) + 1)
+              // include local, excluding gh-* duplicates by id pattern
+              local.filter(t => !String(t.id).startsWith('gh-')).forEach(t => mergedCounts[t.status] = (mergedCounts[t.status] || 0) + 1)
+              render(mergedCounts)
+            } catch { /* ignore fetch errors */ }
+          })()
+        }
       }
     }
     if (m.type === 'links') {
@@ -2711,7 +2769,7 @@ function buildWidgetBody(type: string): string {
     case 'overview': return overviewSkeleton()
     case 'contrib': return contributionWidget()
     case 'markdown': return markdownWidget()
-    case 'tasksum': return `<div class=\"tasksum-body text-sm text-gray-200\"></div>`
+    case 'tasksum': return `<div class=\"tasksum-body h-full text-sm text-gray-200\"></div>`
     case 'milestones': return `<ul class=\"text-sm text-gray-200 space-y-2\"><li>企画 <span class=\"text-gray-400\">(完了)</span></li><li>実装 <span class=\"text-gray-400\">(進行中)</span></li><li>リリース <span class=\"text-gray-400\">(未着手)</span></li></ul>`
     case 'links': return `
       <div class=\"links-body h-full flex flex-col gap-3 text-sm text-gray-200\"></div>
@@ -3817,12 +3875,13 @@ async function renderKanban(root: HTMLElement, pid: string, targetId = 'kb-board
           }
         } catch { }
       } else {
-  const tasks = K_loadTasks(pid)
+        const tasks = loadTasks(pid)
         const idx = tasks.findIndex((t) => t.id === id)
         if (idx >= 0) tasks[idx].status = target
         saveTasks(pid, tasks)
       }
       renderKanban(root, pid, targetId)
+      try { refreshDynamicWidgets(root, pid) } catch {}
     })
   })
 
@@ -3847,6 +3906,9 @@ async function renderKanban(root: HTMLElement, pid: string, targetId = 'kb-board
       openNewTaskModal(root, pid, st, targetId)
     })
   })
+
+  // Sync Task Summary widget with current board state
+  try { refreshDynamicWidgets(root, pid) } catch {}
 }
 
 // (global delegated handler removed to avoid multiple popups)
@@ -4010,7 +4072,7 @@ function openNewTaskModal(root: HTMLElement, pid: string, status: Status, target
     const tasks = loadTasks(pid)
     const t: Task = { id: String(Date.now()), title, due, status, priority: pr === '自動設定' ? '中' : pr, assignee: asg, description: desc, comments: [], history: [{ at: new Date().toLocaleString(), by: 'あなた', text: 'タスクを作成しました。' }] }
     tasks.push(t); saveTasks(pid, tasks)
-    close(); renderKanban(root, pid, targetId || 'kb-board')
+    close(); renderKanban(root, pid, targetId || 'kb-board'); try { refreshDynamicWidgets(root, pid) } catch {}
   })
   document.body.appendChild(overlay)
 }
