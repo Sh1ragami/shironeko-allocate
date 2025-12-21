@@ -3906,7 +3906,6 @@ const STATUS_DEF: Record<Status, { label: string; color: string }> = {
 }
 
 function kanbanShell(id = 'kb-board'): string {
-  // タスク追加UIは撤去（ローカル生成は行わない方針）
   return `
     <div id="${id}" class="grid md:grid-cols-4 gap-4"></div>
   `
@@ -3915,9 +3914,8 @@ function kanbanShell(id = 'kb-board'): string {
 async function renderKanban(root: HTMLElement, pid: string, targetId = 'kb-board'): Promise<void> {
   const board = root.querySelector(`#${targetId}`) as HTMLElement | null
   if (!board) return
-  // ローカルタスクは使用しない（GitHub連携のみ表示）。残存データもクリーンアップ。
-  try { localStorage.removeItem(`kb-${pid}`) } catch {}
-  const state: Task[] = []
+  // ローカル保存タスクとGitHub課題を統合表示
+  const state: Task[] = loadTasks(pid)
   const repoFull = (root as HTMLElement).getAttribute('data-repo-full') || ''
   let ghTasks: any[] = []
   if (repoFull) {
@@ -3938,10 +3936,28 @@ async function renderKanban(root: HTMLElement, pid: string, targetId = 'kb-board
       })
     } catch { }
   }
-  const merged = [...ghTasks]
+  const merged = [...state, ...ghTasks]
   board.innerHTML = ['todo', 'doing', 'review', 'done']
     .map((st) => columnHtml(st as Status, merged.filter((t) => t.status === st)))
     .join('')
+
+  // Add-task buttons per column (disable when not linked to GitHub)
+  const addBtns = board.querySelectorAll('.kb-add') as NodeListOf<HTMLButtonElement>
+  if (!repoFull) {
+    addBtns.forEach((btn) => {
+      btn.setAttribute('disabled', 'true')
+      btn.classList.add('opacity-50', 'cursor-not-allowed')
+      btn.setAttribute('title', 'GitHub未連携のため追加できません。設定からリポジトリをリンクしてください。')
+    })
+  } else {
+    addBtns.forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault()
+        const st = (btn as HTMLElement).getAttribute('data-col') as Status
+        openNewTaskModal(root, pid, st, targetId)
+      })
+    })
+  }
 
   // DnD move（カード全体でドラッグ可。クリックはドラッグ時に抑止）
   let dragging: HTMLElement | null = null
@@ -4041,7 +4057,10 @@ function columnHtml(status: Status, tasks: Task[]): string {
   const def = STATUS_DEF[status]
   return `
     <section class="rounded-xl ring-2 ring-neutral-600 bg-neutral-900/60 overflow-hidden flex flex-col" data-col="${status}">
-      <header class="px-3 py-2 ${def.color} text-white text-sm">${def.label}</header>
+      <header class="px-3 py-2 ${def.color} text-white text-sm flex items-center">
+        <span>${def.label}</span>
+        <button class="ml-auto kb-add text-[11px] bg-white/10 hover:bg-white/20 rounded px-2 py-0.5" data-col="${status}">＋ 追加</button>
+      </header>
       <div class="p-2 space-y-3 min-h-[300px]">
         ${tasks.map(taskCard).join('')}
       </div>
@@ -4140,6 +4159,7 @@ function openNewTaskModal(root: HTMLElement, pid: string, status: Status, target
             </div>
           </section>
         </div>
+        <p id="nt-err-api" class="text-rose-400 text-sm hidden">GitHub にタスクを作成できませんでした。</p>
       </div>
       <div class="p-4 border-t border-neutral-600 bg-neutral-900/80 flex justify-end shrink-0">
         <button id="nt-submit" class="rounded-md bg-emerald-700 hover:bg-emerald-600 text-white text-sm font-medium px-4 py-2">タスクを追加</button>
@@ -4184,18 +4204,40 @@ function openNewTaskModal(root: HTMLElement, pid: string, status: Status, target
   }
   fetchCollabs();
 
-  (overlay.querySelector('#nt-submit') as HTMLElement | null)?.addEventListener('click', () => {
+  (overlay.querySelector('#nt-submit') as HTMLElement | null)?.addEventListener('click', async () => {
     const title = (overlay.querySelector('#nt-title') as HTMLInputElement).value.trim()
     if (!title) { (overlay.querySelector('#nt-err-title') as HTMLElement).classList.remove('hidden'); return }
+    const apiErr = overlay.querySelector('#nt-err-api') as HTMLElement | null
+    if (apiErr) { apiErr.classList.add('hidden'); apiErr.textContent = 'GitHub にタスクを作成できませんでした。' }
     const due = (overlay.querySelector('#nt-due') as HTMLInputElement).value || undefined
     const pr = ((overlay.querySelector('#nt-priority') as HTMLSelectElement).value || '中') as Task['priority']
     const sel = assigneeSel?.value?.trim() || ''
     const asg = (auto && auto.checked) ? 'あなた' : (sel || (assignee?.value.trim() || 'Sh1ragami'))
     const desc = (overlay.querySelector('#nt-desc') as HTMLTextAreaElement).value.trim()
-    const tasks = loadTasks(pid)
-    const t: Task = { id: String(Date.now()), title, due, status, priority: pr === '自動設定' ? '中' : pr, assignee: asg, description: desc, comments: [], history: [{ at: new Date().toLocaleString(), by: 'あなた', text: 'タスクを作成しました。' }] }
-    tasks.push(t); saveTasks(pid, tasks)
-    close(); renderKanban(root, pid, targetId || 'kb-board'); try { refreshDynamicWidgets(root, pid) } catch { }
+    const typeSel = (overlay.querySelector('#nt-type') as HTMLSelectElement | null)?.value || 'feature'
+    const repoFull = (root as HTMLElement).getAttribute('data-repo-full') || ((document.querySelector('[data-repo-full]') as HTMLElement | null)?.getAttribute('data-repo-full') || '')
+    if (!repoFull) {
+      if (apiErr) { apiErr.textContent = 'このプロジェクトはGitHubに未連携のため、タスクを作成できません。設定からリポジトリをリンクしてください。'; apiErr.classList.remove('hidden') }
+      return
+    }
+    try {
+      const labels: string[] = []
+      const typedAssignee = (assignee?.value?.trim() || '')
+      const assignees = (auto && auto.checked) ? [] : (sel ? [sel] : (typedAssignee ? [typedAssignee] : []))
+      const body = [desc || '']
+        .concat(due ? [`\n\n期限: ${due}`] : [])
+        .concat(pr && pr !== '自動設定' ? [`\n優先度: ${pr}`] : [])
+        .join('')
+      await apiFetch(`/projects/${pid}/issues`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, body, status, type: typeSel, assignees, labels })
+      })
+      close(); renderKanban(root, pid, targetId || 'kb-board'); try { refreshDynamicWidgets(root, pid) } catch { }
+    } catch (e: any) {
+      if (apiErr) { apiErr.classList.remove('hidden') }
+      return
+    }
   })
   document.body.appendChild(overlay)
 }

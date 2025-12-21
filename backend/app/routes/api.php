@@ -42,6 +42,7 @@ Route::middleware('token.auth')->group(function () {
     Route::delete('/projects/{id}/collaborators/{login}', [\App\Http\Controllers\Api\ProjectController::class, 'deleteCollaborator']);
 
     // GitHub Issues linkage
+    Route::post('/projects/{id}/issues', [\App\Http\Controllers\Api\ProjectController::class, 'createIssue']);
     Route::get('/projects/{id}/issues', [\App\Http\Controllers\Api\ProjectController::class, 'listIssues']);
     Route::patch('/projects/{id}/issues/{number}', [\App\Http\Controllers\Api\ProjectController::class, 'updateIssue']);
     Route::post('/projects/{id}/issues/{number}/comments', [\App\Http\Controllers\Api\ProjectController::class, 'commentIssue']);

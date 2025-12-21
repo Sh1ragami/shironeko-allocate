@@ -621,6 +621,64 @@ MD;
     }
 
     // ---- Issues linkage ----
+    public function createIssue(Request $request, int $id)
+    {
+        $project = $this->findByIdForUser($request, $id);
+        if (!$project) return response()->json(['message' => 'Not found'], 404);
+        $full = is_array($project) ? ($project['github_meta']['full_name'] ?? ($project['link_repo'] ?? null)) : ($project->github_meta['full_name'] ?? ($project->link_repo ?? null));
+        if (!$full) return response()->json(['message' => 'Not linked'], 400);
+        $tokenEnc = $request->user()?->github_access_token; if (!$tokenEnc) return response()->json(['message' => 'No token'], 400);
+        try { $gh = Crypt::decryptString($tokenEnc); } catch (\Throwable $e) { return response()->json(['message' => 'Invalid token'], 400); }
+        $headers = [ 'User-Agent' => 'shironeko-allocate', 'Authorization' => 'Bearer '.$gh, 'Accept' => 'application/vnd.github+json' ];
+
+        $data = $request->validate([
+            'title' => ['required','string','max:256'],
+            'body' => ['nullable','string'],
+            'status' => ['nullable','in:todo,doing,review,done'],
+            'assignees' => ['nullable','array'],
+            'assignees.*' => ['string'],
+            'type' => ['nullable','in:feature,bug,chore'],
+            'labels' => ['nullable','array'],
+            'labels.*' => ['string'],
+        ]);
+
+        // Ensure Issues feature is on
+        try { @Http::withHeaders($headers)->patch("https://api.github.com/repos/{$full}", ['has_issues' => true]); } catch (\Throwable $e) {}
+
+        $labels = [];
+        if (!empty($data['labels']) && is_array($data['labels'])) $labels = array_values(array_filter($data['labels'], fn($v)=> is_string($v) && $v !== ''));
+        $st = $data['status'] ?? 'todo';
+        $labels[] = 'kanban:'.$st;
+        if (!empty($data['type'])) $labels[] = 'type:'.$data['type'];
+
+        $payload = [
+            'title' => $data['title'],
+            'body' => $data['body'] ?? '',
+            'labels' => array_values(array_unique($labels)),
+        ];
+        if (!empty($data['assignees']) && is_array($data['assignees'])) $payload['assignees'] = $data['assignees'];
+
+        try {
+            $res = Http::withHeaders($headers)->post("https://api.github.com/repos/{$full}/issues", $payload);
+            if (!$res->ok()) return response()->json(['message' => 'Failed', 'upstream' => $res->json()], 400);
+            $i = $res->json();
+            $out = [
+                'number' => $i['number'] ?? null,
+                'title' => $i['title'] ?? '',
+                'html_url' => $i['html_url'] ?? null,
+                'state' => $i['state'] ?? 'open',
+                'labels' => array_map(fn($l)=> $l['name'] ?? '', ($i['labels'] ?? [])),
+            ];
+            // If status was 'done', close the issue right away
+            if (($data['status'] ?? '') === 'done' && !empty($out['number'])) {
+                try { Http::withHeaders($headers)->patch("https://api.github.com/repos/{$full}/issues/".$out['number'], ['state' => 'closed']); } catch (\Throwable $e) {}
+            }
+            return response()->json($out, 201);
+        } catch (\Throwable $e) {
+            return response()->json(['message' => 'Failed'], 400);
+        }
+    }
+
     public function listIssues(Request $request, int $id)
     {
         $project = $this->findByIdForUser($request, $id);
