@@ -2260,6 +2260,8 @@ function openWidgetPickerModal(root: HTMLElement, pid: string): void {
             ${widgetCard('tasksum', 'タスクサマリー')}
             ${widgetCard('links', 'クイックリンク')}
             ${widgetCard('calendar', 'カレンダー')}
+            ${widgetCard('flow', 'ミニフロー')}
+            ${widgetCard('clock', '時計')}
           </div>
         </section>
       </div>
@@ -2282,7 +2284,7 @@ function openWidgetPickerModal(root: HTMLElement, pid: string): void {
   const getCat = (t: string): string => {
     if (['readme', 'contrib', 'committers'].includes(t)) return 'github'
     if (['markdown'].includes(t)) return 'text'
-    if (['tasksum', 'links', 'calendar'].includes(t)) return 'manage'
+    if (['tasksum', 'links', 'calendar', 'clock', 'flow'].includes(t)) return 'manage'
     return 'other'
   }
   const applyCat = (cat: string) => {
@@ -2336,6 +2338,7 @@ function widgetThumb(type: string): string {
   if (type === 'milestones') return `<div class="w-full h-20 bg-neutral-900/60 ring-2 ring-neutral-600 rounded p-2 text-xs text-gray-400"><div>v1.0 リリース</div><div class="text-gray-500">2025-01-31</div></div>`
   if (type === 'links') return `<div class="w-full h-20 bg-neutral-900/60 ring-2 ring-neutral-600 rounded p-2 text-xs text-gray-400">- PR一覧\n- 仕様書</div>`
   if (type === 'calendar') return `<div class="w-full h-24 bg-neutral-900/60 ring-2 ring-neutral-600 rounded p-2 text-xs text-gray-300 grid place-items-center">Googleカレンダー<br/>(埋め込みURL)</div>`
+  if (type === 'clock') return `<div class="w-full h-24 bg-neutral-900/60 ring-2 ring-neutral-600 rounded grid place-items-center"><div class="text-2xl font-mono text-gray-200">12:34</div></div>`
   if (type === 'progress') return `<div class="w-full h-20 bg-neutral-900/60 ring-2 ring-neutral-600 rounded p-2"><div class="h-2 bg-neutral-800 rounded"><div class="h-2 bg-emerald-600 rounded w-1/2"></div></div><div class="text-[10px] text-gray-400 mt-1">50%</div></div>`
   if (type === 'team') return `<div class="w-full h-20 bg-neutral-900/60 ring-2 ring-neutral-600 rounded p-2 text-xs text-gray-400">👥 メンバー</div>`
   if (type === 'todo') return `<div class="w-full h-20 bg-neutral-900/60 ring-2 ring-neutral-600 rounded p-2 text-xs text-gray-400">- [ ] 項目</div>`
@@ -2725,6 +2728,409 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
   Object.entries(meta).forEach(([id, m]) => {
     const w = root.querySelector(`[data-widget="${id}"]`) as HTMLElement | null
     if (!w) return
+    if (m.type === 'flow') {
+      const box = w.querySelector('.flow-body') as HTMLElement | null
+      const canvas = w.querySelector('.flow-canvas') as HTMLElement | null
+      const svg = w.querySelector('.flow-svg') as SVGSVGElement | null
+      if (box && canvas && svg) {
+        const gridEl = w.closest('#widgetGrid') as HTMLElement | null
+        const edit = gridEl?.getAttribute('data-edit') === '1'
+        const g = flowLoad(pid, id)
+        // clear
+        canvas.innerHTML = ''
+        const setDefs = () => { svg.innerHTML = '<defs><marker id="arr" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#34d399"/></marker></defs>' }
+        setDefs()
+
+        // helpers
+        const portSize = 8
+        const createNodeEl = (n: FlowNode): HTMLElement => {
+          const el = document.createElement('div')
+          el.className = 'flow-node absolute rounded-lg ring-2 ring-neutral-600 bg-neutral-800/80 shadow-sm select-none'
+          el.style.left = `${n.x}px`; el.style.top = `${n.y}px`; el.style.width = '160px'
+          el.setAttribute('data-node', n.id)
+          const headCls = n.kind === 'trigger' ? 'bg-emerald-700' : 'bg-sky-700'
+          const title = n.label || (n.kind === 'trigger' ? (n.type === 'timer' ? 'Timer' : 'Manual Trigger') : (n.type === 'webhook' ? 'Webhook' : (n.type === 'github_issue' ? 'GitHub Issue' : 'Notify')))
+          el.innerHTML = `
+            <div class="fn-head ${headCls} text-white text-[11px] px-2 py-1 flex items-center justify-between cursor-move gap-1">
+              <span class="truncate">${title}</span>
+              <span class="flex items-center gap-1">
+                ${n.kind === 'trigger' ? '<button class="fn-run text-white/90 hover:text-white" title="このトリガーを実行">▶</button>' : ''}
+                ${edit ? '<button class="fn-gear text-white/90 hover:text-white" title="設定">⚙</button>' : ''}
+                ${edit ? '<button class="fn-del text-white/90 hover:text-white" title="削除">×</button>' : ''}
+              </span>
+            </div>
+            <div class="fn-body px-2 py-2 text-xs text-gray-300 min-h-[40px]"></div>
+            <div class="fn-ports">
+              ${n.kind !== 'trigger' ? `<div class=\"port-in absolute -top-1 left-1/2 -translate-x-1/2 rounded-full ring-2 ring-neutral-500\" style=\"width:${portSize}px;height:${portSize}px;background:#38bdf8\"></div>` : ''}
+              <div class="port-out absolute -bottom-1 left-1/2 -translate-x-1/2 rounded-full ring-2 ring-neutral-500" style="width:${portSize}px; height:${portSize}px; background:#34d399"></div>
+            </div>
+          `
+          // body content (type + basic cfg)
+          const body = el.querySelector('.fn-body') as HTMLElement | null
+          if (body) {
+            const typeSel = edit ? `<select class=\"fn-type rounded bg-neutral-800/60 ring-2 ring-neutral-600 px-2 py-1 text-gray-100\">${(n.kind==='trigger'?
+              ['manual','timer'] : ['notify','webhook','github_issue']).map(t=>`<option value=\"${t}\" ${t===n.type?'selected':''}>${t}</option>`).join('')}</select>` : `<span class=\"text-gray-400\">${n.type}</span>`
+            let cfgHtml = ''
+            const cfg = n.cfg || {}
+            if (n.kind === 'trigger') {
+              if (n.type === 'timer') {
+                const iv = Number(cfg.intervalSec || 60)
+                cfgHtml = `<div class=\"mt-1\"><label class=\"text-gray-400\">間隔(s)</label> ${edit?`<input class=\"fn-iv ml-1 w-20 rounded bg-neutral-800/60 ring-2 ring-neutral-600 px-2 py-0.5 text-gray-100\" type=\"number\" min=\"1\" value=\"${iv}\"/>`:`<span class=\"ml-1\">${iv}</span>`}</div>`
+              }
+            } else {
+              if (n.type === 'notify') {
+                const msg = String(cfg.message ?? '処理が完了しました')
+                cfgHtml = `<div class=\"mt-1\"><label class=\"text-gray-400\">メッセージ</label> ${edit?`<input class=\"fn-msg ml-1 w-full rounded bg-neutral-800/60 ring-2 ring-neutral-600 px-2 py-0.5 text-gray-100\" value=\"${msg.replace(/"/g,'&quot;')}\"/>`:`<span class=\"ml-1\">${msg}</span>`}</div>`
+              } else if (n.type === 'webhook') {
+                const url = String(cfg.url ?? '')
+                const method = String(cfg.method ?? 'POST')
+                const payload = String(cfg.payload ?? '{"hello":"world"}')
+                cfgHtml = edit?`<div class=\"space-y-1\">
+                  <div><label class=\"text-gray-400\">URL</label> <input class=\"fn-url ml-1 w-full rounded bg-neutral-800/60 ring-2 ring-neutral-600 px-2 py-0.5 text-gray-100\" placeholder=\"https://...\" value=\"${url.replace(/"/g,'&quot;')}\"/></div>
+                  <div><label class=\"text-gray-400\">Method</label> <select class=\"fn-method ml-1 rounded bg-neutral-800/60 ring-2 ring-neutral-600 px-2 py-0.5 text-gray-100\"><option ${method==='POST'?'selected':''}>POST</option><option ${method==='GET'?'selected':''}>GET</option></select></div>
+                  <div><label class=\"text-gray-400\">Payload</label><textarea class=\"fn-payload mt-1 w-full rounded bg-neutral-800/60 ring-2 ring-neutral-600 px-2 py-1 text-gray-100\" rows=\"3\">${payload.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea></div>
+                </div>`:`<div class=\"text-gray-400\">${method} ${url || '(未設定)'} </div>`
+              } else if (n.type === 'github_issue') {
+                const title = String(cfg.title ?? 'New task')
+                const bodyTxt = String(cfg.body ?? 'Flowから作成')
+                const status = String(cfg.status ?? 'todo')
+                cfgHtml = edit?`<div class=\"space-y-1\">
+                  <div><label class=\"text-gray-400\">タイトル</label> <input class=\"fn-gi-title ml-1 w-full rounded bg-neutral-800/60 ring-2 ring-neutral-600 px-2 py-0.5 text-gray-100\" value=\"${title.replace(/"/g,'&quot;')}\"/></div>
+                  <div><label class=\"text-gray-400\">本文</label><textarea class=\"fn-gi-body mt-1 w-full rounded bg-neutral-800/60 ring-2 ring-neutral-600 px-2 py-1 text-gray-100\" rows=\"3\">${bodyTxt.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea></div>
+                  <div><label class=\"text-gray-400\">ステータス</label> <select class=\"fn-gi-status ml-1 rounded bg-neutral-800/60 ring-2 ring-neutral-600 px-2 py-0.5 text-gray-100\"><option ${status==='todo'?'selected':''} value=\"todo\">todo</option><option ${status==='doing'?'selected':''} value=\"doing\">doing</option><option ${status==='review'?'selected':''} value=\"review\">review</option><option ${status==='done'?'selected':''} value=\"done\">done</option></select></div>
+                </div>`:`<div class=\"text-gray-400\">${title}</div>`
+              }
+            }
+            body.innerHTML = `<div class=\"flex items-center gap-2\">${typeSel}${n.kind==='trigger' && n.type==='manual' && edit?'<span class=\"text-gray-400\">（クリックで実行）</span>':''}</div>${cfgHtml}`
+          }
+          return el
+        }
+
+        // render nodes
+        g.nodes.forEach(n => {
+          const el = createNodeEl(n)
+          canvas.appendChild(el)
+        })
+
+        // draw edges
+        const getCenter = (nodeId: string, which: 'in' | 'out'): { x: number; y: number } | null => {
+          const nodeEl = canvas.querySelector(`[data-node="${nodeId}"]`) as HTMLElement | null
+          if (!nodeEl) return null
+          const r = nodeEl.getBoundingClientRect()
+          const base = box.getBoundingClientRect()
+          if (which === 'out') return { x: r.left - base.left + r.width / 2, y: r.top - base.top + r.height }
+          return { x: r.left - base.left + r.width / 2, y: r.top - base.top }
+        }
+        const mkPath = (a: {x:number;y:number}, b: {x:number;y:number}) => {
+          const dx = (b.x - a.x) * 0.5
+          const c1x = a.x; const c1y = a.y + Math.max(10, Math.abs(dx)) * 0.15
+          const c2x = b.x; const c2y = b.y - Math.max(10, Math.abs(dx)) * 0.15
+          return `M ${a.x} ${a.y} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${b.x} ${b.y}`
+        }
+        const renderEdges = () => {
+          setDefs()
+          g.edges.forEach(e => {
+            const a = getCenter(e.from, 'out'); const b = getCenter(e.to, 'in')
+            if (!a || !b) return
+            const p = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+            p.setAttribute('d', mkPath(a, b)); p.setAttribute('stroke', '#34d399'); p.setAttribute('stroke-width', '2')
+            p.setAttribute('fill', 'none'); p.setAttribute('marker-end', 'url(#arr)')
+            svg.appendChild(p)
+          })
+        }
+        renderEdges()
+
+        // edit interactions
+        const saveAndRefresh = () => { flowSave(pid, id, g); try { refreshDynamicWidgets(root, pid) } catch {} }
+        const runFrom = async (startId: string) => {
+          const logEl = w.querySelector('.flow-log') as HTMLElement | null
+          const appendLog = (s: string) => { if (logEl) { const p = document.createElement('div'); p.textContent = `[${new Date().toLocaleTimeString()}] ${s}`; logEl.appendChild(p); logEl.scrollTop = logEl.scrollHeight } }
+          const repo = (root as HTMLElement).getAttribute('data-repo-full') || ''
+          const visit = async (nid: string, depth = 0, seen = new Set<string>()) => {
+            if (depth > 64 || seen.has(nid)) return; seen.add(nid)
+            const outs = g.edges.filter(e => e.from === nid)
+            for (const e of outs) {
+              const n = g.nodes.find(x => x.id === e.to); if (!n) continue
+              if (n.kind === 'action') {
+                try {
+                  if (n.type === 'notify') {
+                    const msg = String((n.cfg?.message) ?? '処理が完了しました')
+                    appendLog(`通知: ${msg}`)
+                  } else if (n.type === 'webhook') {
+                    const url = String(n.cfg?.url || '')
+                    const method = String(n.cfg?.method || 'POST').toUpperCase()
+                    const payload = String(n.cfg?.payload || '{}')
+                    if (!url) appendLog('Webhook URL未設定'); else {
+                      try {
+                        const init: RequestInit = { method }
+                        if (method !== 'GET') { init.headers = { 'Content-Type': 'application/json' }; init.body = payload }
+                        const res = await fetch(url, init)
+                        appendLog(`Webhook ${res.ok ? 'OK' : 'NG'} (${res.status})`)
+                      } catch (er) { appendLog('Webhook エラー') }
+                    }
+                  } else if (n.type === 'github_issue') {
+                    if (!repo) { appendLog('GitHub未連携のためIssue作成不可'); }
+                    const title = String(n.cfg?.title || 'New task')
+                    const body = String(n.cfg?.body || '')
+                    const status = String(n.cfg?.status || 'todo') as 'todo'|'doing'|'review'|'done'
+                    try {
+                      await apiFetch(`/projects/${pid}/issues`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title, body, status, labels: [] }) })
+                      appendLog('GitHub Issueを作成しました')
+                    } catch { appendLog('GitHub Issue作成に失敗しました') }
+                  }
+                } catch (er) { appendLog('アクション実行でエラー') }
+              }
+              await visit(n.id, depth + 1, seen)
+            }
+          }
+          await visit(startId)
+        }
+        if (edit) {
+          // drag nodes
+          canvas.querySelectorAll('.flow-node').forEach((nEl) => {
+            const el = nEl as HTMLElement
+            const head = el.querySelector('.fn-head') as HTMLElement | null
+            const idN = el.getAttribute('data-node') || ''
+            head?.addEventListener('mousedown', (ev) => {
+              ev.preventDefault()
+              const n = g.nodes.find(x => x.id === idN); if (!n) return
+              const base = box.getBoundingClientRect(); const r = el.getBoundingClientRect()
+              const offX = (ev as MouseEvent).clientX - r.left; const offY = (ev as MouseEvent).clientY - r.top
+              const onMove = (e: MouseEvent) => {
+                n.x = Math.max(0, Math.min(base.width - r.width, e.clientX - base.left - offX))
+                n.y = Math.max(0, Math.min(base.height - r.height, e.clientY - base.top - offY))
+                el.style.left = `${n.x}px`; el.style.top = `${n.y}px`
+                // redraw edges live
+                renderEdges()
+              }
+              const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); saveAndRefresh() }
+              window.addEventListener('mousemove', onMove)
+              window.addEventListener('mouseup', onUp)
+            })
+            const del = el.querySelector('.fn-del') as HTMLElement | null
+            del?.addEventListener('click', () => {
+              const idx = g.nodes.findIndex(x => x.id === idN); if (idx >= 0) g.nodes.splice(idx, 1)
+              g.edges = g.edges.filter(e => e.from !== idN && e.to !== idN)
+              saveAndRefresh()
+            })
+            const gear = el.querySelector('.fn-gear') as HTMLElement | null
+            gear?.addEventListener('click', () => {
+              // Toggle node type on select change and save cfg inputs
+              const node = g.nodes.find(x => x.id === idN); if (!node) return
+              const typeSel = el.querySelector('.fn-type') as HTMLSelectElement | null
+              typeSel?.addEventListener('change', () => {
+                node.type = typeSel.value as any
+                if (node.kind === 'trigger' && node.type === 'timer') { node.cfg = { ...(node.cfg||{}), intervalSec: Number(node.cfg?.intervalSec || 60) } }
+                if (node.kind === 'action' && node.type === 'notify') { node.cfg = { ...(node.cfg||{}), message: String(node.cfg?.message || '処理が完了しました') } }
+                if (node.kind === 'action' && node.type === 'webhook') { node.cfg = { ...(node.cfg||{}), url: String(node.cfg?.url || ''), method: String(node.cfg?.method || 'POST'), payload: String(node.cfg?.payload || '{"hello":"world"}') } }
+                if (node.kind === 'action' && node.type === 'github_issue') { node.cfg = { ...(node.cfg||{}), title: String(node.cfg?.title || 'New task'), body: String(node.cfg?.body || ''), status: String(node.cfg?.status || 'todo') } }
+                saveAndRefresh()
+              })
+              const iv = el.querySelector('.fn-iv') as HTMLInputElement | null
+              iv?.addEventListener('change', () => { const n = g.nodes.find(x => x.id === idN); if (!n) return; n.cfg = { ...(n.cfg||{}), intervalSec: Math.max(1, Number(iv.value||'0')) }; saveAndRefresh() })
+              const msg = el.querySelector('.fn-msg') as HTMLInputElement | null
+              msg?.addEventListener('change', () => { const n = g.nodes.find(x => x.id === idN); if (!n) return; n.cfg = { ...(n.cfg||{}), message: msg.value }; flowSave(pid, id, g) })
+              const url = el.querySelector('.fn-url') as HTMLInputElement | null
+              const method = el.querySelector('.fn-method') as HTMLSelectElement | null
+              const pl = el.querySelector('.fn-payload') as HTMLTextAreaElement | null
+              url?.addEventListener('change', () => { const n = g.nodes.find(x => x.id === idN); if (!n) return; n.cfg = { ...(n.cfg||{}), url: url.value }; flowSave(pid, id, g) })
+              method?.addEventListener('change', () => { const n = g.nodes.find(x => x.id === idN); if (!n) return; n.cfg = { ...(n.cfg||{}), method: method.value }; flowSave(pid, id, g) })
+              pl?.addEventListener('change', () => { const n = g.nodes.find(x => x.id === idN); if (!n) return; n.cfg = { ...(n.cfg||{}), payload: pl.value }; flowSave(pid, id, g) })
+              const giTitle = el.querySelector('.fn-gi-title') as HTMLInputElement | null
+              const giBody = el.querySelector('.fn-gi-body') as HTMLTextAreaElement | null
+              const giSt = el.querySelector('.fn-gi-status') as HTMLSelectElement | null
+              giTitle?.addEventListener('change', () => { const n = g.nodes.find(x => x.id === idN); if (!n) return; n.cfg = { ...(n.cfg||{}), title: giTitle.value }; flowSave(pid, id, g) })
+              giBody?.addEventListener('change', () => { const n = g.nodes.find(x => x.id === idN); if (!n) return; n.cfg = { ...(n.cfg||{}), body: giBody.value }; flowSave(pid, id, g) })
+              giSt?.addEventListener('change', () => { const n = g.nodes.find(x => x.id === idN); if (!n) return; n.cfg = { ...(n.cfg||{}), status: giSt.value }; flowSave(pid, id, g) })
+            })
+            const runBtn = el.querySelector('.fn-run') as HTMLElement | null
+            runBtn?.addEventListener('click', () => { runFrom(idN) })
+          })
+          // connect by clicking out then in
+          let pending: string | null = null
+          canvas.querySelectorAll('.flow-node .port-out').forEach((po) => {
+            po.addEventListener('click', (e) => {
+              const n = (po.closest('.flow-node') as HTMLElement | null)?.getAttribute('data-node') || ''
+              pending = n
+              e.stopPropagation()
+            })
+          })
+          canvas.querySelectorAll('.flow-node .port-in').forEach((pi) => {
+            pi.addEventListener('click', () => {
+              if (!pending) return
+              const to = (pi.closest('.flow-node') as HTMLElement | null)?.getAttribute('data-node') || ''
+              if (!to || to === pending) { pending = null; return }
+              const dst = g.nodes.find(x => x.id === to)
+              const src = g.nodes.find(x => x.id === pending)
+              if (!dst || !src || dst.kind === 'trigger') { pending = null; return }
+              // prevent duplicate
+              if (!g.edges.find(e => e.from === pending && e.to === to)) g.edges.push({ from: pending, to })
+              pending = null; saveAndRefresh()
+            })
+          })
+          // allow deleting edges by clicking them in edit mode
+          svg.querySelectorAll('path').forEach((p, idx) => {
+            (p as SVGPathElement).style.pointerEvents = 'auto'
+            p.addEventListener('click', () => {
+              g.edges.splice(idx, 1); saveAndRefresh()
+            })
+          })
+          // palette actions
+          const addTrigger = w.querySelector('.flow-add-tr') as HTMLElement | null
+          const addAction = w.querySelector('.flow-add-ac') as HTMLElement | null
+          const clearBtn = w.querySelector('.flow-clear') as HTMLElement | null
+          addTrigger?.addEventListener('click', () => {
+            g.nodes.push({ id: `n-${Date.now()}`, kind: 'trigger', type: 'manual', x: 24, y: 24, label: 'Manual Trigger' }); saveAndRefresh()
+          })
+          addAction?.addEventListener('click', () => {
+            g.nodes.push({ id: `n-${Date.now()}`, kind: 'action', type: 'notify', x: 220, y: 140, label: 'Notify' }); saveAndRefresh()
+          })
+          clearBtn?.addEventListener('click', () => {
+            g.nodes = []; g.edges = []; saveAndRefresh()
+          })
+        }
+        // run (view or edit both allowed)
+        const logEl = w.querySelector('.flow-log') as HTMLElement | null
+        const runBtn = w.querySelector('.flow-run') as HTMLElement | null
+        const appendLog = (s: string) => { if (logEl) { const p = document.createElement('div'); p.textContent = `[${new Date().toLocaleTimeString()}] ${s}`; logEl.appendChild(p); logEl.scrollTop = logEl.scrollHeight } }
+        runBtn?.addEventListener('click', async () => {
+          const triggers = g.nodes.filter(n => n.kind === 'trigger')
+          if (triggers.length === 0) { appendLog('トリガーがありません'); return }
+          for (const t of triggers) { appendLog(`トリガー: ${t.label || t.type}`); await runFrom(t.id) }
+        })
+
+        // Schedule timers in view mode
+        const timerKey = `${pid}:${id}`
+        if (!edit) {
+          // clear existing timers for this widget
+          const ex = flowTimers.get(timerKey)
+          if (ex) { for (const tid of ex.values()) { try { clearInterval(tid) } catch {} } flowTimers.delete(timerKey) }
+          const map = new Map<string, number>()
+          for (const n of g.nodes) {
+            if (n.kind === 'trigger' && n.type === 'timer') {
+              const iv = Math.max(1, Number(n.cfg?.intervalSec || 60))
+              const tid = window.setInterval(() => { runFrom(n.id) }, iv * 1000)
+              map.set(n.id, tid as unknown as number)
+            }
+          }
+          if (map.size > 0) flowTimers.set(timerKey, map)
+        } else {
+          // in edit mode, clear timers to avoid background runs
+          const ex = flowTimers.get(timerKey)
+          if (ex) { for (const tid of ex.values()) { try { clearInterval(tid) } catch {} } flowTimers.delete(timerKey) }
+        }
+      }
+    }
+    if (m.type === 'clock') {
+      const box = w.querySelector('.clock-body') as HTMLElement | null
+      if (box) {
+        const key = `${pid}:${id}`
+        const prev = clockTimers.get(key)
+        if (prev) { try { clearInterval(prev) } catch {} clockTimers.delete(key) }
+        const mode = clockGet(pid, id)
+        let doFit: (() => void) | null = null
+        const render = () => {
+          const rect = box.getBoundingClientRect()
+          const size = Math.max(50, Math.min(rect.width, rect.height))
+          if (mode === 'digital') {
+            // Initial DOM for digital; sizes will be calculated precisely below
+            box.innerHTML = `<div class=\"clk-digital font-mono font-semibold\" style=\"line-height:1; letter-spacing:0px; white-space:nowrap;\"></div><div class=\"clk-date mt-2 text-gray-400\"></div>`
+            // Prepare a hidden measure element to fit text within box
+            let meas = box.querySelector('.clk-measure') as HTMLElement | null
+            if (!meas) {
+              meas = document.createElement('span')
+              meas.className = 'clk-measure'
+              meas.style.position = 'absolute'; meas.style.visibility = 'hidden'; meas.style.whiteSpace = 'nowrap'; meas.style.letterSpacing = '0px'
+              meas.style.fontFamily = 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace'
+              meas.style.fontWeight = '600'
+              meas.style.pointerEvents = 'none'; meas.style.opacity = '0';
+              meas.textContent = '88:88'
+              box.appendChild(meas)
+            }
+            doFit = () => {
+              const bw = box.clientWidth - 16
+              const bh = box.clientHeight - 16
+              let lo = 8, hi = Math.max(12, Math.floor(size))
+              // Binary search for the largest font-size that fits width and total height (time + spacing + date)
+              for (let i = 0; i < 14; i++) {
+                const mid = Math.floor((lo + hi) / 2)
+                const dateFs = Math.max(12, Math.floor(mid * 0.33))
+                meas!.style.fontSize = `${mid}px`
+                const mw = meas!.offsetWidth
+                const totalH = mid + 8 + dateFs
+                if (mw <= bw && totalH <= bh) lo = mid; else hi = mid - 1
+                if (hi < lo) break
+              }
+              const timeFs = lo
+              const dateFs = Math.max(12, Math.floor(timeFs * 0.33))
+              const t = box.querySelector('.clk-digital') as HTMLElement | null
+              const d = box.querySelector('.clk-date') as HTMLElement | null
+              if (t) t.style.fontSize = `${timeFs}px`
+              if (d) d.style.fontSize = `${dateFs}px`
+            }
+            doFit()
+          } else {
+            const svgSize = Math.floor(size * 0.95)
+            const nums = Array.from({length:12}).map((_,i)=>{
+              const n=i+1; const a=n*30; const rad=a*Math.PI/180; const rx=50+Math.sin(rad)*36; const ry=50-Math.cos(rad)*36; return `<text x=\"${rx.toFixed(1)}\" y=\"${(ry+3).toFixed(1)}\" text-anchor=\"middle\" fill=\"#e5e7eb\" font-size=\"8\">${n}</text>`
+            }).join('')
+            box.innerHTML = `
+              <div class=\"clk-analog\">
+                <svg viewBox=\"0 0 100 100\" width=\"${svgSize}\" height=\"${svgSize}\">
+                  <circle cx=\"50\" cy=\"50\" r=\"48\" fill=\"#0a0a0a\" stroke=\"#444\" stroke-width=\"2\" />
+                  ${Array.from({length:60}).map((_,i)=>{
+                    const a=i*6; const rad=a*Math.PI/180; const r1=i%5===0?41:44; const r2=46; const x1=50+Math.sin(rad)*r1; const y1=50-Math.cos(rad)*r1; const x2=50+Math.sin(rad)*r2; const y2=50-Math.cos(rad)*r2; const sw=i%5===0?2:1; const col=i%5===0?'#777':'#555';
+                    return `<line x1=\"${x1.toFixed(1)}\" y1=\"${y1.toFixed(1)}\" x2=\"${x2.toFixed(1)}\" y2=\"${y2.toFixed(1)}\" stroke=\"${col}\" stroke-width=\"${sw}\" />`
+                  }).join('')}
+                  ${nums}
+                  <line id=\"clk-h\" x1=\"50\" y1=\"50\" x2=\"50\" y2=\"32\" stroke=\"#e5e7eb\" stroke-width=\"3.5\" stroke-linecap=\"round\" />
+                  <line id=\"clk-m\" x1=\"50\" y1=\"50\" x2=\"50\" y2=\"22\" stroke=\"#a3a3a3\" stroke-width=\"2.5\" stroke-linecap=\"round\" />
+                  <line id=\"clk-s\" x1=\"50\" y1=\"50\" x2=\"50\" y2=\"18\" stroke=\"#f87171\" stroke-width=\"1.5\" stroke-linecap=\"round\" />
+                  <circle cx=\"50\" cy=\"50\" r=\"2.5\" fill=\"#e5e7eb\" />
+                </svg>
+              </div>`
+          }
+        }
+        render()
+        const tick = () => {
+          const now = new Date()
+          if (mode === 'digital') {
+            const hh = String(now.getHours()).padStart(2, '0')
+            const mm = String(now.getMinutes()).padStart(2, '0')
+            const d = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-${String(now.getDate()).padStart(2,'0')}`
+            const t = box.querySelector('.clk-digital') as HTMLElement | null
+            const dt = box.querySelector('.clk-date') as HTMLElement | null
+            if (t) { t.textContent = `${hh}:${mm}` }
+            if (dt) { dt.textContent = d }
+            // Refit in case of size changes
+            try { doFit && doFit() } catch {}
+          } else {
+            const s = now.getSeconds(); const m = now.getMinutes(); const h = now.getHours()%12 + m/60
+            const aS = s * 6
+            const aM = m * 6 + s * 0.1
+            const aH = h * 30
+            const hEl = box.querySelector('#clk-h') as SVGElement | null
+            const mEl = box.querySelector('#clk-m') as SVGElement | null
+            const sEl = box.querySelector('#clk-s') as SVGElement | null
+            if (hEl) hEl.setAttribute('transform', `rotate(${aH},50,50)`)
+            if (mEl) mEl.setAttribute('transform', `rotate(${aM},50,50)`)
+            if (sEl) sEl.setAttribute('transform', `rotate(${aS},50,50)`)
+          }
+        }
+        tick()
+        const tid = window.setInterval(tick, 1000)
+        clockTimers.set(key, tid as unknown as number)
+        const sel = w.querySelector('.clk-mode') as HTMLSelectElement | null
+        if (sel) {
+          sel.value = mode
+          sel.addEventListener('change', () => {
+            const val = sel.value === 'analog' ? 'analog' : 'digital'
+            clockSet(pid, id, val)
+            try { refreshDynamicWidgets(root, pid) } catch {}
+          })
+        }
+      }
+    }
     if (m.type === 'tasksum') {
       const box = w.querySelector('.tasksum-body') as HTMLElement | null
       if (box) {
@@ -2871,6 +3277,27 @@ function renderCalendarFrame(url: string): string {
   return `<div class=\"h-full min-h-[220px] overflow-hidden bg-neutral-900\"><iframe class=\"w-full h-full\" style=\"${iframeStyle}\" src=\"${escHtml(safe)}\" sandbox=\"allow-scripts allow-same-origin allow-forms allow-popups\" referrerpolicy=\"no-referrer\"></iframe></div>`
 }
 
+// ---- Clock helpers ----
+function clockKey(pid: string, id: string): string { return `pj-clock-${pid}-${id}` }
+function clockGet(pid: string, id: string): 'digital' | 'analog' {
+  try { const v = localStorage.getItem(clockKey(pid, id)) || 'digital'; return (v === 'analog' ? 'analog' : 'digital') } catch { return 'digital' }
+}
+function clockSet(pid: string, id: string, mode: 'digital' | 'analog'): void {
+  try { localStorage.setItem(clockKey(pid, id), mode) } catch { }
+}
+const clockTimers = new Map<string, number>()
+
+// ---- Flow helpers ----
+type FlowNode = { id: string; kind: 'trigger' | 'action'; type: string; x: number; y: number; label?: string; cfg?: Record<string, any> }
+type FlowEdge = { from: string; to: string }
+type FlowGraph = { nodes: FlowNode[]; edges: FlowEdge[] }
+function flowKey(pid: string, id: string): string { return `pj-flow-${pid}-${id}` }
+function flowLoad(pid: string, id: string): FlowGraph {
+  try { return JSON.parse(localStorage.getItem(flowKey(pid, id)) || '{"nodes":[],"edges":[]}') as FlowGraph } catch { return { nodes: [], edges: [] } }
+}
+function flowSave(pid: string, id: string, g: FlowGraph): void { try { localStorage.setItem(flowKey(pid, id), JSON.stringify(g)) } catch {} }
+const flowTimers = new Map<string, Map<string, number>>()
+
 function widgetTitle(type: string): string {
   switch (type) {
     case 'readme': return 'README'
@@ -2879,6 +3306,8 @@ function widgetTitle(type: string): string {
     case 'markdown': return 'Markdown'
     case 'committers': return 'Top Committers'
     case 'calendar': return 'カレンダー'
+    case 'flow': return 'ミニフロー'
+    case 'clock': return '時計'
     default: return 'Widget'
   }
 }
@@ -2907,6 +3336,20 @@ function buildWidgetBody(type: string): string {
         </div>
         <p class=\"lnk-error mt-1 text-red-400 text-xs hidden\"></p>
       </div>`
+    case 'flow': return `
+      <div class=\"flow-body relative h-full overflow-hidden rounded bg-neutral-900/30\">
+        <svg class=\"flow-svg absolute inset-0 pointer-events-none\"></svg>
+        <div class=\"flow-canvas absolute inset-0\"></div>
+        <div class=\"flow-toolbar edit-only absolute top-1 left-1 flex items-center gap-2 bg-neutral-900/70 ring-1 ring-neutral-600 rounded px-2 py-1\">
+          <button class=\"flow-add-tr rounded ring-2 ring-neutral-600 px-2 py-0.5 hover:bg-neutral-800\">トリガー追加</button>
+          <button class=\"flow-add-ac rounded ring-2 ring-neutral-600 px-2 py-0.5 hover:bg-neutral-800\">アクション追加</button>
+          <button class=\"flow-clear rounded ring-2 ring-rose-800 text-rose-200 px-2 py-0.5 hover:bg-rose-900/50\">全削除</button>
+        </div>
+        <div class=\"flow-runbar absolute top-1 right-1 flex items-center gap-2 bg-neutral-900/70 ring-1 ring-neutral-600 rounded px-2 py-1\">
+          <button class=\"flow-run rounded bg-emerald-700 hover:bg-emerald-600 text-white px-3 py-1\">テスト実行</button>
+        </div>
+        <div class=\"flow-log absolute bottom-1 left-1 right-1 p-2 rounded bg-neutral-900/70 ring-1 ring-neutral-700 text-[11px] text-gray-300 max-h-24 overflow-auto\"></div>
+      </div>`
     case 'calendar': return `
       <div class=\"cal-body h-full overflow-hidden\"></div>
       <div class=\"mt-2 text-xs edit-only\">
@@ -2922,6 +3365,17 @@ function buildWidgetBody(type: string): string {
         </div>
         <p class=\"cal-error mt-1 text-red-400 text-xs hidden\"></p>
         <p class=\"mt-2 text-[11px] text-gray-400\">Googleカレンダー右上の「︙」→「設定と共有」→「埋め込みコード」を使用してください。</p>
+      </div>`
+    case 'clock': return `
+      <div class=\"clock-wrap relative h-full\">
+        <div class=\"clock-body absolute inset-0 grid place-items-center text-gray-100\"></div>
+        <div class=\"clk-toolbar edit-only absolute top-1 right-1 flex items-center gap-2 bg-neutral-900/70 ring-1 ring-neutral-600 rounded px-2 py-1\">
+          <label class=\"text-xs text-gray-300\">表示</label>
+          <select class=\"clk-mode rounded bg-neutral-800/60 ring-2 ring-neutral-600 px-2 py-1 text-gray-100\">
+            <option value=\"digital\">デジタル</option>
+            <option value=\"analog\">アナログ</option>
+          </select>
+        </div>
       </div>`
     case 'progress': return `<div class=\"progress-body\"><div class=\"h-2 bg-neutral-800 rounded\"><div class=\"h-2 bg-emerald-600 rounded w-0\"></div></div><div class=\"text-xs text-gray-400 mt-1\">0%</div></div>`
     case 'team': return `<div class=\"team-body text-sm text-gray-200\"><p class=\"text-gray-400\">読み込み中...</p></div>`
