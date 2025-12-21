@@ -1891,6 +1891,53 @@ function enableDragAndDrop(root: HTMLElement): void {
       return
     }
 
+    // Calendar: toggle form
+    const calAdd = (e.target as HTMLElement).closest('.cal-add') as HTMLElement | null
+    if (calAdd) {
+      const w = getWid(calAdd); if (!w) return
+      const form = w.querySelector('.cal-form') as HTMLElement | null
+      if (form) {
+        form.classList.toggle('hidden')
+        if (!form.classList.contains('hidden')) {
+          const urlEl = form.querySelector('.cal-url') as HTMLInputElement | null
+          const err = form.querySelector('.cal-error') as HTMLElement | null
+          if (urlEl) urlEl.value = calGet(pid, w.getAttribute('data-widget') || '')
+          if (err) { err.textContent = ''; err.classList.add('hidden') }
+          urlEl?.focus()
+        }
+      }
+      return
+    }
+
+    // Calendar: save
+    const calSave = (e.target as HTMLElement).closest('.cal-save') as HTMLElement | null
+    if (calSave) {
+      const w = getWid(calSave); if (!w) return
+      const id = w.getAttribute('data-widget') || ''
+      const form = w.querySelector('.cal-form') as HTMLElement | null
+      const urlEl = form?.querySelector('.cal-url') as HTMLInputElement | null
+      const err = form?.querySelector('.cal-error') as HTMLElement | null
+      let url = (urlEl?.value || '').trim()
+      if (url && !/^https?:\/\//i.test(url)) url = `https://${url}`
+      // basic URL validation
+      let ok = true
+      try { if (url) new URL(url) } catch { ok = false }
+      if (!ok) { if (err) { err.textContent = 'URLが正しくありません'; err.classList.remove('hidden') }; return }
+      if (!url) { calSet(pid, id, ''); try { refreshDynamicWidgets(root, pid) } catch { }; return }
+      calSet(pid, id, url)
+      try { refreshDynamicWidgets(root, pid) } catch { }
+      return
+    }
+
+    // Calendar: cancel
+    const calCancel = (e.target as HTMLElement).closest('.cal-cancel') as HTMLElement | null
+    if (calCancel) {
+      const w = getWid(calCancel); if (!w) return
+      const form = w.querySelector('.cal-form') as HTMLElement | null
+      if (form) form.classList.add('hidden')
+      return
+    }
+
     // Links: delete (clear the single link)
     const delLink = (e.target as HTMLElement).closest('.lnk-del') as HTMLElement | null
     if (delLink) {
@@ -2212,6 +2259,7 @@ function openWidgetPickerModal(root: HTMLElement, pid: string): void {
             ${widgetCard('markdown', 'Markdownブロック')}
             ${widgetCard('tasksum', 'タスクサマリー')}
             ${widgetCard('links', 'クイックリンク')}
+            ${widgetCard('calendar', 'カレンダー')}
           </div>
         </section>
       </div>
@@ -2234,7 +2282,7 @@ function openWidgetPickerModal(root: HTMLElement, pid: string): void {
   const getCat = (t: string): string => {
     if (['readme', 'contrib', 'committers'].includes(t)) return 'github'
     if (['markdown'].includes(t)) return 'text'
-    if (['tasksum', 'links'].includes(t)) return 'manage'
+    if (['tasksum', 'links', 'calendar'].includes(t)) return 'manage'
     return 'other'
   }
   const applyCat = (cat: string) => {
@@ -2287,6 +2335,7 @@ function widgetThumb(type: string): string {
   if (type === 'tasksum') return `<div class="w-full h-20 bg-neutral-900/60 ring-2 ring-neutral-600 rounded p-2 grid grid-cols-3 gap-2 text-[10px] text-gray-300"><div class="rounded bg-neutral-800/60 p-1 text-center">TODO<br/><span class="text-emerald-400">5</span></div><div class="rounded bg-neutral-800/60 p-1 text-center">DOING<br/><span class="text-emerald-400">3</span></div><div class="rounded bg-neutral-800/60 p-1 text-center">DONE<br/><span class="text-emerald-400">8</span></div></div>`
   if (type === 'milestones') return `<div class="w-full h-20 bg-neutral-900/60 ring-2 ring-neutral-600 rounded p-2 text-xs text-gray-400"><div>v1.0 リリース</div><div class="text-gray-500">2025-01-31</div></div>`
   if (type === 'links') return `<div class="w-full h-20 bg-neutral-900/60 ring-2 ring-neutral-600 rounded p-2 text-xs text-gray-400">- PR一覧\n- 仕様書</div>`
+  if (type === 'calendar') return `<div class="w-full h-24 bg-neutral-900/60 ring-2 ring-neutral-600 rounded p-2 text-xs text-gray-300 grid place-items-center">Googleカレンダー<br/>(埋め込みURL)</div>`
   if (type === 'progress') return `<div class="w-full h-20 bg-neutral-900/60 ring-2 ring-neutral-600 rounded p-2"><div class="h-2 bg-neutral-800 rounded"><div class="h-2 bg-emerald-600 rounded w-1/2"></div></div><div class="text-[10px] text-gray-400 mt-1">50%</div></div>`
   if (type === 'team') return `<div class="w-full h-20 bg-neutral-900/60 ring-2 ring-neutral-600 rounded p-2 text-xs text-gray-400">👥 メンバー</div>`
   if (type === 'todo') return `<div class="w-full h-20 bg-neutral-900/60 ring-2 ring-neutral-600 rounded p-2 text-xs text-gray-400">- [ ] 項目</div>`
@@ -2756,6 +2805,33 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
         }
       }
     }
+    if (m.type === 'calendar') {
+      const box = w.querySelector('.cal-body') as HTMLElement | null
+      if (box) {
+        const url = calGet(pid, id)
+        const gridEl = w.closest('#widgetGrid') as HTMLElement | null
+        const edit = gridEl?.getAttribute('data-edit') === '1'
+        const form = w.querySelector('.cal-form') as HTMLElement | null
+        const addBtn = w.querySelector('.cal-add') as HTMLElement | null
+        if (edit) {
+          // Show form, hide preview
+          if (box) { box.innerHTML = ''; box.classList.add('hidden') }
+          if (addBtn) addBtn.classList.add('hidden')
+          if (form) {
+            form.classList.remove('hidden')
+            const urlEl = form.querySelector('.cal-url') as HTMLInputElement | null
+            const err = form.querySelector('.cal-error') as HTMLElement | null
+            if (urlEl) urlEl.value = url || ''
+            if (err) { err.textContent = ''; err.classList.add('hidden') }
+          }
+        } else {
+          // View mode: render calendar
+          if (box) { box.classList.remove('hidden'); box.innerHTML = url ? renderCalendarFrame(url) : `<div class=\"h-full grid place-items-center text-gray-400\">カレンダーが設定されていません</div>` }
+          if (form) form.classList.add('hidden')
+          if (addBtn) addBtn.classList.add('hidden')
+        }
+      }
+    }
   })
 }
 
@@ -2767,6 +2843,21 @@ function mdSetLinks(pid: string, id: string, list: QuickLink[]): void {
   localStorage.setItem(`pj-links-${pid}-${id}`, JSON.stringify(list))
 }
 
+// ---- Calendar helpers ----
+function calKey(pid: string, id: string): string { return `pj-cal-${pid}-${id}` }
+function calGet(pid: string, id: string): string {
+  try { return localStorage.getItem(calKey(pid, id)) || '' } catch { return '' }
+}
+function calSet(pid: string, id: string, url: string): void {
+  try { if (url) localStorage.setItem(calKey(pid, id), url); else localStorage.removeItem(calKey(pid, id)) } catch { }
+}
+function renderCalendarFrame(url: string): string {
+  let safe = url.trim()
+  if (safe && !/^https?:\/\//i.test(safe)) safe = `https://${safe}`
+  // Best-effort embed; many providers (Google Calendar) support embedding via a special URL
+  return `<div class=\"h-full min-h-[220px] overflow-hidden bg-neutral-900\"><iframe class=\"w-full h-full\" src=\"${escHtml(safe)}\" sandbox=\"allow-scripts allow-same-origin allow-forms allow-popups\" referrerpolicy=\"no-referrer\"></iframe></div>`
+}
+
 function widgetTitle(type: string): string {
   switch (type) {
     case 'readme': return 'README'
@@ -2774,6 +2865,7 @@ function widgetTitle(type: string): string {
     case 'contrib': return 'Contributions'
     case 'markdown': return 'Markdown'
     case 'committers': return 'Top Committers'
+    case 'calendar': return 'カレンダー'
     default: return 'Widget'
   }
 }
@@ -2801,6 +2893,22 @@ function buildWidgetBody(type: string): string {
           </div>
         </div>
         <p class=\"lnk-error mt-1 text-red-400 text-xs hidden\"></p>
+      </div>`
+    case 'calendar': return `
+      <div class=\"cal-body h-full overflow-hidden\"></div>
+      <div class=\"mt-2 text-xs edit-only\">
+        <button class=\"cal-add rounded ring-2 ring-neutral-600 px-2 py-0.5 hover:bg-neutral-800\">カレンダーを設定</button>
+      </div>
+      <div class=\"cal-form mt-2 p-2 rounded bg-neutral-900/60 ring-2 ring-neutral-600 hidden edit-only\">
+        <div class=\"grid grid-cols-1 md:grid-cols-6 gap-2 items-center\">
+          <input class=\"cal-url md:col-span-5 rounded bg-neutral-800/60 ring-2 ring-neutral-600 px-2 py-1 text-gray-100\" placeholder=\"埋め込みURL (https://calendar.google.com/calendar/embed?...)\" />
+          <div class=\"flex gap-2 justify-end md:col-span-1\">
+            <button class=\"cal-save whitespace-nowrap rounded bg-emerald-700 hover:bg-emerald-600 text-white px-3 py-1\">保存</button>
+            <button class=\"cal-cancel whitespace-nowrap rounded ring-2 ring-neutral-600 px-3 py-1 hover:bg-neutral-800\">閉じる</button>
+          </div>
+        </div>
+        <p class=\"cal-error mt-1 text-red-400 text-xs hidden\"></p>
+        <p class=\"mt-2 text-[11px] text-gray-400\">Googleカレンダー右上の「︙」→「設定と共有」→「埋め込みコード」を使用してください。</p>
       </div>`
     case 'progress': return `<div class=\"progress-body\"><div class=\"h-2 bg-neutral-800 rounded\"><div class=\"h-2 bg-emerald-600 rounded w-0\"></div></div><div class=\"text-xs text-gray-400 mt-1\">0%</div></div>`
     case 'team': return `<div class=\"team-body text-sm text-gray-200\"><p class=\"text-gray-400\">読み込み中...</p></div>`
