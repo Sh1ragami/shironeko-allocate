@@ -304,7 +304,7 @@ body {
 }
 
 /* Slide-out group panel (left edge peek) */
-.grp-panel { position: fixed; top: 56px; bottom: 12px; left: 0; width: 200px; background: rgba(0,0,0,.25); backdrop-filter: blur(5px) saturate(120%); border-right: 1px solid var(--gh-border); box-shadow: 0 8px 24px rgba(0,0,0,.35); transform: translateX(calc(-100% + 12px)); transition: transform .18s ease; z-index: 12; border-top-right-radius: 12px; border-bottom-right-radius: 12px; }
+.grp-panel { position: fixed; top: 12px; bottom: 12px; left: 0; width: 200px; background: rgba(0,0,0,.25); backdrop-filter: blur(5px) saturate(120%); border-right: 1px solid var(--gh-border); box-shadow: 0 8px 24px rgba(0,0,0,.35); transform: translateX(calc(-100% + 12px)); transition: transform .18s ease; z-index: 12; border-top-right-radius: 12px; border-bottom-right-radius: 12px; }
 .grp-panel:hover { transform: translateX(0); }
 :root[data-theme="warm"] .grp-panel, :root[data-theme="sakura"] .grp-panel { background: rgba(255,255,255,.55); }
 .grp-content { height: 100%; padding: 10px; display: flex; flex-direction: column; gap: 10px; overflow-y: auto; }
@@ -477,14 +477,72 @@ body[data-lock]:not([data-lock="0"]) .hx-wrap { pointer-events: none; }
 .hx-empty .hx-info { opacity: 0 !important; }
 
 /* Create-project tile visual */
-.hx-create .hx-clip { background: rgba(120,120,120,.28) !important; border-color: rgba(120,120,120,.55) !important; }
-.hx-create .hx-info { opacity: 1 !important; background: rgba(0,0,0,.22); font-weight: 700; }
-.hx-create .hx-info .plus { display: block; font-size: 22px; line-height: 1; margin-bottom: 4px; }
+/* Emphasized Create tile (black-ish, clear CTA) */
+.hx-create .hx-clip {
+  background: linear-gradient(135deg, rgba(10,10,10,.90), rgba(36,36,36,.95)) !important;
+  border-color: rgba(255,255,255,.55) !important;
+  border-style: dashed !important;
+  box-shadow: 0 0 0 2px rgba(0,0,0,.6), 0 12px 30px rgba(0,0,0,.55);
+}
+.hx-create .hx-clip::before { opacity: .15; }
+.hx-create .hx-info {
+  opacity: 1 !important;
+  background: rgba(0,0,0,.35);
+  font-weight: 800;
+  gap: 0;
+  row-gap: 0;
+  line-height: 1;
+  padding: 4px;
+}
+.hx-create .hx-info .text-xs {
+  display: inline-block;
+  margin-bottom: -6px; /* tighten spacing to the plus */
+  padding: 2px 8px;
+  background: rgba(0,0,0,.65);
+  color: #fff;
+  border-radius: 9999px;
+  border: 1px solid rgba(255,255,255,.18);
+  box-shadow: 0 2px 10px rgba(0,0,0,.35);
+}
+.hx-create .hx-info .plus {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 9999px;
+  background: #fff;
+  color: #000;
+  font-size: 20px;
+  font-weight: 900;
+  line-height: 1;
+  margin-top: -4px; /* pull closer to text */
+  box-shadow: 0 0 0 2px rgba(0,0,0,.4), 0 4px 16px rgba(0,0,0,.35);
+}
+.hx-create .hx-tile:hover .hx-info { background: rgba(0,0,0,.45); }
 
 /* Minimap */
-.hx-mini { position: fixed; right: 14px; top: 72px; width: 140px; height: 140px; border-radius: 50%; background: rgba(0,0,0,.32); backdrop-filter: blur(4px) saturate(120%); border: 1px solid var(--gh-border); display: grid; place-items: center; z-index: 11; }
+.hx-mini { position: fixed; right: 14px; top: 16px; width: 140px; height: 140px; border-radius: 50%; background: rgba(0,0,0,.32); backdrop-filter: blur(4px) saturate(120%); border: 1px solid var(--gh-border); display: grid; place-items: center; z-index: 11; }
 :root[data-theme="warm"] .hx-mini, :root[data-theme="sakura"] .hx-mini { background: rgba(255,255,255,.45); }
 .hx-mini canvas { width: 120px; height: 120px; border-radius: 50%; }
+
+/* Group quickbar (overlapped, enlarging active/hover) */
+.group-quick .gq-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 9999px;
+  transition: transform .14s ease, box-shadow .14s ease, z-index .05s linear;
+  position: relative;
+  font-size: 14px;
+  line-height: 1;
+}
+.group-quick .gq-icon:not(:first-child) { margin-left: -10px; }
+/* Emphasis rules: only one at 1.3x (active or hovered) */
+.group-quick .gq-active { transform: scale(1.3); box-shadow: none; }
+.group-quick .gq-active.gq-suppressed { transform: scale(1); }
+.group-quick .gq-hover { transform: scale(1.3); box-shadow: none; }
+
+/* Make the add-circle readable at smaller size */
+.group-quick #groupAddCircle { font-size: 18px; }
 
 /* Route loading overlay */
 .route-loading { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; background: #000;

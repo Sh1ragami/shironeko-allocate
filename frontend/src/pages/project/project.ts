@@ -61,31 +61,20 @@ function createProjectCard(): string {
 export function renderProject(container: HTMLElement): void {
   container.innerHTML = `
     <div class="min-h-screen gh-canvas text-gray-100">
-      <!-- Topbar overlay -->
-      <div class="h-14 bg-neutral-900/60 backdrop-blur-[1px] ring-1 ring-neutral-700/70 flex items-center px-6 relative z-10">
-        <h1 class="text-lg font-semibold tracking-wide">プロジェクト一覧</h1>
-        <div class="ml-auto flex items-center gap-3">
-          <button id="accountBtn" class="w-8 h-8 rounded-full overflow-hidden ring-2 ring-neutral-600 bg-neutral-700 grid place-items-center">
-            <span class="sr-only">アカウント</span>
-            <img id="accountAvatar" class="w-full h-full object-cover hidden" alt="avatar"/>
-            <div id="accountFallback" class="text-xs text-neutral-300">Me</div>
-          </button>
-        </div>
-      </div>
+      <!-- Compact heading and controls around minimap -->
+      <div class="fixed left-4 top-3 z-10 text-2xl md:text-3xl font-semibold text-gray-100">プロジェクト一覧</div>
+      <div id="groupQuick" class="fixed left-4 top-[66px] z-10 flex items-center gap-0 group-quick"></div>
+      <button id="accountBtn" class="fixed bottom-5 right-5 z-20 w-9 h-9 rounded-full overflow-hidden ring-2 ring-neutral-600 bg-neutral-700 grid place-items-center shadow-lg">
+        <span class="sr-only">アカウント</span>
+        <img id="accountAvatar" class="w-full h-full object-cover hidden" alt="avatar"/>
+        <div id="accountFallback" class="text-xs text-neutral-300">Me</div>
+      </button>
       <!-- Honeycomb full-screen layer -->
       <section class="hx-wrap" id="honeyWrap">
         <div class="hx-canvas" id="honeyCanvas" style="width:2000px; height:1400px"></div>
       </section>
-      <!-- Left edge slide-out group panel -->
-      <aside id="groupPanel" class="grp-panel">
-        <div class="grp-content" id="groupSidebar">
-          <div class="text-xs text-gray-400 px-1">グループ</div>
-          <!-- groups will be injected here -->
-          <button id="sidebar-create" class="mt-auto grid place-items-center w-10 h-10 rounded-full border border-dashed border-neutral-600 text-2xl text-neutral-400">+</button>
-        </div>
-        <div class="grp-peek" aria-hidden="true"></div>
-      </aside>
-      <!-- Minimap (top-right) -->
+      <!-- Left edge slide-out group panel removed -->
+      <!-- Minimap (top-left) -->
       <div class="hx-mini"><canvas id="hxMini" width="120" height="120"></canvas></div>
     </div>
   `
@@ -106,8 +95,8 @@ export function renderProject(container: HTMLElement): void {
         fallback.textContent = (me.name || 'Me').slice(0, 2)
       }
       ; (container as any)._me = me
-      // render group sidebar now that we have user
-      renderGroupSidebar(container, me)
+      // render quickbar now that we have user
+      renderGroupQuickbar(container, me)
       // apply current filter and reload
       loadProjects(container)
     })
@@ -136,6 +125,7 @@ export function renderProject(container: HTMLElement): void {
   // Account modal
   const accountBtn = container.querySelector('#accountBtn')
   accountBtn?.addEventListener('click', () => openAccountModal(container))
+  // Group add handled inside quickbar
 
   // Load projects when me is unknown yet (fallback)
   if (!(container as any)._me) loadProjects(container)
@@ -328,7 +318,7 @@ function renderHoneycomb(root: HTMLElement, projects: Project[]): void {
       if (makeCreate) {
         createdSpot.add(gid)
         tile.classList.add('hx-create')
-        tile.innerHTML = `<div class="hx-clip"><div class="hx-info"><div class="plus">＋</div><div class="text-xs">プロジェクト追加</div></div></div>`
+        tile.innerHTML = `<div class="hx-clip"><div class="hx-info"><div class="text-xs">プロジェクト追加</div><div class="plus">＋</div></div></div>`
         tile.addEventListener('click', () => {
           try { localStorage.setItem('createTargetGroup', gid) } catch {}
           openCreateProjectModal(root)
@@ -786,6 +776,15 @@ function renderGroupSidebar(root: HTMLElement, me: { id?: number; github_id?: nu
   const groups = ensureDefaultGroups(me.id, avatar)
   const selected = getSelectedGroup(me.id) || 'user'
   setSelectedGroup(me.id, selected)
+  const getActive = () => host.querySelector('.gq-active') as HTMLElement | null
+  const suppressActiveFor = (el: HTMLElement) => {
+    const act = getActive()
+    if (act && act !== el) act.classList.add('gq-suppressed')
+  }
+  const unsuppressActiveFor = (el: HTMLElement) => {
+    const act = getActive()
+    if (act && act !== el) act.classList.remove('gq-suppressed')
+  }
 
   groups.forEach((g, idx) => {
     const el = document.createElement('button')
@@ -812,6 +811,52 @@ function renderGroupSidebar(root: HTMLElement, me: { id?: number; github_id?: nu
   })
 
   createBtn?.addEventListener('click', () => openCreateGroupPopover(root, me))
+}
+
+function renderGroupQuickbar(root: HTMLElement, me: { id?: number; github_id?: number }): void {
+  const host = root.querySelector('#groupQuick') as HTMLElement | null
+  if (!host) return
+  host.innerHTML = ''
+  const avatar = me.github_id ? `https://avatars.githubusercontent.com/u/${me.github_id}?s=64` : undefined
+  const groups = ensureDefaultGroups(me.id, avatar)
+  const selected = getSelectedGroup(me.id) || 'user'
+  setSelectedGroup(me.id, selected)
+  const makeBtn = (g: Group, idx: number) => {
+    const el = document.createElement('button')
+    el.setAttribute('data-group', g.id)
+    el.className = `gq-icon ${selected === g.id ? 'gq-active ring-2 ring-sky-500' : 'ring-2 ring-neutral-600'} overflow-hidden bg-neutral-700 grid place-items-center rounded-full text-base`
+    el.style.zIndex = selected === g.id ? '9000' : String(100 + idx)
+    if (g.avatar && idx === 0) {
+      el.innerHTML = `<img src="${g.avatar}" class="w-full h-full object-cover" alt="avatar"/>`
+    } else {
+      el.textContent = g.name.charAt(0)
+      el.classList.add('text-white')
+    }
+    el.title = g.name
+    // Hover: bring to front and enlarge; suppress active (only if different icon)
+    el.addEventListener('mouseenter', () => { el.classList.add('gq-hover'); el.style.zIndex = '11000'; suppressActiveFor(el) })
+    el.addEventListener('mouseleave', () => { el.classList.remove('gq-hover'); el.style.zIndex = (selected === g.id) ? '9000' : String(100 + idx); unsuppressActiveFor(el) })
+    el.addEventListener('click', () => {
+      setSelectedGroup(me.id, g.id)
+      renderGroupQuickbar(root, me)
+      updateListTitle(root, (root as any)._me)
+      centerOnGroup(root, g.id, true)
+    })
+    return el
+  }
+  groups.forEach((g, idx) => host.appendChild(makeBtn(g, idx)))
+  // Add group add-circle as the last overlapped icon
+  const plus = document.createElement('button')
+  plus.id = 'groupAddCircle'
+  plus.className = 'gq-icon ring-2 ring-neutral-600 overflow-hidden bg-neutral-800/80 grid place-items-center rounded-full text-2xl text-gray-100 hover:text-white'
+  // rely on CSS for overlapped margin
+  plus.style.zIndex = String(100 + groups.length)
+  plus.textContent = '＋'
+  plus.title = 'グループ追加'
+  plus.addEventListener('mouseenter', () => { plus.classList.add('gq-hover'); plus.style.zIndex = '11000'; suppressActiveFor(plus) })
+  plus.addEventListener('mouseleave', () => { plus.classList.remove('gq-hover'); plus.style.zIndex = String(100 + groups.length); unsuppressActiveFor(plus) })
+  plus.addEventListener('click', () => openCreateGroupPopover(root, me))
+  host.appendChild(plus)
 }
 
 function getGroupById(uid: number | undefined, id: string | null): Group | null {
@@ -875,7 +920,7 @@ function openGroupMenu(root: HTMLElement, me: { id?: number }, g: Group, anchor:
   menu.querySelector('#gdel')?.addEventListener('click', () => {
     if (!confirm(`グループ「${g.name}」を削除しますか？`)) return
     deleteGroup(me.id, g.id)
-    renderGroupSidebar(root, (root as any)._me)
+    renderGroupQuickbar(root, (root as any)._me)
     loadProjects(root)
     close()
   })
@@ -894,14 +939,13 @@ function deleteGroup(uid: number | undefined, gid: string): void {
 }
 
 function openCreateGroupPopover(root: HTMLElement, me: { id?: number }): void {
-  const sidebar = root.querySelector('#groupSidebar') as HTMLElement
-  const btn = sidebar.querySelector('#sidebar-create') as HTMLElement
-  const rect = btn.getBoundingClientRect()
+  const anchor = (root.querySelector('#groupAddCircle') as HTMLElement) || document.body
+  const rect = anchor.getBoundingClientRect()
   const pop = document.createElement('div')
   pop.className = 'fixed z-[60] w-64 rounded-lg bg-neutral-900 ring-2 ring-neutral-600 shadow-xl'
   pop.style.top = `${rect.top + rect.height + 8}px`
   // 画面内に収まるように位置を調整（左右のはみ出し防止）
-  const desired = rect.left - 100
+  const desired = rect.left
   const maxLeft = window.innerWidth - 276 // 16rem(=256px) + 20pxマージン
   const left = Math.min(maxLeft, Math.max(12, desired))
   pop.style.left = `${left}px`
@@ -929,7 +973,7 @@ function openCreateGroupPopover(root: HTMLElement, me: { id?: number }): void {
     list.push({ id, name })
     saveGroups(me.id, list)
     setSelectedGroup(me.id, id)
-    renderGroupSidebar(root, (root as any)._me)
+    renderGroupQuickbar(root, (root as any)._me)
     loadProjects(root)
     close()
   })

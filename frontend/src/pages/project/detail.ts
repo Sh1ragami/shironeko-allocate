@@ -266,57 +266,7 @@ type Project = {
   github_meta?: { full_name?: string; html_url?: string; language?: string; private?: boolean } | null
 }
 
-// ---- Open projects top tabs (browser-like) ----
-type OpenProjTab = { id: number; title: string; fullName?: string }
-function projTabsKey(): string { return 'open-project-tabs' }
-function getOpenProjTabs(): OpenProjTab[] {
-  try { return JSON.parse(localStorage.getItem(projTabsKey()) || '[]') as OpenProjTab[] } catch { return [] }
-}
-function saveOpenProjTabs(list: OpenProjTab[]): void {
-  localStorage.setItem(projTabsKey(), JSON.stringify(list.slice(0, 20)))
-}
-function removeOpenProjTab(id: number): OpenProjTab[] {
-  const list = getOpenProjTabs()
-  const next = list.filter((t) => t.id !== id)
-  saveOpenProjTabs(next)
-  return next
-}
-
-// Lightweight in-app navigation stack for project tabs (session-scoped)
-type ProjNav = { stack: number[]; cursor: number }
-function projNavKey(): string { return 'proj-nav' }
-function getProjNav(): ProjNav {
-  try { return JSON.parse(sessionStorage.getItem(projNavKey()) || '{"stack":[],"cursor":-1}') as ProjNav } catch { return { stack: [], cursor: -1 } }
-}
-function saveProjNav(n: ProjNav): void { sessionStorage.setItem(projNavKey(), JSON.stringify(n)) }
-function navVisit(pid: number): void {
-  const nav = getProjNav()
-  // drop forward entries if any
-  if (nav.cursor >= 0 && nav.cursor < nav.stack.length - 1) nav.stack = nav.stack.slice(0, nav.cursor + 1)
-  if (nav.stack[nav.cursor] !== pid) { nav.stack.push(pid); nav.cursor = nav.stack.length - 1 }
-  saveProjNav(nav)
-}
-function navCanBack(): boolean { const nav = getProjNav(); return nav.cursor > 0 }
-function navCanFwd(): boolean { const nav = getProjNav(); return nav.cursor >= 0 && nav.cursor < nav.stack.length - 1 }
-function navStepBack(): number | null { const nav = getProjNav(); if (nav.cursor > 0) { nav.cursor -= 1; saveProjNav(nav); return nav.stack[nav.cursor] } return null }
-function navStepFwd(): number | null { const nav = getProjNav(); if (nav.cursor < nav.stack.length - 1) { nav.cursor += 1; saveProjNav(nav); return nav.stack[nav.cursor] } return null }
-// nav mode to suppress visit on back/forward
-function setNavMode(mode: 'back' | 'forward' | 'push' | ''): void { sessionStorage.setItem('proj-nav-mode', mode) }
-function consumeNavMode(): 'back' | 'forward' | 'push' | '' { const m = (sessionStorage.getItem('proj-nav-mode') as any) || ''; sessionStorage.removeItem('proj-nav-mode'); return m }
-function ensureProjectOpenTab(p: OpenProjTab): void {
-  const list = getOpenProjTabs()
-  const i = list.findIndex((x) => x.id === p.id)
-  if (i >= 0) {
-    // update title/fullName if changed
-    const cur = list[i]
-    if (p.title && p.title !== cur.title) cur.title = p.title
-    if (p.fullName && p.fullName !== cur.fullName) cur.fullName = p.fullName
-    saveOpenProjTabs(list)
-  } else {
-    list.push({ id: p.id, title: p.title || `#${p.id}`, fullName: p.fullName })
-    saveOpenProjTabs(list)
-  }
-}
+/* Removed: browser-like project tabs bar and picker
 function renderProjectTabsBar(root: HTMLElement, activeId: number): void {
   const host = root.querySelector('#projTabsBar .tabs-wrap') as HTMLElement | null
   if (!host) return
@@ -563,6 +513,7 @@ function openProjectTabPicker(root: HTMLElement, anchor: HTMLElement): void {
     pop.remove()
   })
 }
+*/
 
 function parseHashQuery(): Record<string, string> {
   const [, query = ''] = window.location.hash.split('?')
@@ -621,12 +572,8 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
   }
 
   // --- Start of post-render setup ---
-
-  // Record visit unless this render was triggered by back/forward
-  try { const mode = consumeNavMode(); if (mode !== 'back' && mode !== 'forward') navVisit(project.id) } catch { }
-  // Ensure this project is in the top project-tabs and render the bar
-  try { ensureProjectOpenTab({ id: project.id, title: project.name, fullName }) } catch { }
-  try { renderProjectTabsBar(container, project.id) } catch { }
+  // Top project tabs and in-app back/forward navigation removed
+  try { localStorage.removeItem('open-project-tabs'); sessionStorage.removeItem('proj-nav') } catch {}
 
   setupTabs(container, String(project.id))
   applyCoreTabs(container, String(project.id))
@@ -3665,27 +3612,10 @@ function buildWidgetTab(panel: HTMLElement, pid: string, scope: string, defaults
 function detailLayout(ctx: { id: number; name: string; fullName: string; owner: string; repo: string }): string {
   return `
     <div class="min-h-screen gh-canvas text-gray-100">
-      <!-- Browser-like project tabs (full width) -->
-      <div id="projTabsBar" class="sticky top-0 z-[80] bg-neutral-700/80 backdrop-blur-[1px]">
-        <div class="bar relative flex items-center px-2 h-10">
-          <!-- Left control area aligned above the rail -->
-          <div id="tabsLeftPad" class="absolute left-0 bottom-0 h-full w-[14rem] pl-3 flex items-end gap-2">
-            <button id="railToggleTop" class="w-7 h-7 grid place-items-center text-gray-200 hover:text-white" title="サイドバー表示/非表示"><span class="material-symbols-outlined text-[20px] leading-none">view_sidebar</span></button>
-            
-            <!-- Vertical divider aligned with rail edge -->
-            <div class="absolute right-0 top-0 h-full border-r border-neutral-600 pointer-events-none"></div>
-          </div>
-          <div class="tabs-wrap flex-1 flex items-end gap-0 overflow-x-auto pl-[calc(14rem+0.5rem)]" role="tablist"></div>
-          <button id="projTabAdd" class="ml-2 text-xl text-gray-400 hover:text-gray-100 px-2" title="プロジェクトを開く/追加">＋</button>
-          <!-- Right edge divider for browser tabs -->
-          <div class="absolute right-0 top-0 h-full border-l border-neutral-600 pointer-events-none"></div>
-        </div>
-      </div>
-
       <!-- Main split: left sidebar (tabs/actions) / right content -->
       <div class="flex">
         <!-- Left rail: vertical tabs + collaborator add (sticky) -->
-        <aside id="leftRail" class="relative w-56 shrink-0 p-4 border-r border-neutral-600 bg-neutral-700/80 sticky top-10 h-[calc(100vh-2.5rem)] flex flex-col">
+        <aside id="leftRail" class="relative w-56 shrink-0 p-4 border-r border-neutral-600 bg-neutral-700/80 sticky top-0 h-[100vh] flex flex-col">
           <div id="railResizer" class="absolute top-0 -right-1 w-2 h-full cursor-col-resize z-[5]"></div>
           <!-- Repo / Project breadcrumb at top of rail -->
           <div class="mb-5 pt-1">
