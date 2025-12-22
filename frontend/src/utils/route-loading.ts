@@ -49,16 +49,32 @@ function buildHexBurst(overlay: HTMLElement): void {
   const HEX_W = 124, HEX_H = Math.round(HEX_W * 0.866)
   const stepX = Math.round(HEX_W * 0.75)
 
-  // 不透明カラー
-  const colorsFill = [
-    'rgba(59,130,246,1)',   // blue-500
-    'rgba(16,185,129,1)',   // emerald-500
-    'rgba(236,72,153,1)',   // pink-500
-    'rgba(234,179,8,1)',    // amber-500
-    'rgba(168,85,247,1)',   // purple-500
-    'rgba(99,102,241,1)',   // indigo-500
-    'rgba(244,63,94,1)',    // rose-500
-    'rgba(20,184,166,1)',   // teal-500
+  // プロジェクト一覧のトーンに合わせた色（dark=低いトーンのrgba、light=やや明るめ）
+  const theme = document.documentElement.getAttribute('data-theme') || 'dark'
+  const isLight = theme === 'warm' || theme === 'sakura'
+  // 少し明るめ（darkでも落ち着いた彩度で、alphaを上げる）
+  const colorsFill = isLight ? [
+    'rgba(59,130,246,.70)',  // blue-500
+    'rgba(46,160,67,.70)',   // emerald-ish
+    'rgba(239,68,68,.70)',   // red-500
+    'rgba(168,85,247,.70)',  // purple-500
+    'rgba(249,115,22,.70)',  // orange-500
+    'rgba(234,179,8,.70)',   // amber-500
+    'rgba(14,165,233,.70)',  // sky-500
+    'rgba(20,184,166,.70)',  // teal-500
+    'rgba(99,102,241,.70)',  // indigo-500
+    'rgba(244,63,94,.70)',   // rose-500
+  ] : [
+    'rgba(59,130,246,.60)',  // blue-500
+    'rgba(46,160,67,.60)',   // emerald-ish
+    'rgba(239,68,68,.60)',   // red-500
+    'rgba(168,85,247,.60)',  // purple-500
+    'rgba(249,115,22,.60)',  // orange-500
+    'rgba(234,179,8,.60)',   // amber-500
+    'rgba(14,165,233,.60)',  // sky-500
+    'rgba(20,184,166,.60)',  // teal-500
+    'rgba(99,102,241,.60)',  // indigo-500
+    'rgba(244,63,94,.60)',   // rose-500
   ]
   const colorsBorder = colorsFill
 
@@ -87,7 +103,6 @@ function buildHexBurst(overlay: HTMLElement): void {
   const Q = Math.ceil((W / 2) / stepX) + 3
   const R = Math.ceil((H / 2) / HEX_H) + 3
   const margin = Math.max(HEX_W, HEX_H)
-  let idx = 0
   for (let q = -Q; q <= Q; q++) {
     for (let r = -R; r <= R; r++) {
       const p = toPixel(q, r)
@@ -95,8 +110,11 @@ function buildHexBurst(overlay: HTMLElement): void {
       const dx = p.x - cx, dy = p.y - cy
       const dist = Math.sqrt(dx * dx + dy * dy)
       const base = Math.floor((dist / stepX) * 80)
-      const jitter = Math.floor(Math.random() * 120)
-      makeHex(p.x, p.y, base + jitter, idx++)
+      // 座標ベースの擬似乱数で色/ディレイを分散（帯状の偏りを解消）
+      const seed = Math.abs((q * 92837111) ^ (r * 689287499)) >>> 0
+      const jitter = seed % 120
+      const ci = seed % colorsFill.length
+      makeHex(p.x, p.y, base + jitter, ci)
     }
   }
 }
