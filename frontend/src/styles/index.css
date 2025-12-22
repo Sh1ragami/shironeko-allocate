@@ -23,7 +23,9 @@ body {
 }
 
 /* Dark theme tokens (GitHub Primer Dark – tuned) */
-:root {
+:root,
+.th-dark,
+:root[data-theme="dark"] {
   /* App surfaces (Primer tokens) */
   /* Slightly lightened base to improve contrast and reduce "crushed" blacks */
   --gh-canvas: #0d1117;        /* color-canvas-default */
@@ -85,15 +87,220 @@ body {
   --color-emerald-500: 46 160 67;   /* #2ea043 (hover) */
   --color-emerald-600: 35 134 54;  /* #238636 (base) */
   --color-emerald-700: 31 111 47;  /* approx darker */
+  /* Subtle background accents for gradients */
+  --th-grad-a: rgba(88, 166, 255, 0.06);
+  --th-grad-b: rgba(35, 134, 54, 0.05);
+  /* Heatmap + calendar helpers */
+  --heat-0: var(--color-neutral-800);
+  --heat-1: var(--color-emerald-900);
+  --heat-2: var(--color-emerald-700);
+  --heat-3: var(--color-emerald-600);
+  --heat-4: var(--color-emerald-500);
+  --cal-filter: invert(0.9) hue-rotate(180deg);
+  --radius-card: 12px;
+  --shadow-card: 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+
+/* Warm paper theme tokens */
+:root[data-theme="warm"],
+.th-warm {
+  /* App surfaces */
+  --gh-canvas: #f3e7d9;          /* warm base */
+  --gh-canvas-subtle: #fff9f0;   /* lighter panels */
+  --gh-border: #d8ccbe;          /* soft brown border */
+  --gh-muted: #8b7e71;           /* muted text */
+  --gh-contrast: #2f2a25;        /* primary text */
+  --gh-accent: #7bb6d3;          /* soft blue accent */
+  --gh-green: #6eac7d;           /* soft green */
+  --gh-green-hover: #84be91;
+
+  /* Neutral scale repurposed for light surfaces (kept semantic mapping) */
+  --color-neutral-50: 143 131 117;   /* deep warm gray for rare usage */
+  --color-neutral-100: 155 142 127;
+  --color-neutral-200: 167 153 138;
+  --color-neutral-300: 179 165 149;
+  --color-neutral-400: 191 176 161;
+  --color-neutral-500: 203 187 170;
+  --color-neutral-600: 214 198 182;  /* borders */
+  --color-neutral-700: 225 209 192;
+  --color-neutral-800: 234 220 203;  /* panels */
+  --color-neutral-900: 243 231 217;  /* base backgrounds */
+  --color-neutral-950: 247 240 230;  /* page background */
+
+  /* Grays for text utilities: low number = darker text (so text-gray-100 is dark) */
+  --color-gray-50: 246 240 232;
+  --color-gray-100: 47 42 37;      /* primary text */
+  --color-gray-200: 66 59 52;      /* secondary text (darker for readability) */
+  --color-gray-300: 94 84 75;      /* body-muted */
+  --color-gray-400: 115 103 91;    /* subtle-muted */
+  --color-gray-500: 161 146 131;
+  --color-gray-600: 180 169 155;
+  --color-gray-700: 198 188 175;
+  --color-gray-800: 217 208 198;
+  --color-gray-900: 237 230 222;
+  --color-gray-950: 246 240 232;
+
+  /* Soft blue scale for accents/links */
+  --color-blue-50: 241 247 251;
+  --color-blue-100: 216 234 246;
+  --color-blue-200: 188 221 240;
+  --color-blue-300: 159 205 231;
+  --color-blue-400: 123 182 211;
+  --color-blue-500: 106 165 195;
+  --color-blue-600: 93 149 179;
+  --color-blue-700: 79 133 163;
+  --color-blue-800: 65 110 137;
+  --color-blue-900: 53 91 114;
+  --color-blue-950: 41 72 91;
+
+  /* Soft green for success */
+  --color-emerald-300: 184 224 191;
+  --color-emerald-400: 156 207 166;
+  --color-emerald-500: 132 190 145;
+  --color-emerald-600: 110 172 125;
+  --color-emerald-700: 92 149 107;
+
+  /* Background accent tints */
+  --th-grad-a: rgba(139, 126, 113, 0.10);
+  --th-grad-b: rgba(168, 208, 197, 0.15);
+  /* Themed helpers */
+  --heat-0: var(--color-neutral-600);
+  --heat-1: var(--color-emerald-300);
+  --heat-2: var(--color-emerald-400);
+  --heat-3: var(--color-emerald-500);
+  --heat-4: var(--color-emerald-600);
+  --cal-filter: none;
+  --radius-card: 12px;
+  --shadow-card: 0 6px 18px rgba(100, 80, 60, 0.18);
+}
+
+/* Sakura (light, blossom pink) */
+:root[data-theme="sakura"],
+.th-sakura {
+  --gh-canvas: #fff6f9;          /* blossom base */
+  --gh-canvas-subtle: #fffafd;   /* lighter panels */
+  --gh-border: #f0d7e3;          /* rosy border */
+  --gh-muted: #9a7b88;           /* muted text */
+  --gh-contrast: #2f2329;        /* primary text */
+  --gh-accent: #e07aa6;          /* sakura pink */
+  --gh-green: #e1729e;           /* use brand as primary (maps to emerald utilities) */
+  --gh-green-hover: #d96492;
+
+  /* Neutral scale for light surfaces */
+  --color-neutral-50: 150 132 143;
+  --color-neutral-100: 168 150 160;
+  --color-neutral-200: 206 181 192;  /* subtle lines */
+  --color-neutral-300: 222 198 208;
+  --color-neutral-400: 234 212 221;
+  --color-neutral-500: 241 223 230;
+  --color-neutral-600: 246 232 238;  /* borders */
+  --color-neutral-700: 250 238 244;
+  --color-neutral-800: 253 243 248;  /* panels */
+  --color-neutral-900: 255 247 251;  /* base */
+  --color-neutral-950: 255 250 253;  /* page */
+
+  /* Grays for readable text on light pink */
+  --color-gray-50: 252 248 250;
+  --color-gray-100: 47 35 41;      /* primary text */
+  --color-gray-200: 74 56 65;      /* secondary text */
+  --color-gray-300: 102 80 90;     /* muted text */
+  --color-gray-400: 131 108 118;   /* subtle */
+  --color-gray-500: 160 138 148;
+  --color-gray-600: 192 175 184;
+  --color-gray-700: 216 203 210;
+  --color-gray-800: 234 225 230;
+  --color-gray-900: 246 241 244;
+  --color-gray-950: 251 247 249;
+
+  /* Blue scale remains for links */
+  --color-blue-50: 246 240 255;
+  --color-blue-100: 226 210 248;
+  --color-blue-200: 203 178 240;
+  --color-blue-300: 177 147 232;
+  --color-blue-400: 153 124 222;
+  --color-blue-500: 134 106 210;
+  --color-blue-600: 116 91 191;
+  --color-blue-700: 98 74 168;
+  --color-blue-800: 79 60 143;
+  --color-blue-900: 60 47 111;
+  --color-blue-950: 44 35 85;
+
+  /* Brand mapped to emerald utilities → pink scale */
+  --color-emerald-300: 247 209 224; /* #f7d1e0 */
+  --color-emerald-400: 239 168 196; /* #efa8c4 */
+  --color-emerald-500: 232 140 177; /* #e88cb1 */
+  --color-emerald-600: 225 114 158; /* #e1729e */
+  --color-emerald-700: 196 88 132;  /* #c45884 */
+
+  --th-grad-a: rgba(224, 122, 166, 0.10);
+  --th-grad-b: rgba(253, 240, 244, 0.25);
+  --heat-0: var(--color-neutral-600);
+  --heat-1: var(--color-emerald-300);
+  --heat-2: var(--color-emerald-400);
+  --heat-3: var(--color-emerald-500);
+  --heat-4: var(--color-emerald-600);
+  --cal-filter: none;
+  --radius-card: 14px; /* softer shape */
+  --shadow-card: 0 6px 20px rgba(224, 122, 166, 0.18);
 }
 
 /* Theme helpers */
 .gh-canvas {
   /* Add very subtle color variation with layered gradients */
   background:
-    radial-gradient(900px 600px at 0% 0%, rgba(88, 166, 255, 0.06), transparent 60%),
-    radial-gradient(800px 500px at 100% 100%, rgba(35, 134, 54, 0.05), transparent 60%),
+    radial-gradient(900px 600px at 0% 0%, var(--th-grad-a), transparent 60%),
+    radial-gradient(800px 500px at 100% 100%, var(--th-grad-b), transparent 60%),
     var(--gh-canvas);
+}
+
+/* Sakura decorative overlay (petals) */
+:root[data-theme="sakura"] #app::before,
+.th-sakura[data-demo]::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.18;
+  background-image: var(--sakura-overlay, url("data:image/svg+xml;utf8,\
+    <svg xmlns='http://www.w3.org/2000/svg' width='320' height='320' viewBox='0 0 320 320'>\
+      <rect width='320' height='320' fill='none'/>\
+      <g fill='%23f2a0bd' fill-opacity='0.28'>\
+        <ellipse cx='50' cy='50' rx='14' ry='9'/>\
+        <ellipse cx='90' cy='70' rx='10' ry='6'/>\
+        <ellipse cx='130' cy='40' rx='12' ry='8'/>\
+        <ellipse cx='210' cy='80' rx='16' ry='10'/>\
+        <ellipse cx='270' cy='60' rx='8' ry='5'/>\
+      </g>\
+      <g fill='%23f7cadb' fill-opacity='0.4'>\
+        <circle cx='40' cy='140' r='8'/>\
+        <circle cx='110' cy='120' r='6'/>\
+        <circle cx='200' cy='150' r='7'/>\
+        <circle cx='280' cy='130' r='8'/>\
+        <circle cx='230' cy='220' r='10'/>\
+        <circle cx='90' cy='220' r='9'/>\
+      </g>\
+      <g fill='%23eaa3be' fill-opacity='0.22'>\
+        <ellipse cx='40' cy='260' rx='14' ry='9'/>\
+        <ellipse cx='120' cy='280' rx='10' ry='6'/>\
+        <ellipse cx='200' cy='260' rx='12' ry='8'/>\
+        <ellipse cx='300' cy='250' rx='8' ry='5'/>\
+      </g>\
+    </svg>"));
+  background-size: 340px 340px;
+  background-repeat: repeat;
+  z-index: 0;
+}
+
+/* Ensure app content is above overlay */
+#app { position: relative; z-index: 1; }
+
+/* Committers widget: ensure background follows theme (light themes especially) */
+:root[data-theme="warm"] [data-widget="committers"],
+:root[data-theme="sakura"] [data-widget="committers"] {
+  background-color: var(--gh-canvas-subtle) !important;
+  border: 1px solid var(--gh-border);
+  border-radius: var(--radius-card, 12px);
+  box-shadow: var(--shadow-card, none);
 }
 
 .gh-canvas-subtle {
@@ -103,6 +310,9 @@ body {
 .gh-border {
   border-color: var(--gh-border);
 }
+
+/* Google Calendar iframe adapts to theme instantly */
+.cal-body iframe { filter: var(--cal-filter); background-color: var(--gh-canvas); }
 
 /* Browser-like project tabs: subtle hover-reveal for close button */
 .tab-proj .tab-close { opacity: 0; pointer-events: none; transform: translateX(2px); transition: opacity .15s ease, transform .15s ease; }
@@ -119,7 +329,8 @@ body {
 .gh-card {
   background-color: var(--gh-canvas-subtle);
   border: 1px solid var(--gh-border);
-  border-radius: 0.75rem;
+  border-radius: var(--radius-card, 0.75rem);
+  box-shadow: var(--shadow-card, none);
 }
 
 .btn-primary {

@@ -1,6 +1,7 @@
 import { apiFetch, ApiError } from '../../utils/api'
 import { openTaskModal, openTaskModalGh } from './task-modal'
 import { renderNotFound } from '../not-found/not-found'
+import { getTheme, setTheme } from '../../utils/theme'
 // (no component-level imports; keep in-page implementations)
 // Account modal helpers (duplicated to open over current page)
 type SkillGroup = 'owned' | 'want'
@@ -52,6 +53,11 @@ function notifyRow(label: string, extra: string = ''): string {
     </div>
   `
 }
+
+function themeOption(id: 'dark' | 'warm' | 'sakura', title: string, desc: string, scopeClass: string): string {
+  return `
+  <button type=\"button\" data-theme=\"${id}\" class=\"theme-option relative text-left rounded-lg ring-2 ring-neutral-600 bg-neutral-900/40 hover:ring-emerald-600 transition-colors\">\n    <div class=\"absolute right-2 top-2 text-[10px] px-2 py-0.5 rounded-full bg-emerald-700 text-white opacity-0\" data-check>選択中</div>\n    <div class=\"p-3 ${scopeClass}\" ${scopeClass === 'th-sakura' ? 'data-demo' : ''}>\n      <div class=\"h-5 rounded bg-neutral-900/80 ring-2 ring-neutral-600\"></div>\n      <div class=\"mt-2 flex gap-2\">\n        <div class=\"w-8 rounded bg-neutral-900/50 ring-2 ring-neutral-600 h-20\"></div>\n        <div class=\"flex-1 space-y-2\">\n          <div class=\"gh-card p-2\"><div class=\"h-3 w-1/3 rounded bg-blue-400/30\"></div><div class=\"mt-2 h-2 w-2/3 rounded bg-gray-400/30\"></div></div>\n          <div class=\"gh-card p-2\"><div class=\"h-3 w-1/4 rounded bg-emerald-400/30\"></div><div class=\"mt-2 h-2 w-1/2 rounded bg-gray-400/30\"></div></div>\n        </div>\n      </div>\n    </div>\n    <div class=\"mt-3 px-3 pb-3\">\n      <div class=\"text-[15px] font-medium text-gray-100\">${title}</div>\n      <div class=\"text-[12px] text-gray-400\">${desc}</div>\n    </div>\n  </button>`
+}
 function openAccountModal(root: HTMLElement): void {
   const me = (root as any)._me as { name?: string; email?: string; github_id?: number } | undefined
   const avatarUrl = me?.github_id ? `https://avatars.githubusercontent.com/u/${me.github_id}?s=128` : ''
@@ -71,6 +77,9 @@ function openAccountModal(root: HTMLElement): void {
           </button>
           <button data-tab="notify" class="tab-btn w-full text-left px-3 py-2 rounded-md hover:bg-neutral-800/40 ring-2 ring-transparent text-gray-100">
             <span>通知設定</span>
+          </button>
+          <button data-tab="theme" class="tab-btn w-full text-left px-3 py-2 rounded-md hover:bg-neutral-800/40 ring-2 ring-transparent text-gray-100">
+            <span>着せ替え</span>
           </button>
         </aside>
         <section class="flex-1 p-6 space-y-6 overflow-y-auto">
@@ -123,9 +132,18 @@ function openAccountModal(root: HTMLElement): void {
               <div class="mt-2 flex items-center gap-4 text-gray-200">
                 <input id="ntf-start" type="time" value="06:30" class="w-32 rounded-md bg-neutral-800/60 ring-2 ring-neutral-600 px-3 py-1.5 text-gray-100" />
                 <span class="text-gray-400">〜</span>
-                <input id="ntf-end" type="time" value="20:30" class="w-32 rounded-md bg-neutral-800/60 ring-2 ring-neutral-600 px-3 py-1.5 text-gray-100" />
+              <input id="ntf-end" type="time" value="20:30" class="w-32 rounded-md bg-neutral-800/60 ring-2 ring-neutral-600 px-3 py-1.5 text-gray-100" />
               </div>
             </section>
+          </div>
+          <div class="tab-panel hidden" data-tab="theme">
+            <h4 class="text-base font-medium mb-2">テーマを選択</h4>
+            <p class="text-sm text-gray-400 mb-4">プレビューをクリックすると即時に適用されます。</p>
+            <div class="grid gap-4 sm:grid-cols-2 md:grid-cols-3">
+              ${themeOption('dark', 'ダーク', '夜間やコントラスト重視向け', 'th-dark')}
+              ${themeOption('warm', 'ウォーム', 'やわらかい紙風の見た目', 'th-warm')}
+              ${themeOption('sakura', 'さくら', 'やわらかい桜色のUI', 'th-sakura')}
+            </div>
           </div>
         </section>
       </div>
@@ -151,6 +169,27 @@ function openAccountModal(root: HTMLElement): void {
         b.classList.toggle('ring-2', active)
         b.classList.toggle('ring-neutral-600', active)
       })
+    })
+  })
+  // Theme option interactions
+  const initTheme = getTheme()
+  const mark = (cur: 'dark' | 'warm') => {
+    overlay.querySelectorAll('.theme-option')?.forEach((opt) => {
+      const id = (opt as HTMLElement).getAttribute('data-theme')
+      const sel = id === cur
+      opt.classList.toggle('ring-emerald-600', sel)
+      opt.classList.toggle('ring-neutral-600', !sel)
+      const badge = opt.querySelector('[data-check]') as HTMLElement | null
+      if (badge) badge.classList.toggle('opacity-100', sel)
+      if (badge) badge.classList.toggle('opacity-0', !sel)
+    })
+  }
+  try { mark(initTheme) } catch {}
+  overlay.querySelectorAll('.theme-option')?.forEach((el) => {
+    el.addEventListener('click', () => {
+      const id = (el as HTMLElement).getAttribute('data-theme') as 'dark' | 'warm'
+      setTheme(id)
+      mark(id)
     })
   })
   // Toggle switch interactions
@@ -760,7 +799,7 @@ function widgetShell(id: string, title: string, body: string): string {
   // タイトルは非表示。S/M/L操作は廃止し、角からのリサイズへ移行。
   // 枠線の代わりに、背景＋シャドウで“盛り上がり”を表現。
   return `
-    <div class="widget group relative rounded-xl bg-neutral-800/70 shadow-[0_1px_0_rgba(255,255,255,0.04)_inset,0_8px_24px_rgba(0,0,0,0.35)] p-3 md:col-span-6 flex flex-col overflow-hidden" draggable="false" data-widget="${id}">
+    <div class="widget group relative gh-card p-3 md:col-span-6 flex flex-col overflow-hidden" draggable="false" data-widget="${id}">
       <div class="wg-content relative min-h-0 flex-1 overflow-auto">${body}</div>
       <!-- Edit-only controls: move handle, delete button, resize handles (sides + corners) -->
       <div class="wg-move hidden absolute z-20 top-1 left-1 w-7 h-7 grid place-items-center cursor-grab active:cursor-grabbing select-none">
@@ -859,23 +898,23 @@ function committersRender(root: HTMLElement, stats: Array<{ login: string; avata
   const reserve = Math.min(Math.max(avatarSize + 12, 28), Math.max(28, Math.round(h * 0.55))) + labelSpace
   const gapClass = h <= 110 ? 'gap-2' : 'gap-4'
   wrap.innerHTML = `
-    <div class="relative w-full h-full">
+    <div class="relative w-full h-full rounded-md" style="background-color: var(--gh-canvas-subtle); border: 1px solid var(--gh-border); border-radius: var(--radius-card, 12px);">
       <div class="absolute inset-0 grid" style="grid-template-rows: repeat(4, 1fr)">
-        ${[0, 1, 2, 3].map(() => '<div class=\"border-t border-dotted border-neutral-600\"></div>').join('')}
+        ${[0, 1, 2, 3].map(() => '<div class=\"border-t border-dotted\" style=\"border-color: var(--gh-border);\"></div>').join('')}
       </div>
       <div class="absolute inset-0 flex items-end ${gapClass} justify-evenly px-2 md:px-4">
         ${top
-      .map(
-        (s) => `
+          .map(
+            (s) => `
           <div class=\"flex flex-col items-center h-full\" style=\"width:${Math.floor(100 / cols)}%\">
             <div class=\"w-5 md:w-8\" style=\"height: calc(100% - ${reserve}px); display: flex; align-items: flex-end;\">
-              <div class=\"w-full bg-emerald-600 rounded\" style=\"height:${Math.round((100 * s.count) / max)}%\"></div>
+              <div class=\"w-full rounded\" style=\"background-color: rgb(var(--color-emerald-600)); height:${Math.round((100 * s.count) / max)}%\"></div>
             </div>
-            <img src=\"${s.avatar_url || ''}\" class=\"mt-1 md:mt-2 rounded-full ring-2 ring-neutral-600 object-cover\" style=\"width:${avatarSize}px; height:${avatarSize}px;\"/>
-            <div class=\"mt-1 text-[10px] md:text-xs text-gray-300 truncate max-w-[72px]\">${s.login}</div>
+            <img src=\"${s.avatar_url || ''}\" class=\"mt-1 md:mt-2 rounded-full object-cover\" style=\"width:${avatarSize}px; height:${avatarSize}px; border: 2px solid var(--gh-border);\"/>
+            <div class=\"mt-1 text-[10px] md:text-xs truncate max-w-[72px]\" style=\"color: var(--gh-muted);\">${s.login}</div>
           </div>`
-      )
-      .join('')}
+          )
+          .join('')}
       </div>
     </div>`
   try {
@@ -1038,7 +1077,8 @@ function renderContribHeatmap(root: HTMLElement, full: string, cache: ContribCac
     if (s < 0.75) return 3
     return 4
   }
-  const palette = ['bg-neutral-800', 'bg-emerald-900', 'bg-emerald-700', 'bg-emerald-600', 'bg-emerald-500']
+  // Use CSS-variable driven colors so palette adapts to theme live
+  // Define 5 levels via --heat-0..4 (RGB tuples) in theme tokens
   let weeks = range.weeks
 
   const nodes = root.querySelectorAll('.contrib-body .contrib-grid') as NodeListOf<HTMLElement>
@@ -1089,8 +1129,7 @@ function renderContribHeatmap(root: HTMLElement, full: string, cache: ContribCac
     grid.innerHTML = usedDays.map((d) => {
       const n = cache.days[d] || 0
       const lv = toLevel(n)
-      const cls = palette[lv]
-      return `<div class="rounded-sm ${cls}" style="width:${cell}px; height:${cell}px" title="${d}: ${n} commits" aria-label="${d}: ${n} commits"></div>`
+      return `<div class="rounded-sm" style="width:${cell}px; height:${cell}px; background-color: rgb(var(--heat-${lv}));" title="${d}: ${n} commits" aria-label="${d}: ${n} commits"></div>`
     }).join('')
     // Scroll to show the most recent weeks by default (right edge)
     try {
@@ -3071,22 +3110,23 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
             doFit()
           } else {
             const svgSize = Math.floor(size * 0.95)
-            const nums = Array.from({length:12}).map((_,i)=>{
-              const n=i+1; const a=n*30; const rad=a*Math.PI/180; const rx=50+Math.sin(rad)*36; const ry=50-Math.cos(rad)*36; return `<text x=\"${rx.toFixed(1)}\" y=\"${(ry+3).toFixed(1)}\" text-anchor=\"middle\" fill=\"#e5e7eb\" font-size=\"8\">${n}</text>`
+            const nums = Array.from({ length: 12 }).map((_, i) => {
+              const n = i + 1; const a = n * 30; const rad = a * Math.PI / 180; const rx = 50 + Math.sin(rad) * 36; const ry = 50 - Math.cos(rad) * 36; return `<text x=\"${rx.toFixed(1)}\" y=\"${(ry + 3).toFixed(1)}\" text-anchor=\"middle\" fill=\"var(--clk-major)\" font-size=\"8\">${n}</text>`
             }).join('')
+            // Use CSS variables so it adapts to theme instantly
             box.innerHTML = `
-              <div class=\"clk-analog\">
+              <div class=\"clk-analog\" style=\"--clk-face: var(--gh-canvas); --clk-border: var(--gh-border); --clk-major: var(--gh-contrast); --clk-minor: var(--gh-muted); --clk-sec: var(--gh-accent); color: var(--gh-contrast);\">
                 <svg viewBox=\"0 0 100 100\" width=\"${svgSize}\" height=\"${svgSize}\">
-                  <circle cx=\"50\" cy=\"50\" r=\"48\" fill=\"#0a0a0a\" stroke=\"#444\" stroke-width=\"2\" />
-                  ${Array.from({length:60}).map((_,i)=>{
-                    const a=i*6; const rad=a*Math.PI/180; const r1=i%5===0?41:44; const r2=46; const x1=50+Math.sin(rad)*r1; const y1=50-Math.cos(rad)*r1; const x2=50+Math.sin(rad)*r2; const y2=50-Math.cos(rad)*r2; const sw=i%5===0?2:1; const col=i%5===0?'#777':'#555';
+                  <circle cx=\"50\" cy=\"50\" r=\"48\" fill=\"var(--clk-face)\" stroke=\"var(--clk-border)\" stroke-width=\"2\" />
+                  ${Array.from({ length: 60 }).map((_, i) => {
+                    const a = i * 6; const rad = a * Math.PI / 180; const r1 = i % 5 === 0 ? 41 : 44; const r2 = 46; const x1 = 50 + Math.sin(rad) * r1; const y1 = 50 - Math.cos(rad) * r1; const x2 = 50 + Math.sin(rad) * r2; const y2 = 50 - Math.cos(rad) * r2; const sw = i % 5 === 0 ? 2 : 1; const col = i % 5 === 0 ? 'var(--clk-minor)' : 'var(--clk-border)';
                     return `<line x1=\"${x1.toFixed(1)}\" y1=\"${y1.toFixed(1)}\" x2=\"${x2.toFixed(1)}\" y2=\"${y2.toFixed(1)}\" stroke=\"${col}\" stroke-width=\"${sw}\" />`
                   }).join('')}
                   ${nums}
-                  <line id=\"clk-h\" x1=\"50\" y1=\"50\" x2=\"50\" y2=\"32\" stroke=\"#e5e7eb\" stroke-width=\"3.5\" stroke-linecap=\"round\" />
-                  <line id=\"clk-m\" x1=\"50\" y1=\"50\" x2=\"50\" y2=\"22\" stroke=\"#a3a3a3\" stroke-width=\"2.5\" stroke-linecap=\"round\" />
-                  <line id=\"clk-s\" x1=\"50\" y1=\"50\" x2=\"50\" y2=\"18\" stroke=\"#f87171\" stroke-width=\"1.5\" stroke-linecap=\"round\" />
-                  <circle cx=\"50\" cy=\"50\" r=\"2.5\" fill=\"#e5e7eb\" />
+                  <line id=\"clk-h\" x1=\"50\" y1=\"50\" x2=\"50\" y2=\"32\" stroke=\"var(--clk-major)\" stroke-width=\"3.5\" stroke-linecap=\"round\" />
+                  <line id=\"clk-m\" x1=\"50\" y1=\"50\" x2=\"50\" y2=\"22\" stroke=\"var(--clk-minor)\" stroke-width=\"2.5\" stroke-linecap=\"round\" />
+                  <line id=\"clk-s\" x1=\"50\" y1=\"50\" x2=\"50\" y2=\"18\" stroke=\"var(--clk-sec)\" stroke-width=\"1.5\" stroke-linecap=\"round\" />
+                  <circle cx=\"50\" cy=\"50\" r=\"2.5\" fill=\"var(--clk-major)\" />
                 </svg>
               </div>`
           }
@@ -3266,13 +3306,16 @@ function renderCalendarFrame(url: string): string {
     const u = new URL(safe)
     isGcal = /(^|\.)calendar\.google\.com$/i.test(u.hostname) && u.pathname.includes('/calendar/')
     if (isGcal) {
-      // Force a dark background where supported
-      u.searchParams.set('bgcolor', '#121212')
+      const theme = (document.documentElement.getAttribute('data-theme') || 'dark')
+      // Set background color hint to match theme
+      const bg = theme === 'warm' ? '#fff8ec' : '#121212'
+      u.searchParams.set('bgcolor', bg)
       safe = u.toString()
     }
   } catch { /* ignore URL parse errors */ }
 
-  const iframeStyle = isGcal ? 'filter: invert(0.9) hue-rotate(180deg);' : ''
+  // Use theme-driven filter for Google Calendar
+  const iframeStyle = isGcal ? `filter: var(--cal-filter);` : ''
   // Best-effort embed; apply sandbox and referrer policy consistently
   return `<div class=\"h-full min-h-[220px] overflow-hidden bg-neutral-900\"><iframe class=\"w-full h-full\" style=\"${iframeStyle}\" src=\"${escHtml(safe)}\" sandbox=\"allow-scripts allow-same-origin allow-forms allow-popups\" referrerpolicy=\"no-referrer\"></iframe></div>`
 }

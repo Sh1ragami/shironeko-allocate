@@ -9,6 +9,13 @@
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&icon_names=view_sidebar" />
   </head>
   <body>
+    <script>
+      // Apply saved theme early to avoid flash
+      try {
+        var t = localStorage.getItem('ua-theme') || 'dark';
+        document.documentElement.setAttribute('data-theme', t);
+      } catch (e) {}
+    </script>
     <!-- <h1>共通レイアウト</h1>
     <a href="#/">ルートページ</a>
     <a href="#/login">ログインページ</a> -->

@@ -1,4 +1,5 @@
 import { apiFetch } from '../../utils/api'
+import { getTheme, setTheme } from '../../utils/theme'
 
 type Project = {
   id: number
@@ -563,6 +564,9 @@ function openAccountModal(root: HTMLElement): void {
           <button data-tab="notify" class="tab-btn w-full text-left px-3 py-2 rounded-md hover:bg-neutral-800/40 ring-2 ring-transparent text-gray-100">
             <span>通知設定</span>
           </button>
+          <button data-tab="theme" class="tab-btn w-full text-left px-3 py-2 rounded-md hover:bg-neutral-800/40 ring-2 ring-transparent text-gray-100">
+            <span>着せ替え</span>
+          </button>
         </aside>
         <section class="flex-1 p-6 space-y-6 overflow-y-auto">
           <div class="tab-panel" data-tab="basic">
@@ -619,6 +623,15 @@ function openAccountModal(root: HTMLElement): void {
               </div>
             </section>
           </div>
+          <div class="tab-panel hidden" data-tab="theme">
+            <h4 class="text-base font-medium mb-2">テーマを選択</h4>
+            <p class="text-sm text-gray-400 mb-4">プレビューをクリックすると即時に適用されます。</p>
+            <div class="grid gap-4 sm:grid-cols-2 md:grid-cols-3">
+              ${themeOption('dark', 'ダーク', '夜間やコントラスト重視向け', 'th-dark')}
+              ${themeOption('warm', 'ウォーム', 'やわらかい紙風の見た目', 'th-warm')}
+              ${themeOption('sakura', 'さくら', 'やわらかい桜色のUI', 'th-sakura')}
+            </div>
+          </div>
         </section>
       </div>
     </div>
@@ -664,6 +677,35 @@ function openAccountModal(root: HTMLElement): void {
   })
 
   document.body.appendChild(overlay); (function () { const c = +(document.body.getAttribute('data-lock') || '0'); if (c === 0) { document.body.style.overflow = 'hidden' } document.body.setAttribute('data-lock', String(c + 1)) })()
+  // Theme option interactions
+  const initTheme = getTheme()
+  const mark = () => {
+    overlay.querySelectorAll('.theme-option').forEach((opt) => {
+      const id = (opt as HTMLElement).getAttribute('data-theme')
+      const selected = id === initTheme
+      opt.classList.toggle('ring-emerald-600', selected)
+      opt.classList.toggle('ring-neutral-600', !selected)
+      const badge = opt.querySelector('[data-check]') as HTMLElement | null
+      if (badge) badge.classList.toggle('opacity-100', selected)
+      if (badge) badge.classList.toggle('opacity-0', !selected)
+    })
+  }
+  mark()
+  overlay.querySelectorAll('.theme-option')?.forEach((el) => {
+    el.addEventListener('click', () => {
+      const id = (el as HTMLElement).getAttribute('data-theme') as 'dark' | 'warm'
+      setTheme(id)
+      // Update selection state
+      overlay.querySelectorAll('.theme-option').forEach((opt) => {
+        const sel = (opt as HTMLElement).getAttribute('data-theme') === id
+        opt.classList.toggle('ring-emerald-600', sel)
+        opt.classList.toggle('ring-neutral-600', !sel)
+        const badge = opt.querySelector('[data-check]') as HTMLElement | null
+        if (badge) badge.classList.toggle('opacity-100', sel)
+        if (badge) badge.classList.toggle('opacity-0', !sel)
+      })
+    })
+  })
   // Skills interactions (toggle/select + see-all)
   const meId = (root as any)._me?.id as number | undefined
   const onToggle = (btn: HTMLElement, sec: HTMLElement) => {
@@ -743,6 +785,28 @@ function notifyRow(label: string, extra: string = ''): string {
 
 function timeBox(text: string): string {
   return `<span class="inline-flex items-center rounded-md bg-neutral-800/70 ring-2 ring-neutral-600 px-3 py-1 text-sm text-gray-200">${text}</span>`
+}
+
+function themeOption(id: 'dark' | 'warm' | 'sakura', title: string, desc: string, scopeClass: string): string {
+  // Preview uses theme-scoped visuals, but the labels below use current theme colors for readability
+  return `
+  <button type="button" data-theme="${id}" class="theme-option relative text-left rounded-lg ring-2 ring-neutral-600 bg-neutral-900/40 hover:ring-emerald-600 transition-colors">
+    <div class="absolute right-2 top-2 text-[10px] px-2 py-0.5 rounded-full bg-emerald-700 text-white opacity-0" data-check>選択中</div>
+    <div class="p-3 ${scopeClass}" ${scopeClass === 'th-sakura' ? 'data-demo' : ''}>
+      <div class="h-5 rounded bg-neutral-900/80 ring-2 ring-neutral-600"></div>
+      <div class="mt-2 flex gap-2">
+        <div class="w-8 rounded bg-neutral-900/50 ring-2 ring-neutral-600 h-20"></div>
+        <div class="flex-1 space-y-2">
+          <div class="gh-card p-2"><div class="h-3 w-1/3 rounded bg-blue-400/30"></div><div class="mt-2 h-2 w-2/3 rounded bg-gray-400/30"></div></div>
+          <div class="gh-card p-2"><div class="h-3 w-1/4 rounded bg-emerald-400/30"></div><div class="mt-2 h-2 w-1/2 rounded bg-gray-400/30"></div></div>
+        </div>
+      </div>
+    </div>
+    <div class="mt-3 px-3 pb-3">
+      <div class="text-[15px] font-medium text-gray-100">${title}</div>
+      <div class="text-[12px] text-gray-400">${desc}</div>
+    </div>
+  </button>`
 }
 
 // ---------------- Project Create Modal ----------------
