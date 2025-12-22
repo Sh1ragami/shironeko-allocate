@@ -303,6 +303,14 @@ body {
   box-shadow: var(--shadow-card, none);
 }
 
+/* Slide-out group panel (left edge peek) */
+.grp-panel { position: fixed; top: 56px; bottom: 12px; left: 0; width: 200px; background: rgba(0,0,0,.25); backdrop-filter: blur(5px) saturate(120%); border-right: 1px solid var(--gh-border); box-shadow: 0 8px 24px rgba(0,0,0,.35); transform: translateX(calc(-100% + 12px)); transition: transform .18s ease; z-index: 12; border-top-right-radius: 12px; border-bottom-right-radius: 12px; }
+.grp-panel:hover { transform: translateX(0); }
+:root[data-theme="warm"] .grp-panel, :root[data-theme="sakura"] .grp-panel { background: rgba(255,255,255,.55); }
+.grp-content { height: 100%; padding: 10px; display: flex; flex-direction: column; gap: 10px; overflow-y: auto; }
+.grp-peek { position: absolute; right: -12px; top: 42%; width: 12px; height: 120px; background: rgba(0,0,0,.35); border: 1px solid var(--gh-border); border-left: none; border-top-right-radius: 10px; border-bottom-right-radius: 10px; box-shadow: var(--shadow-card, none); }
+:root[data-theme="warm"] .grp-peek, :root[data-theme="sakura"] .grp-peek { background: rgba(0,0,0,.18); }
+
 .gh-canvas-subtle {
   background-color: var(--gh-canvas-subtle);
 }
@@ -445,3 +453,123 @@ body {
 .overflow-auto {
   -webkit-overflow-scrolling: touch;
 }
+
+/* ---- Honeycomb (Projects) ---- */
+.hx-wrap { position: fixed; inset: 0; overflow: hidden; z-index: 0; }
+.hx-canvas { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+.hx-wrap, .hx-canvas, .hx-tile { user-select: none; -webkit-user-select: none; touch-action: none; }
+/* Lock interaction behind modal overlays */
+body[data-lock]:not([data-lock="0"]) .hx-wrap { pointer-events: none; }
+.hx-tile { position: absolute; cursor: pointer; transition: transform .15s ease, filter .15s ease; }
+.hx-clip { width: 100%; height: 100%; clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%); background: var(--gh-canvas-subtle); border: 1px solid var(--gh-border); border-radius: 8px; box-shadow: var(--shadow-card, none); overflow: hidden; position: relative; }
+.hx-clip::before { content: ''; position: absolute; inset: 0; background: radial-gradient(120% 80% at 10% 0%, rgba(255,255,255,0.06), transparent 60%), radial-gradient(140% 100% at 100% 100%, rgba(0,0,0,0.06), transparent 60%); opacity: .8; }
+.hx-info { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; padding: 6px; opacity: 1; transition: opacity .15s ease, background .15s ease; backdrop-filter: saturate(120%) brightness(1.03); color: var(--gh-contrast); font-weight: 600; text-shadow: 0 1px 2px rgba(0,0,0,.18); background: rgba(0,0,0,.14); }
+.hx-tile:hover { filter: brightness(1.05); transform: translateY(-2px); }
+.hx-tile:hover .hx-info { background: rgba(0,0,0,.22); }
+.hx-img { position: absolute; inset: 0; object-fit: cover; opacity: .9; }
+.hx-toolbar { position: absolute; right: 12px; top: 12px; z-index: 5; display: flex; gap: 6px; }
+.hx-btn { padding: 6px 8px; border-radius: 8px; background: rgba(0,0,0,.22); color: white; border: 1px solid var(--gh-border); }
+:root[data-theme="warm"] .hx-btn, :root[data-theme="sakura"] .hx-btn { background: rgba(255,255,255,.35); color: rgb(var(--color-gray-100)); }
+
+/* Empty placeholder tiles to fill grid visually */
+.hx-empty .hx-clip { background: rgba(0,0,0,.28) !important; border-color: rgba(0,0,0,.45) !important; filter: saturate(.7) brightness(.9); }
+:root[data-theme="warm"] .hx-empty .hx-clip, :root[data-theme="sakura"] .hx-empty .hx-clip { background: rgba(0,0,0,.08) !important; border-color: rgba(0,0,0,.18) !important; }
+.hx-empty .hx-info { opacity: 0 !important; }
+
+/* Create-project tile visual */
+.hx-create .hx-clip { background: rgba(120,120,120,.28) !important; border-color: rgba(120,120,120,.55) !important; }
+.hx-create .hx-info { opacity: 1 !important; background: rgba(0,0,0,.22); font-weight: 700; }
+.hx-create .hx-info .plus { display: block; font-size: 22px; line-height: 1; margin-bottom: 4px; }
+
+/* Minimap */
+.hx-mini { position: fixed; right: 14px; top: 72px; width: 140px; height: 140px; border-radius: 50%; background: rgba(0,0,0,.32); backdrop-filter: blur(4px) saturate(120%); border: 1px solid var(--gh-border); display: grid; place-items: center; z-index: 11; }
+:root[data-theme="warm"] .hx-mini, :root[data-theme="sakura"] .hx-mini { background: rgba(255,255,255,.45); }
+.hx-mini canvas { width: 120px; height: 120px; border-radius: 50%; }
+
+/* Route loading overlay */
+.route-loading { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; background: #000;
+  overflow: hidden;
+}
+/* Stage layout */
+.route-loading .rl-stage { position: relative; width: 100%; height: 100%; }
+.route-loading .rl-name { position: absolute; left: 50%; top: 46%; transform: translate(-50%, -50%); font-weight: 800; font-size: clamp(26px, 5vw, 52px); color: #fff; opacity: 0; filter: drop-shadow(0 6px 22px rgba(0,0,0,.45)); animation: rlName .5s ease forwards .1s; text-align: center; letter-spacing: .01em }
+.route-loading .rl-bar { position: absolute; left: 50%; top: 66%; transform: translateX(-50%); width: min(24vw, 260px); height: 6px; border-radius: 9999px; background: rgba(255,255,255,.12); overflow: hidden }
+.route-loading .rl-bar .rl-bar-fill { height: 100%; width: 0%; background: rgba(255,255,255,.9); animation: rlFill var(--rl-dur, 2000ms) linear forwards }
+.route-loading .rl-burst { position: absolute; inset: 0; }
+.route-loading .rl-pop { position: absolute; transform: translate(-50%, -50%) scale(.8); opacity: 0; clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%); background: var(--rl-col, #fff); border: 0; animation: rlPop .45s ease-out forwards; animation-delay: var(--rl-delay, 0ms); }
+.route-loading .rl-burst { transform-origin: 50% 50%; }
+
+@keyframes rlName { from { opacity: 0; transform: translate(-50%, -48%); } to { opacity: 1; transform: translate(-50%, -50%); } }
+@keyframes rlFill { from { width: 0% } to { width: 100% } }
+@keyframes rlPop { from { transform: translate(-50%, -50%) scale(.8); opacity: 0 } to { transform: translate(-50%, -50%) scale(1); opacity: 1 } }
+/* Honeycomb background layers */
+.route-loading::before,
+.route-loading::after { content: ""; position: absolute; inset: -10%; pointer-events: none; opacity: .65; mix-blend-mode: overlay; }
+/* Grid color varies by theme */
+.route-loading { --rl-grid: rgba(255,255,255,.06) }
+:root[data-theme="warm"] .route-loading,
+:root[data-theme="sakura"] .route-loading { --rl-grid: rgba(0,0,0,.08) }
+
+/* Big cells (slow drift) */
+.route-loading::before { 
+  background-image: url("data:image/svg+xml;utf8,\
+    <svg xmlns='http://www.w3.org/2000/svg' width='96' height='84' viewBox='0 0 96 84'>\
+      <g fill='none' stroke='white' stroke-opacity='.6' stroke-width='1.2'>\
+        <polygon points='24,0 72,0 96,42 72,84 24,84 0,42'/>\
+      </g>\
+    </svg>");
+  background-size: 96px 84px; 
+  filter: drop-shadow(0 0 0 var(--rl-grid));
+  animation: rlDrift 18s linear infinite;
+}
+/* Small cells (parallax) */
+.route-loading::after {
+  opacity: .45;
+  background-image: url("data:image/svg+xml;utf8,\
+    <svg xmlns='http://www.w3.org/2000/svg' width='64' height='56' viewBox='0 0 64 56'>\
+      <g fill='none' stroke='white' stroke-opacity='.55' stroke-width='1.0'>\
+        <polygon points='16,0 48,0 64,28 48,56 16,56 0,28'/>\
+      </g>\
+    </svg>");
+  background-size: 64px 56px;
+  filter: drop-shadow(0 0 0 var(--rl-grid));
+  animation: rlDrift2 24s linear infinite reverse;
+}
+.route-loading .rl-wrap { position: relative; width: 260px; height: 260px; }
+.route-loading .rl-hex { position: absolute; inset: 0; clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%); border: 2px solid var(--gh-border); }
+.route-loading .rl-hex-a { transform: scale(1); animation: rlPulse 1.4s ease-in-out infinite; background: linear-gradient(135deg, rgba(255,255,255,.06), rgba(0,0,0,.08)); }
+.route-loading .rl-hex-b { transform: scale(.75) rotate(15deg); animation: rlSpin 2.4s linear infinite; border-color: var(--gh-accent); }
+.route-loading .rl-hex-c { transform: scale(.5) rotate(-15deg); animation: rlSpin 3s linear infinite reverse; border-color: var(--gh-green); }
+.route-loading .rl-text { position: absolute; inset: 0; display: grid; place-items: center; gap: 6px; flex-direction: column; }
+.route-loading .rl-text .rl-word { 
+  font-weight: 800; 
+  font-size: 48px; 
+  letter-spacing: .06em; 
+  text-transform: uppercase; 
+  background: linear-gradient(90deg, var(--gh-contrast), var(--gh-accent));
+  -webkit-background-clip: text; background-clip: text; color: transparent; 
+  text-shadow: 0 2px 8px rgba(0,0,0,.25);
+}
+.route-loading .rl-text .rl-dots { margin-left: 6px; display: inline-block; }
+.route-loading .rl-text .rl-dots i { display:inline-block; width: .3em; text-align:center; color: var(--gh-contrast); opacity: .25; font-size: 46px; line-height: 1; animation: rlDots 1.2s infinite steps(1,end); }
+.route-loading .rl-text .rl-dots i:nth-child(1){ animation-delay: 0s }
+.route-loading .rl-text .rl-dots i:nth-child(2){ animation-delay: .2s }
+.route-loading .rl-text .rl-dots i:nth-child(3){ animation-delay: .4s }
+
+@keyframes rlPulse { 0% { transform: scale(1); opacity: .8 } 50% { transform: scale(1.06); opacity: 1 } 100% { transform: scale(1); opacity: .8 } }
+@keyframes rlSpin { from { transform: rotate(0deg) scale(var(--rl-s,1)); } to { transform: rotate(360deg) scale(var(--rl-s,1)); } }
+@keyframes rlDrift { from { transform: translateX(0) translateY(0); } to { transform: translateX(96px) translateY(84px); } }
+@keyframes rlDrift2 { from { transform: translateX(0) translateY(0); } to { transform: translateX(-64px) translateY(56px); } }
+@keyframes rlDots { 0% { opacity: .25 } 50% { opacity: 1 } 100% { opacity: .25 } }
+
+/* Circle transition overlay */
+.circle-trans { position: fixed; inset: 0; z-index: 120; pointer-events: none; }
+.circle-trans { background: transparent }
+.circle-trans::before { content: ""; position: absolute; inset: 0; background: rgba(0,0,0,.9); 
+  clip-path: circle(125vmax at var(--cx) var(--cy));
+  animation: ctClose .34s ease-in forwards;
+}
+.circle-trans.ct-fade { animation: ctFade .2s ease forwards; }
+
+@keyframes ctClose { from { clip-path: circle(125vmax at var(--cx) var(--cy)); } to { clip-path: circle(0 at var(--cx) var(--cy)); } }
+@keyframes ctFade { from { opacity: 1 } to { opacity: 0 } }

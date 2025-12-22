@@ -1,5 +1,7 @@
 import { apiFetch } from '../../utils/api'
 import { getTheme, setTheme } from '../../utils/theme'
+import { showRouteLoading } from '../../utils/route-loading'
+import { prefetchProjectDetail } from '../../utils/prefetch'
 
 type Project = {
   id: number
@@ -59,8 +61,8 @@ function createProjectCard(): string {
 export function renderProject(container: HTMLElement): void {
   container.innerHTML = `
     <div class="min-h-screen gh-canvas text-gray-100">
-      <!-- Topbar -->
-      <div class="h-14 bg-neutral-900/90 ring-2 ring-neutral-600/70 flex items-center px-6">
+      <!-- Topbar overlay -->
+      <div class="h-14 bg-neutral-900/60 backdrop-blur-[1px] ring-1 ring-neutral-700/70 flex items-center px-6 relative z-10">
         <h1 class="text-lg font-semibold tracking-wide">プロジェクト一覧</h1>
         <div class="ml-auto flex items-center gap-3">
           <button id="accountBtn" class="w-8 h-8 rounded-full overflow-hidden ring-2 ring-neutral-600 bg-neutral-700 grid place-items-center">
@@ -70,28 +72,21 @@ export function renderProject(container: HTMLElement): void {
           </button>
         </div>
       </div>
-
-      <div class="flex">
-        <!-- Sidebar -->
-        <aside class="hidden md:flex w-24 shrink-0 border-r border-neutral-600 min-h-[calc(100vh-3.5rem)] flex-col items-center pt-8 gap-6 bg-neutral-900/40" id="groupSidebar">
+      <!-- Honeycomb full-screen layer -->
+      <section class="hx-wrap" id="honeyWrap">
+        <div class="hx-canvas" id="honeyCanvas" style="width:2000px; height:1400px"></div>
+      </section>
+      <!-- Left edge slide-out group panel -->
+      <aside id="groupPanel" class="grp-panel">
+        <div class="grp-content" id="groupSidebar">
+          <div class="text-xs text-gray-400 px-1">グループ</div>
           <!-- groups will be injected here -->
-          <button id="sidebar-create" class="mt-2 grid place-items-center w-10 h-10 rounded-full border border-dashed border-neutral-600 text-2xl text-neutral-400">+</button>
-        </aside>
-
-        <!-- Main -->
-        <main class="flex-1 p-8">
-          <div class="flex items-center">
-            <h2 id="userTitle" class="text-2xl md:text-3xl font-semibold">プロジェクト</h2>
-            <button id="createBtn" class="ml-auto inline-flex items-center rounded-md bg-emerald-700 hover:bg-emerald-600 text-white text-sm font-medium px-4 py-2 shadow-emerald-900/30 shadow">
-              プロジェクト作成
-            </button>
-          </div>
-
-          <section class="mt-8 grid gap-6 sm:grid-cols-2 lg:grid-cols-3 auto-rows-fr" id="projectGrid">
-            ${createProjectCard()}
-          </section>
-        </main>
-      </div>
+          <button id="sidebar-create" class="mt-auto grid place-items-center w-10 h-10 rounded-full border border-dashed border-neutral-600 text-2xl text-neutral-400">+</button>
+        </div>
+        <div class="grp-peek" aria-hidden="true"></div>
+      </aside>
+      <!-- Minimap (top-right) -->
+      <div class="hx-mini"><canvas id="hxMini" width="120" height="120"></canvas></div>
     </div>
   `
 
@@ -121,10 +116,7 @@ export function renderProject(container: HTMLElement): void {
     })
 
   // interactions
-  const onCreate = () => {/* noop: modal implemented below */ }
-  const openCreate = () => openCreateProjectModal(container)
-  container.querySelector('#createBtn')?.addEventListener('click', openCreate)
-  container.querySelector('#createCard')?.addEventListener('click', openCreate)
+  // Create is handled by per-group create tiles inside honeycomb
   // サイドバーの＋はグループ追加専用のため、プロジェクト作成は紐付けない
 
   // Card click behavior (placeholder)
@@ -154,6 +146,401 @@ export function renderProject(container: HTMLElement): void {
     localStorage.removeItem('openAccountModal')
     openAccountModal(container)
   }
+}
+
+// ---- Honeycomb rendering ----
+type HexLayout = {
+  scale: number
+  tile: number
+  width: number
+  height: number
+  offsetX: number
+  offsetY: number
+  centers?: Record<string, { x: number; y: number }>
+  minScale?: number
+  uid?: number
+  nodes?: Array<{ x: number; y: number; filled: boolean; color?: Project['color'] }>
+  inited?: boolean
+}
+
+// Symmetric small patterns (even-q offset: col,row)
+function smallHexPattern(n: number): Array<[number, number]> | null {
+  const base: Array<[number, number]>[] = []
+  base[1] = [[0, 0]]
+  base[2] = [[0, 0], [1, 0]]
+  base[3] = [[0, 0], [1, 0], [0, 1]]
+  base[4] = [[0, 0], [1, 0], [0, 1], [-1, 1]]
+  base[5] = [[0, 0], [1, 0], [0, 1], [-1, 1], [-1, 0]]
+  base[6] = [[0, 0], [1, 0], [0, 1], [-1, 1], [-1, 0], [0, -1]]
+  base[7] = [[0, 0], [1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]]
+  if (n <= 7) return base[n] || null
+  return null
+}
+
+function renderHoneycomb(root: HTMLElement, projects: Project[]): void {
+  const wrap = root.querySelector('#honeyWrap') as HTMLElement | null
+  const canvas = root.querySelector('#honeyCanvas') as HTMLElement | null
+  if (!wrap || !canvas) return
+  // layout state on host
+  const prev = (wrap as any)._hx as HexLayout | undefined
+  const st: HexLayout = prev || { scale: 1, tile: 220, width: 0, height: 0, offsetX: 120, offsetY: 80 }
+  let W = st.tile
+  let H = Math.round(W * 0.866)
+  const n = projects.length
+  const stepX = () => Math.round(W * 0.75)
+  const stepY = () => H
+  canvas.innerHTML = ''
+
+  // Multi-cluster plane: arrange groups on a grid; each cluster has its own honeycomb area
+  const me = (root as any)._me as { id?: number } | undefined
+  const groups = ensureDefaultGroups(me?.id)
+  st.uid = me?.id
+  const gcount = Math.max(1, groups.length)
+  const gcols = Math.max(1, Math.ceil(Math.sqrt(gcount)))
+  const grows = Math.max(1, Math.ceil(gcount / gcols))
+  const C_COLS = 10, C_ROWS = 9 // per-cluster internal nodes
+  const clusterW = stepX() * (C_COLS - 1) + W
+  const clusterH = stepY() * (C_ROWS + 0.5)
+  const totalCols = gcols * C_COLS
+  const totalRows = grows * C_ROWS
+  const width = stepX() * (totalCols - 1) + W
+  const height = stepY() * (totalRows + 0.5)
+  st.width = width; st.height = height
+  canvas.style.width = `${width}px`
+  canvas.style.height = `${height}px`
+  // Ensure we can't zoom out beyond full coverage
+  st.minScale = Math.max(wrap.clientWidth / width, wrap.clientHeight / height)
+
+  // cluster centers and node grid (global continuous columns/rows)
+  const nodes: Array<{ x: number; y: number; i: number; gid: string; q: number; r: number }> = []
+  const centers: Record<string, { x: number; y: number }> = {}
+  for (let q = 0; q < totalCols; q++) {
+    for (let r = 0; r < totalRows; r++) {
+      const x = q * stepX()
+      const y = Math.round((r + (q % 2 ? 0.5 : 0)) * stepY())
+      const cgx = Math.floor(q / C_COLS)
+      const cgy = Math.floor(r / C_ROWS)
+      const idxG = cgy * gcols + cgx
+      const gid = groups[idxG]?.id || `g-${cgx}-${cgy}`
+      if (!centers[gid]) {
+        const ox = cgx * clusterW
+        const oy = cgy * clusterH
+        centers[gid] = { x: ox + clusterW / 2, y: oy + clusterH / 2 }
+      }
+      nodes.push({ x, y, i: -1, gid, q, r })
+    }
+  }
+  st.centers = centers
+  ;(wrap as any)._hx = st
+
+  // Assign projects to their group cluster near its center
+  const map = getGroupMap(me?.id)
+  const byGroup: Record<string, Project[]> = {}
+  projects.forEach((p) => { const gid = map[String(p.id)] || 'user'; (byGroup[gid] ||= []).push(p) })
+  const groupedNodes: Record<string, typeof nodes> = {}
+  nodes.forEach((n) => { (groupedNodes[n.gid] ||= []).push(n) })
+  for (const gid of Object.keys(groupedNodes)) {
+    const c = centers[gid]
+    groupedNodes[gid].sort((a, b) => {
+      const da = (a.x - c.x) ** 2 + (a.y - c.y) ** 2
+      const db = (b.x - c.x) ** 2 + (b.y - c.y) ** 2
+      return da - db
+    })
+  }
+  for (const [gid, arr] of Object.entries(byGroup)) {
+    const spots = groupedNodes[gid] || []
+    arr.forEach((p, idx) => { if (spots[idx]) spots[idx].i = projects.indexOf(p) })
+  }
+
+  // Initial centering on preferred group (once)
+  if (!st.inited) {
+    let pref = null as string | null
+    try { pref = sessionStorage.getItem('proj-center-gid') } catch {}
+    const sel = pref || getSelectedGroup(me?.id) || groups[0]?.id || 'user'
+    centerOnGroup(root, sel, false)
+    st.inited = true
+    try { if (pref) sessionStorage.removeItem('proj-center-gid') } catch {}
+  }
+
+  // Save nodes for minimap rendering
+  (wrap as any)._hx.nodes = nodes.map(n => ({ x: n.x, y: n.y, filled: n.i >= 0, color: n.i >= 0 ? (projects[n.i].color || 'blue') : undefined }))
+
+  // Render (with one create tile per group if there is a free spot)
+  const createdSpot = new Set<string>()
+  // For adjacency: build lookup by (gid,q,r)
+  const idxKey = (gid: string, q: number, r: number) => `${gid}:${q}:${r}`
+  const occ = new Set<string>()
+  nodes.forEach((n) => { if (n.i >= 0) occ.add(idxKey(n.gid, n.q, n.r)) })
+  const nbrs = (q: number, r: number) => {
+    const even = (q % 2) === 0
+    return even
+      ? [[q+1,r],[q+1,r-1],[q,r-1],[q-1,r-1],[q-1,r],[q,r+1]]
+      : [[q+1,r+1],[q+1,r],[q,r-1],[q-1,r],[q-1,r+1],[q,r+1]]
+  }
+  nodes.forEach((pt) => {
+    const tile = document.createElement('div')
+    tile.className = 'hx-tile'
+    tile.style.left = `${pt.x}px`
+    tile.style.top = `${pt.y}px`
+    tile.style.width = `${W}px`
+    tile.style.height = `${H}px`
+    if (pt.i >= 0) {
+      const p = projects[pt.i]
+      tile.setAttribute('data-id', String(p.id))
+      const title = (p.alias && String(p.alias).trim() !== '' ? p.alias : p.name)
+      const tone = hexTone(p.color)
+      tile.innerHTML = `
+        <div class="hx-clip" style="background:${tone.bg}; border-color:${tone.border}">
+          <img class="hx-img" alt="" src="${tone.texture}" onerror="this.style.display='none'"/>
+          <div class="hx-info"><div>${escapeHtml(title)}</div></div>
+        </div>`
+      tile.addEventListener('click', () => {
+        // 保存: 戻ってきた時にこのプロジェクトのグループを中心に
+        try {
+          const me = (root as any)._me as { id?: number } | undefined
+          const map = getGroupMap(me?.id)
+          const gid = map[String(p.id)] || 'user'
+          sessionStorage.setItem('proj-center-gid', gid)
+        } catch {}
+        try { prefetchProjectDetail(p.id) } catch {}
+        try { showRouteLoading(title) } catch {}
+        window.location.hash = `#/project/detail?id=${p.id}`
+      })
+      // Hover/touch prefetch for snappier transition
+      const doPrefetch = () => { try { prefetchProjectDetail(p.id) } catch {} }
+      tile.addEventListener('mouseenter', doPrefetch)
+      tile.addEventListener('touchstart', doPrefetch, { passive: true })
+    } else {
+      const gid = pt.gid
+      let makeCreate = false
+      if (!createdSpot.has(gid)) {
+        // place create tile next to existing project if any in this group
+        const adj = nbrs(pt.q, pt.r)
+        makeCreate = adj.some(([aq, ar]) => occ.has(idxKey(gid, aq, ar)))
+        // fallback: ifグループに1件もない場合は中心に近い最初の空きを使う
+        if (!makeCreate && !(byGroup[gid] && byGroup[gid].length > 0)) {
+          const c = centers[gid]
+          const dist = (pt.x - c.x) ** 2 + (pt.y - c.y) ** 2
+          // choose later after we scan? Simpler: choose when dist < threshold near center
+          makeCreate = dist < (clusterW * clusterW) / 20
+        }
+      }
+      if (makeCreate) {
+        createdSpot.add(gid)
+        tile.classList.add('hx-create')
+        tile.innerHTML = `<div class="hx-clip"><div class="hx-info"><div class="plus">＋</div><div class="text-xs">プロジェクト追加</div></div></div>`
+        tile.addEventListener('click', () => {
+          try { localStorage.setItem('createTargetGroup', gid) } catch {}
+          openCreateProjectModal(root)
+        })
+      } else {
+        tile.classList.add('hx-empty')
+        tile.innerHTML = `<div class="hx-clip"></div>`
+      }
+    }
+    canvas.appendChild(tile)
+  })
+  // apply transform
+  applyHexTransform(wrap, canvas, st)
+  bindHoneyInteractions(root, wrap, canvas, st)
+}
+
+function escapeHtml(s: string): string { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;') }
+
+function hexTone(color?: Project['color']): { bg: string; border: string; texture: string } {
+  const t = (document.documentElement.getAttribute('data-theme') || 'dark')
+  const light = t === 'warm' || t === 'sakura'
+  const border = 'var(--gh-border)'
+  const TX = encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 80 60'><defs><linearGradient id='g' x1='0' x2='1'><stop offset='0' stop-color='white' stop-opacity='.04'/><stop offset='1' stop-color='black' stop-opacity='.08'/></linearGradient></defs><rect width='80' height='60' fill='url(#g)'/></svg>`)
+  const texture = `data:image/svg+xml;utf8,${TX}`
+  switch (color) {
+    case 'red': return { bg: light ? 'rgba(255, 160, 160, .35)' : 'rgba(136, 19, 19, .45)', border, texture }
+    case 'green': return { bg: light ? 'rgba(180, 226, 200, .45)' : 'rgba(16, 84, 53, .5)', border, texture }
+    case 'purple': return { bg: light ? 'rgba(222, 200, 242, .40)' : 'rgba(88, 28, 135, .45)', border, texture }
+    case 'orange': return { bg: light ? 'rgba(255, 205, 160, .42)' : 'rgba(124, 45, 18, .5)', border, texture }
+    case 'yellow': return { bg: light ? 'rgba(245, 230, 160, .40)' : 'rgba(113, 63, 18, .5)', border, texture }
+    case 'gray': return { bg: light ? 'rgba(230, 230, 235, .55)' : 'rgba(64, 64, 72, .55)', border, texture }
+    case 'black': return { bg: light ? 'rgba(200, 200, 210, .45)' : 'rgba(0,0,0,.55)', border, texture }
+    case 'white': return { bg: light ? 'rgba(255,255,255,.65)' : 'rgba(255,255,255,.09)', border, texture }
+    default: return { bg: light ? 'rgba(180, 210, 255, .45)' : 'rgba(15, 76, 129, .5)', border, texture }
+  }
+}
+
+function clampOffsets(wrap: HTMLElement, st: HexLayout): void {
+  const minX = wrap.clientWidth - st.width * st.scale
+  const minY = wrap.clientHeight - st.height * st.scale
+  const maxX = 0, maxY = 0
+  if (minX > maxX) st.offsetX = Math.floor((wrap.clientWidth - st.width * st.scale) / 2)
+  else st.offsetX = Math.max(minX, Math.min(maxX, st.offsetX))
+  if (minY > maxY) st.offsetY = Math.floor((wrap.clientHeight - st.height * st.scale) / 2)
+  else st.offsetY = Math.max(minY, Math.min(maxY, st.offsetY))
+}
+
+function applyHexTransform(wrap: HTMLElement, canvas: HTMLElement, st: HexLayout): void {
+  clampOffsets(wrap, st)
+  canvas.style.transform = `translate(${st.offsetX}px, ${st.offsetY}px) scale(${st.scale})`
+  drawMiniMap(wrap, st)
+  // Auto-select group based on viewport center
+  try {
+    if (!st.centers) return
+    const cx = (wrap.clientWidth / 2 - st.offsetX) / st.scale
+    const cy = (wrap.clientHeight / 2 - st.offsetY) / st.scale
+    let best: [string, number] | null = null
+    for (const [gid, c] of Object.entries(st.centers)) {
+      const d2 = (c.x - cx) ** 2 + (c.y - cy) ** 2
+      if (!best || d2 < best[1]) best = [gid, d2]
+    }
+    if (best) {
+      const uid = st.uid
+      const cur = getSelectedGroup(uid)
+      if (best[0] && cur !== best[0]) {
+        setSelectedGroup(uid, best[0])
+        // Slightly update title text without reload
+        const me = (document.getElementById('app') as any)?._me
+        updateListTitle(document.getElementById('app') as HTMLElement, me || {})
+        // highlight in sidebar if present
+        const sb = document.getElementById('groupSidebar')
+        sb?.querySelectorAll('[data-group]')?.forEach((el) => {
+          el.classList.toggle('ring-sky-500', (el as HTMLElement).getAttribute('data-group') === best![0])
+          el.classList.toggle('ring-neutral-600', (el as HTMLElement).getAttribute('data-group') !== best![0])
+        })
+      }
+    }
+  } catch {}
+}
+
+function drawMiniMap(wrap: HTMLElement, st: HexLayout): void {
+  const cvs = document.getElementById('hxMini') as HTMLCanvasElement | null
+  if (!cvs) return
+  const ctx = cvs.getContext('2d')
+  if (!ctx) return
+  const W = cvs.width, H = cvs.height
+  ctx.clearRect(0, 0, W, H)
+  // Clip to circle
+  ctx.save()
+  ctx.beginPath(); ctx.arc(W/2, H/2, Math.min(W,H)/2 - 4, 0, Math.PI*2); ctx.clip()
+  // Background
+  ctx.fillStyle = 'rgba(0,0,0,0.18)'; ctx.fillRect(0,0,W,H)
+  // Scale so circleはしっかり埋まる（少し大きめ）
+  const pad = 2
+  const sx = (W - pad*2) / (st.width || 1)
+  const sy = (H - pad*2) / (st.height || 1)
+  const s = Math.max(sx, sy) * 1.15
+  // 現在ビューポート中心座標
+  const vx = (-st.offsetX) / st.scale
+  const vy = (-st.offsetY) / st.scale
+  const vw = wrap.clientWidth / st.scale
+  const vh = wrap.clientHeight / st.scale
+  const cxView = vx + vw / 2
+  const cyView = vy + vh / 2
+  // その中心がミニマップ円の中心に来るよう移動
+  const ox = W/2 - cxView * s
+  const oy = H/2 - cyView * s
+  // Draw groups centers
+  // Draw hex tiles (overview)
+  const t = st.tile || 220
+  const hw = t * 0.25 * s, hh = (t * 0.866) * s
+  const drawHex = (x: number, y: number, fill: string) => {
+    ctx.beginPath()
+    const px = ox + x * s, py = oy + y * s
+    ctx.moveTo(px + hw, py)
+    ctx.lineTo(px + hw*3, py)
+    ctx.lineTo(px + hw*4, py + hh/2)
+    ctx.lineTo(px + hw*3, py + hh)
+    ctx.lineTo(px + hw, py + hh)
+    ctx.lineTo(px + 0, py + hh/2)
+    ctx.closePath()
+    ctx.fillStyle = fill
+    ctx.fill()
+  }
+  const isLight = (document.documentElement.getAttribute('data-theme') || 'dark') !== 'dark'
+  const emptyFill = isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.08)'
+  const colorFor = (key?: any) => {
+    if (!key) return emptyFill
+    // quick mapping to match main tone
+    switch (key) {
+      case 'red': return 'rgba(239, 68, 68, 0.55)'
+      case 'green': return 'rgba(16, 185, 129, 0.55)'
+      case 'purple': return 'rgba(168, 85, 247, 0.55)'
+      case 'orange': return 'rgba(249, 115, 22, 0.55)'
+      case 'yellow': return 'rgba(234, 179, 8, 0.55)'
+      case 'gray': return isLight ? 'rgba(0,0,0,0.25)' : 'rgba(255,255,255,0.2)'
+      case 'black': return 'rgba(0,0,0,0.55)'
+      case 'white': return 'rgba(255,255,255,0.55)'
+      default: return 'rgba(59, 130, 246, 0.55)'
+    }
+  }
+  const nodes = st.nodes || []
+  for (const n of nodes) drawHex(n.x, n.y, colorFor(n.filled ? n.color : null))
+  ctx.restore()
+}
+
+function bindHoneyInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLElement, st: HexLayout): void {
+  if ((wrap as any)._bound) return
+  (wrap as any)._bound = true
+  const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v))
+  const Z_MAX = 2.4
+  const getMin = () => Math.max(st.minScale || 0.5, 0.4)
+  let dragging = false, sx = 0, sy = 0, sox = 0, soy = 0, activePid: number | null = null
+  const DRAG_TOL = 4
+  wrap.addEventListener('pointerdown', (e) => {
+    activePid = e.pointerId
+    dragging = false
+    sx = e.clientX; sy = e.clientY; sox = st.offsetX; soy = st.offsetY
+  })
+  window.addEventListener('pointerup', (e) => { if (activePid === null || e.pointerId === activePid) { dragging = false; activePid = null; sx = 0; sy = 0 } })
+  window.addEventListener('pointermove', (e) => {
+    if (activePid === null || e.pointerId !== activePid) return
+    // if no button pressed and not already dragging, ignore plain cursor moves
+    if ((e.buttons === 0) && !dragging) return
+    const dx = e.clientX - sx, dy = e.clientY - sy
+    if (!dragging && Math.hypot(dx, dy) > DRAG_TOL) dragging = true
+    if (!dragging) return
+    st.offsetX = sox + dx; st.offsetY = soy + dy; applyHexTransform(wrap, canvas, st)
+  })
+  wrap.addEventListener('wheel', (e) => {
+    if (e.ctrlKey) {
+      e.preventDefault()
+      const prev = st.scale
+      const ds = Math.exp(-e.deltaY * 0.0022) // more sensitive
+      st.scale = clamp(prev * ds, getMin(), Z_MAX)
+      applyHexTransform(wrap, canvas, st)
+    } else {
+      // two-finger pan on trackpad
+      e.preventDefault()
+      st.offsetX -= e.deltaX
+      st.offsetY -= e.deltaY
+      applyHexTransform(wrap, canvas, st)
+    }
+  }, { passive: false })
+  // basic pinch-zoom (two pointers)
+  const pts = new Map<number, { x: number; y: number }>()
+  const dist = () => {
+    const a = Array.from(pts.values())
+    if (a.length < 2) return 0
+    const dx = a[0].x - a[1].x, dy = a[0].y - a[1].y
+    return Math.hypot(dx, dy)
+  }
+  let startDist = 0, startScale = st.scale
+  wrap.addEventListener('pointerdown', (e) => { pts.set(e.pointerId, { x: e.clientX, y: e.clientY }) })
+  wrap.addEventListener('pointermove', (e) => {
+    if (!pts.has(e.pointerId)) return
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY })
+    if (pts.size === 2) {
+      const d = dist()
+      if (startDist === 0) { startDist = d; startScale = st.scale }
+      if (d > 0 && startDist > 0) {
+        const s = Math.pow(d / startDist, 1.25) // increase pinch response
+        st.scale = clamp(startScale * s, getMin(), Z_MAX)
+        applyHexTransform(wrap, canvas, st)
+      }
+    }
+  })
+  window.addEventListener('pointerup', (e) => { pts.delete(e.pointerId); if (pts.size < 2) startDist = 0 })
+  // No toolbar buttons (zoom handled by pinch/gesture)
+  ; (wrap as any)._hx = st
+  // Update minimap on resize as well
+  window.addEventListener('resize', () => applyHexTransform(wrap, canvas, st))
 }
 
 // ----- Progress Overlay for Project Creation -----
@@ -273,31 +660,12 @@ function loadProjects(root: HTMLElement): void {
       })
       // filter by selected group
       const me = (root as any)._me as { id?: number } | undefined
-      const selected = getSelectedGroup(me?.id)
       const map = getGroupMap(me?.id)
-
-      const filtered = list
+      const all = list
         .filter((p) => p && typeof p === 'object' && Number(p.id) > 0 && (p.name ?? '').toString().trim().length > 0)
-        .filter((p) => {
-          const gid = map[String(p.id)] || 'user'
-          return !selected || selected === 'all' ? true : gid === selected
-        })
-      const ids = new Set(filtered.map((p) => String(p.id)))
-      const html = filtered
-        .map((p) => projectCard(toCard(p)))
-        .join('')
-      const grid = root.querySelector('#projectGrid') as HTMLElement | null
-      if (!grid) return
-      grid.innerHTML = `${html}${createProjectCard()}`
-      bindGridInteractions(root)
-      sanitizeProjectGrid(grid)
-      // remove any card not in current ids (stale/unknown)
-      Array.from(grid.querySelectorAll('[data-id]')).forEach((el) => {
-        const id = (el as HTMLElement).getAttribute('data-id') || ''
-        if (!ids.has(id)) (el as HTMLElement).remove()
-      })
-      removeEmptyCards(grid)
-      sanitizeProjectGrid(grid)
+      const ids = new Set(all.map((p) => String(p.id)))
+      const items = all.map(toCard)
+      renderHoneycomb(root, items)
     })
     .catch(() => {
       // ignore if API not ready
@@ -433,7 +801,7 @@ function renderGroupSidebar(root: HTMLElement, me: { id?: number; github_id?: nu
       setSelectedGroup(me.id, g.id)
       renderGroupSidebar(root, me)
       updateListTitle(root, (root as any)._me)
-      loadProjects(root)
+      centerOnGroup(root, g.id, true)
     })
     // 右クリックでメニュー（削除など）
     el.addEventListener('contextmenu', (ev) => {
@@ -449,6 +817,32 @@ function renderGroupSidebar(root: HTMLElement, me: { id?: number; github_id?: nu
 function getGroupById(uid: number | undefined, id: string | null): Group | null {
   if (!id) return null
   return getGroups(uid).find((g) => g.id === id) || null
+}
+
+function centerOnGroup(root: HTMLElement, gid: string, animate = false): void {
+  const wrap = root.querySelector('#honeyWrap') as HTMLElement | null
+  const canvas = root.querySelector('#honeyCanvas') as HTMLElement | null
+  if (!wrap || !canvas) return
+  const st: HexLayout = (wrap as any)._hx || ({} as HexLayout)
+  if (!st.centers || !st.centers[gid]) return
+  const c = st.centers[gid]
+  const tx = Math.floor(wrap.clientWidth / 2 - c.x * st.scale)
+  const ty = Math.floor(wrap.clientHeight / 2 - c.y * st.scale)
+  if (!animate) {
+    st.offsetX = tx; st.offsetY = ty; applyHexTransform(wrap, canvas, st); return
+  }
+  const sx = st.offsetX, sy = st.offsetY
+  const dur = 250
+  const start = performance.now()
+  const ease = (t: number) => 1 - Math.pow(1 - t, 3)
+  const step = (now: number) => {
+    const p = Math.min(1, (now - start) / dur)
+    st.offsetX = sx + (tx - sx) * ease(p)
+    st.offsetY = sy + (ty - sy) * ease(p)
+    applyHexTransform(wrap, canvas, st)
+    if (p < 1) requestAnimationFrame(step)
+  }
+  requestAnimationFrame(step)
 }
 
 function updateListTitle(root: HTMLElement, me: { id?: number; name?: string }): void {
@@ -961,6 +1355,17 @@ function openCreateProjectModal(root: HTMLElement): void {
           // Update progress steps from server meta
           prog.updateFromMeta(created)
           // Close create form and show success
+          // Map to requested group if any
+          try {
+            const gid = localStorage.getItem('createTargetGroup')
+            if (gid) {
+              const me = (root as any)._me as { id?: number }
+              const map = getGroupMap(me?.id)
+              map[String(id)] = gid
+              setGroupMap(me?.id, map)
+              localStorage.removeItem('createTargetGroup')
+            }
+          } catch {}
           close()
           loadProjects(root)
           prog.showSuccess(id)
@@ -989,6 +1394,16 @@ function openCreateProjectModal(root: HTMLElement): void {
           // 初期タスクは保存しない（ローカル生成を廃止）
           try { await apiFetch(`/projects/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ color }) }) } catch { }
           prog.updateFromMeta(created)
+          try {
+            const gid = localStorage.getItem('createTargetGroup')
+            if (gid) {
+              const me = (root as any)._me as { id?: number }
+              const map = getGroupMap(me?.id)
+              map[String(id)] = gid
+              setGroupMap(me?.id, map)
+              localStorage.removeItem('createTargetGroup')
+            }
+          } catch {}
           close(); loadProjects(root); prog.showSuccess(id)
         }
       }
@@ -1106,30 +1521,8 @@ function validateProjectForm(scope: HTMLElement, payload: any): boolean {
 }
 
 function addProjectToGrid(root: HTMLElement, p: Project): void {
-  if (!p.name || String(p.name).trim() === '') return
-  const grid = root.querySelector('#projectGrid')
-  if (!grid) return
-  const template = document.createElement('template')
-  template.innerHTML = projectCard(p).trim()
-  const card = template.content.firstElementChild
-  if (card) grid.insertBefore(card, grid.lastElementChild) // before create card
-  // bind click
-  card?.addEventListener('click', () => {
-    const idAttr = (card as HTMLElement).getAttribute('data-id')
-    if (idAttr) window.location.hash = `#/project/detail?id=${encodeURIComponent(idAttr)}`
-  })
-    // right-click context menu
-    ; (card as HTMLElement).addEventListener('contextmenu', (ev) => {
-      ev.preventDefault(); ev.stopPropagation();
-      const idAttr = (card as HTMLElement).getAttribute('data-id')
-      if (idAttr) openCardMenu(root, card as HTMLElement, Number(idAttr))
-    })
-    ; (card as HTMLElement)?.querySelector('.card-menu')?.addEventListener('click', (ev) => {
-      ev.stopPropagation()
-      const idAttr = (card as HTMLElement).getAttribute('data-id')
-      if (idAttr) openCardMenu(root, card as HTMLElement, Number(idAttr))
-    })
-  sanitizeProjectGrid(grid as HTMLElement)
+  // Re-render honeycomb for simplicity
+  loadProjects(root)
 }
 
 function openCardMenu(root: HTMLElement, anchor: HTMLElement, id: number): void {

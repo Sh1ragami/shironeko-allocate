@@ -2,6 +2,8 @@ import { apiFetch, ApiError } from '../../utils/api'
 import { openTaskModal, openTaskModalGh } from './task-modal'
 import { renderNotFound } from '../not-found/not-found'
 import { getTheme, setTheme } from '../../utils/theme'
+import { hideRouteLoading } from '../../utils/route-loading'
+import { consumePrefetchedProject } from '../../utils/prefetch'
 // (no component-level imports; keep in-page implementations)
 // Account modal helpers (duplicated to open over current page)
 type SkillGroup = 'owned' | 'want'
@@ -581,22 +583,28 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
   let project: Project | null = null
   let me: { id: number; name: string; github_id?: number } | null = null
 
-  try {
-    project = await apiFetch<Project>(`/projects/${id}`)
-    // Fetch user info concurrently, but don't fail the entire page if it fails
+  // Use prefetched data if available
+  const pref = consumePrefetchedProject(Number(id))
+  if (pref?.project) {
+    project = pref.project as Project
+    me = (pref.me as any) || null
+  } else {
     try {
-      me = await apiFetch<{ id: number; name: string; github_id?: number }>(`/me`)
-    } catch {
-      // User fetch failed, proceed without it
+      project = await apiFetch<Project>(`/projects/${id}`)
+      // Fetch user info concurrently, but don't fail the entire page if it fails
+      try {
+        me = await apiFetch<{ id: number; name: string; github_id?: number }>(`/me`)
+      } catch {
+        // ignore
+      }
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 404) {
+        renderNotFound(container)
+      } else {
+        renderDummyDetail(container, id)
+      }
+      return
     }
-  } catch (e) {
-    if (e instanceof ApiError && e.status === 404) {
-      renderNotFound(container)
-    } else {
-      // For other errors, fallback to dummy detail
-      renderDummyDetail(container, id)
-    }
-    return
   }
 
   const fullName = project.github_meta?.full_name || project.link_repo || ''
@@ -791,6 +799,7 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
     const url = `https://avatars.githubusercontent.com/u/${me.github_id}?s=96`
     if (accImg) { accImg.src = url; accImg.classList.remove('hidden') }
   }
+  try { hideRouteLoading() } catch {}
 }
 
 // ---------- Widgets helpers ----------
