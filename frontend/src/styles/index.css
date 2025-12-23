@@ -472,8 +472,14 @@ body[data-lock]:not([data-lock="0"]) .hx-wrap { pointer-events: none; }
 :root[data-theme="warm"] .hx-btn, :root[data-theme="sakura"] .hx-btn { background: rgba(255,255,255,.35); color: rgb(var(--color-gray-100)); }
 
 /* Empty placeholder tiles to fill grid visually */
-.hx-empty .hx-clip { background: rgba(0,0,0,.28) !important; border-color: rgba(0,0,0,.45) !important; filter: saturate(.7) brightness(.9); }
-:root[data-theme="warm"] .hx-empty .hx-clip, :root[data-theme="sakura"] .hx-empty .hx-clip { background: rgba(0,0,0,.08) !important; border-color: rgba(0,0,0,.18) !important; }
+.hx-empty .hx-clip { background: var(--gh-canvas-subtle) !important; border-color: var(--gh-border) !important; filter: none !important; }
+:root[data-theme="warm"] .hx-empty .hx-clip, :root[data-theme="sakura"] .hx-empty .hx-clip { background: var(--gh-canvas-subtle) !important; border-color: var(--gh-border) !important; }
+.hx-empty .hx-clip::before { content: "" !important; position: absolute; inset: 0; pointer-events: none; 
+  background:
+    radial-gradient(120% 80% at 10% 0%, rgba(255,255,255,.06), transparent 60%),
+    radial-gradient(140% 100% at 100% 100%, rgba(0,0,0,.06), transparent 60%);
+  opacity: .8;
+}
 .hx-empty .hx-info { opacity: 0 !important; }
 
 /* Create-project tile visual */
@@ -519,6 +525,16 @@ body[data-lock]:not([data-lock="0"]) .hx-wrap { pointer-events: none; }
   box-shadow: 0 0 0 2px rgba(0,0,0,.4), 0 4px 16px rgba(0,0,0,.35);
 }
 .hx-create .hx-tile:hover .hx-info { background: rgba(0,0,0,.45); }
+
+/* Project list: apply same subtle 3D overlay as detail */
+.hx-clip.hx-plain::before { content: ""; position: absolute; inset: 0; pointer-events: none;
+  background:
+    radial-gradient(120% 80% at 10% 0%, rgba(255,255,255,.06), transparent 60%),
+    radial-gradient(140% 100% at 100% 100%, rgba(0,0,0,.06), transparent 60%);
+  opacity: .8;
+}
+.hx-info.hx-plain { background: transparent !important; }
+.hx-tile:hover .hx-info.hx-plain { background: transparent !important; }
 
 /* Minimap */
 .hx-mini { position: fixed; right: 14px; top: 16px; width: 140px; height: 140px; border-radius: 50%; background: rgba(0,0,0,.32); backdrop-filter: blur(4px) saturate(120%); border: 1px solid var(--gh-border); display: grid; place-items: center; z-index: 11; }
@@ -589,8 +605,8 @@ body[data-lock]:not([data-lock="0"]) .hxw-wrap { pointer-events: none; }
 
 /* Contrast for empty vs filled hexes */
 /* Align hex cell tones with project list */
-.hxw-hex .hxw-clip { background: var(--gh-canvas-subtle); border-color: var(--gh-border); }
-:root[data-theme="warm"] .hxw-hex .hxw-clip, :root[data-theme="sakura"] .hxw-hex .hxw-clip { background: var(--gh-canvas-subtle); border-color: var(--gh-border); }
+.hxw-hex .hxw-clip { background: var(--hxw-bg, var(--gh-canvas-subtle)); border-color: var(--gh-border); }
+:root[data-theme="warm"] .hxw-hex .hxw-clip, :root[data-theme="sakura"] .hxw-hex .hxw-clip { background: var(--hxw-bg, var(--gh-canvas-subtle)); border-color: var(--gh-border); }
 /* Use JS-provided --hxw-fill so filled cells match list tint */
 .hxw-filled .hxw-clip { background: var(--hxw-fill, var(--gh-canvas-subtle)); border-color: var(--gh-border); }
 :root[data-theme="warm"] .hxw-filled .hxw-clip, :root[data-theme="sakura"] .hxw-filled .hxw-clip { background: var(--hxw-fill, var(--gh-canvas-subtle)); border-color: var(--gh-border); }
@@ -757,6 +773,40 @@ body[data-lock]:not([data-lock="0"]) .hxw-wrap { pointer-events: none; }
   text-shadow: 0 1px 2px rgba(0,0,0,.25);
 }
 .hxw-sc-rail .hxw-shortcut + .hxw-shortcut { margin-top: var(--sc-overlap); transition: margin .18s ease; }
+
+/* ---- Capacity (HP-like) bar ---- */
+.hxw-cap { position: fixed; left: 12px; bottom: 14px; width: 200px; z-index: 18; }
+.hxw-cap .cap-wrap { position: relative; width: 100%; height: 12px; border-radius: 9999px; border: 1px solid var(--gh-border); background: rgba(255,255,255,.12); overflow: hidden; }
+:root[data-theme="warm"] .hxw-cap .cap-wrap, :root[data-theme="sakura"] .hxw-cap .cap-wrap { background: rgba(0,0,0,.08) }
+.hxw-cap .cap-fill { height: 100%; width: 0%; background: linear-gradient(90deg, var(--cap-a, #10b981), var(--cap-b, #84cc16)); box-shadow: inset 0 0 0 1px rgba(255,255,255,.08); transition: width .25s ease; }
+.hxw-cap .cap-text { margin-bottom: 6px; font-size: 12px; color: var(--gh-contrast); opacity: .9; font-weight: 600; letter-spacing: .01em; }
+
+/* ---- Bottom-right unified actions ---- */
+/* ---- Bottom-right hex action cluster ---- */
+.hxw-hex-ctl {
+  position: fixed; right: 12px; bottom: 12px; z-index: 19;
+  --sqrt3: 1.7320508075688772;
+  --ctl-s: 60px; /* base hex width (HUD) */
+  --ctl-h: calc(var(--ctl-s) * var(--sqrt3) / 2);
+  --ctl-sx: calc(var(--ctl-s) * 3 / 4);
+  width: calc(var(--ctl-sx) + var(--ctl-s));
+  height: calc(var(--ctl-h) * 2);
+}
+.hxw-hex-ctl * { box-sizing: border-box }
+.ctl-hex { position: absolute; width: var(--ctl-s); height: var(--ctl-h); clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%); background: var(--ctl-bg, #0ea5e9); border: 0; box-shadow: none; cursor: pointer; transition: transform .12s ease, filter .15s ease; display: grid; place-items: center; }
+.ctl-label { color: #fff; font-weight: 900; font-size: clamp(9px, calc(var(--ctl-s) * 0.24), 18px); letter-spacing: .02em; text-shadow: 0 1px 3px rgba(0,0,0,.35); user-select: none; }
+.ctl-label.plus { font-size: clamp(12px, calc(var(--ctl-s) * 0.38), 26px); line-height: 1; }
+.ctl-hex:hover { transform: translateY(-1px); filter: brightness(1.05); }
+.ctl-hex:active { transform: translateY(0) scale(.98) }
+.ctl-hex.is-on { box-shadow: 0 0 0 3px rgba(255,255,255,.22), 0 12px 26px rgba(0,0,0,.36) }
+.ctl-hex[disabled] { opacity: .5; pointer-events: none }
+.ctl-hex-violet { --ctl-bg: #a855f7 }
+.ctl-hex-orange { --ctl-bg: #f59e0b }
+.ctl-hex-green { --ctl-bg: #10b981 }
+/* Positions (origin is top-left of control box) */
+.ctl-pos-3d { left: 0; top: calc(var(--ctl-h) / 2) }
+.ctl-pos-edit { left: var(--ctl-sx); top: var(--ctl-h) }
+.ctl-pos-add { left: var(--ctl-sx); top: 0 }
 .hxw-shortcut::before {
   content: "";
   position: absolute;

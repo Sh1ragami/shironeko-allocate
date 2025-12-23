@@ -606,7 +606,16 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
     const iso = localStorage.getItem(key) === 'iso'
     if (iso) wrap?.classList.add('hxw-iso')
     const btn = container.querySelector('#hxwView3d') as HTMLElement | null
-    const applyLabel = () => { if (!btn) return; btn.textContent = wrap?.classList.contains('hxw-iso') ? '2D' : '3D' }
+    const applyLabel = () => {
+      if (!btn) return
+      const on = !!wrap?.classList.contains('hxw-iso')
+      btn.setAttribute('aria-pressed', on ? 'true' : 'false')
+      btn.setAttribute('title', on ? '3D モード' : '2D モード')
+      btn.setAttribute('aria-label', on ? '3D モード' : '2D モード')
+      btn.classList.toggle('is-on', on)
+      const lab = btn.querySelector('.ctl-label') as HTMLElement | null
+      if (lab) lab.textContent = on ? '3D' : '2D'
+    }
     applyLabel()
     btn?.addEventListener('click', () => {
       if (!wrap || !canvas) return
@@ -617,9 +626,9 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
       applyLabel()
     })
   } catch {}
-  // Bind FAB for adding widgets into hex field
-  const fab = container.querySelector('#hxwFab') as HTMLElement | null
-  fab?.addEventListener('click', () => {
+  // Bind Add (green hex)
+  const fabBtn = container.querySelector('#hxwFab') as HTMLElement | null
+  fabBtn?.addEventListener('click', () => {
     openWidgetPickerModal(container, String(project.id), (type) => {
       try { hxwStartPlacement(container, String(project.id), type) } catch {}
     })
@@ -1921,7 +1930,13 @@ function enableDragAndDrop(root: HTMLElement): void {
     grid.setAttribute('data-edit', on ? '1' : '0')
     grid.querySelectorAll('.widget').forEach((w) => (w as HTMLElement).setAttribute('draggable', on ? 'true' : 'false'))
     const btn = root.querySelector('#wgEditToggle') as HTMLElement | null
-    if (btn) btn.textContent = on ? '完了' : '編集'
+    if (btn) {
+      btn.setAttribute('aria-pressed', on ? 'true' : 'false')
+      btn.setAttribute('title', on ? '編集中' : '編集モード')
+      btn.classList.toggle('is-on', on)
+      const lab = btn.querySelector('.ctl-label') as HTMLElement | null
+      if (lab) lab.textContent = on ? '編集中' : '編集'
+    }
     if (!on) closeBgMenu()
     localStorage.setItem(`wg-edit-${pid}`, on ? '1' : '0')
     // Show "add widget" card only in edit mode
@@ -4532,18 +4547,25 @@ function detailLayout(ctx: { id: number; name: string; fullName: string; owner: 
               </div>
               <!-- Shortcuts rail (peek from left; expands on hover) -->
               <div id="hxwShortcuts" class="hxw-sc-rail flex flex-col"></div>
+              <!-- Capacity bar (bottom-left) -->
+              <div id="hxwCap" class="hxw-cap"></div>
               <!-- Minimap (top-right) -->
               <div class="hxw-mini"><canvas id="hxwMini" width="120" height="120"></canvas></div>
-              <!-- View toggle (2D/3D) -->
-              <button id="hxwView3d" class="fixed bottom-5 right-20 z-[18] rounded-md bg-neutral-900/70 text-gray-200 ring-1 ring-neutral-600 px-2.5 py-1.5 text-sm shadow">
-                3D
-              </button>
-              <!-- Edit mode toggle (global: hex/grid) -->
-              <button id="wgEditToggle" class="fixed bottom-5 right-36 z-[18] rounded-md bg-neutral-900/70 text-gray-200 ring-1 ring-neutral-600 px-2.5 py-1.5 text-sm shadow">
-                編集
-              </button>
-              <!-- Floating add button (bottom-right) -->
-              <button id="hxwFab" class="fixed bottom-5 right-5 z-[18] w-12 h-12 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white text-2xl leading-none grid place-items-center shadow-xl ring-2 ring-emerald-300/40">＋</button>
+              <!-- Hexagon Actions (bottom-right) -->
+              <div class="hxw-hex-ctl" aria-label="Actions">
+                <!-- 3D toggle (purple) -->
+                <button id="hxwView3d" class="ctl-hex ctl-hex-violet ctl-pos-3d" title="2D/3D 切替" aria-label="2D/3D 切替">
+                  <span class="ctl-label">3D</span>
+                </button>
+                <!-- Edit toggle (orange) -->
+                <button id="wgEditToggle" class="ctl-hex ctl-hex-orange ctl-pos-edit" title="編集モード" aria-label="編集モード">
+                  <span class="ctl-label">編集</span>
+                </button>
+                <!-- Add widget (green single) -->
+                <button id="hxwFab" class="ctl-hex ctl-hex-green ctl-pos-add" title="ウィジェットを追加" aria-label="ウィジェットを追加">
+                  <span class="ctl-label plus">＋</span>
+                </button>
+              </div>
             </section>
 
             <section class="mt-8 hidden" id="tab-board" data-tab="board">
@@ -5770,6 +5792,41 @@ function hxwRenderShortcuts(root: HTMLElement, pid: string): void {
   })
 }
 
+// Capacity bar (remaining hex cells vs total)
+function hxwRenderCapacityBar(root: HTMLElement, pid: string): void {
+  const wrap = root.querySelector('#hxwWrap') as HTMLElement | null
+  const barHost = root.querySelector('#hxwCap') as HTMLElement | null
+  if (!wrap || !barHost) return
+  const mask: Set<string> = (wrap as any)._hxwMask || new Set<string>()
+  const occ: Set<string> = (wrap as any)._hxwOcc || new Set<string>()
+  const total = mask.size
+  const used = occ.size
+  const remain = Math.max(0, total - used)
+  if (total === 0) { barHost.innerHTML = ''; return }
+  if (!barHost.firstChild) {
+    const textEl = document.createElement('div')
+    textEl.className = 'cap-text'
+    const wrapEl = document.createElement('div')
+    wrapEl.className = 'cap-wrap'
+    const fillEl = document.createElement('div')
+    fillEl.className = 'cap-fill'
+    barHost.appendChild(textEl)
+    wrapEl.appendChild(fillEl)
+    barHost.appendChild(wrapEl)
+  }
+  const pct = total > 0 ? remain / total : 0
+  const fill = barHost.querySelector('.cap-fill') as HTMLElement | null
+  const text = barHost.querySelector('.cap-text') as HTMLElement | null
+  if (fill) {
+    fill.style.width = `${Math.round(pct * 100)}%`
+    const setGrad = (a: string, b: string) => { try { fill!.style.setProperty('--cap-a', a); fill!.style.setProperty('--cap-b', b) } catch {} }
+    if (pct >= 0.6) setGrad('#10b981', '#84cc16') // green
+    else if (pct >= 0.3) setGrad('#f59e0b', '#f97316') // amber
+    else setGrad('#ef4444', '#f43f5e') // red
+  }
+  if (text) text.textContent = `残り ${remain} / ${total}`
+}
+
 // Parity-independent shapes using axial coordinates
 type Ax = { x: number; z: number }
 const AX_DIRS: Ax[] = [ { x: +1, z: 0 }, { x: +1, z: -1 }, { x: 0, z: -1 }, { x: -1, z: 0 }, { x: -1, z: +1 }, { x: 0, z: +1 } ]
@@ -6082,7 +6139,12 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
     editOn = on
     canvas.setAttribute('data-edit', on ? '1' : '0')
     const btn = root.querySelector('#wgEditToggle') as HTMLElement | null
-    if (btn) btn.textContent = on ? '完了' : '編集'
+    if (btn) {
+      btn.setAttribute('aria-pressed', on ? 'true' : 'false')
+      btn.setAttribute('title', on ? '編集中' : '編集モード')
+      const lab = btn.querySelector('.ctl-label') as HTMLElement | null
+      if (lab) lab.textContent = on ? '編集中' : '編集'
+    }
     try {
       const pid = canvas.getAttribute('data-pid') || '0'
       hxwPlaceWidgets(root, pid, st)
@@ -6705,7 +6767,7 @@ function hxwPlaceWidgets(root: HTMLElement, pid: string, st: HexWLayout): void {
   }
   Object.entries(meta).forEach(([id, m]) => upsertOne(id, m.type, m.q, m.r))
   existing.forEach((el) => el.remove())
-  try { const pid = (canvas.getAttribute('data-pid') || '0'); hxwRenderShortcuts(root, pid) } catch {}
+  try { const pid = (canvas.getAttribute('data-pid') || '0'); hxwRenderShortcuts(root, pid); hxwRenderCapacityBar(root, pid) } catch {}
 }
 
 export function renderHexWidgets(root: HTMLElement, pid: string): void {
@@ -6906,6 +6968,8 @@ export function renderHexWidgets(root: HTMLElement, pid: string): void {
   try { refreshDynamicWidgets(root, pid) } catch {}
   // initial hydration for GitHub-derived widgets if needed
   try { hxwRehydrate(root, pid) } catch {}
+  // initial capacity bar
+  try { hxwRenderCapacityBar(root, pid) } catch {}
 }
 
 // ---- Placement mode: pick a widget from the modal, then place freely on canvas ----

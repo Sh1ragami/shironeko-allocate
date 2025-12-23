@@ -280,9 +280,8 @@ function renderHoneycomb(root: HTMLElement, projects: Project[]): void {
       const title = (p.alias && String(p.alias).trim() !== '' ? p.alias : p.name)
       const tone = hexTone(p.color)
       tile.innerHTML = `
-        <div class="hx-clip" style="background:${tone.bg}; border-color:${tone.border}">
-          <img class="hx-img" alt="" src="${tone.texture}" onerror="this.style.display='none'"/>
-          <div class="hx-info"><div>${escapeHtml(title)}</div></div>
+        <div class="hx-clip hx-plain" style="background:${tone.bg}; border-color:${tone.border}">
+          <div class="hx-info hx-plain"><div>${escapeHtml(title)}</div></div>
         </div>`
       tile.addEventListener('click', () => {
         // 保存: 戻ってきた時にこのプロジェクトのグループを中心に
@@ -325,7 +324,7 @@ function renderHoneycomb(root: HTMLElement, projects: Project[]): void {
         })
       } else {
         tile.classList.add('hx-empty')
-        tile.innerHTML = `<div class="hx-clip"></div>`
+        tile.innerHTML = `<div class="hx-clip hx-plain"></div>`
       }
     }
     canvas.appendChild(tile)
@@ -338,21 +337,25 @@ function renderHoneycomb(root: HTMLElement, projects: Project[]): void {
 function escapeHtml(s: string): string { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;') }
 
 function hexTone(color?: Project['color']): { bg: string; border: string; texture: string } {
+  // Match the palette used by project detail's honeycomb (hx widgets)
+  // Base RGBs align with Tailwind-like tones used in detail view
   const t = (document.documentElement.getAttribute('data-theme') || 'dark')
   const light = t === 'warm' || t === 'sakura'
+  const alpha = light ? 0.42 : 0.38
   const border = 'var(--gh-border)'
   const TX = encodeURIComponent(`<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 80 60'><defs><linearGradient id='g' x1='0' x2='1'><stop offset='0' stop-color='white' stop-opacity='.04'/><stop offset='1' stop-color='black' stop-opacity='.08'/></linearGradient></defs><rect width='80' height='60' fill='url(#g)'/></svg>`)
   const texture = `data:image/svg+xml;utf8,${TX}`
+  const rgba = (r: number, g: number, b: number, a: number) => `rgba(${r},${g},${b},${a})`
   switch (color) {
-    case 'red': return { bg: light ? 'rgba(255, 160, 160, .35)' : 'rgba(136, 19, 19, .45)', border, texture }
-    case 'green': return { bg: light ? 'rgba(180, 226, 200, .45)' : 'rgba(16, 84, 53, .5)', border, texture }
-    case 'purple': return { bg: light ? 'rgba(222, 200, 242, .40)' : 'rgba(88, 28, 135, .45)', border, texture }
-    case 'orange': return { bg: light ? 'rgba(255, 205, 160, .42)' : 'rgba(124, 45, 18, .5)', border, texture }
-    case 'yellow': return { bg: light ? 'rgba(245, 230, 160, .40)' : 'rgba(113, 63, 18, .5)', border, texture }
-    case 'gray': return { bg: light ? 'rgba(230, 230, 235, .55)' : 'rgba(64, 64, 72, .55)', border, texture }
-    case 'black': return { bg: light ? 'rgba(200, 200, 210, .45)' : 'rgba(0,0,0,.55)', border, texture }
-    case 'white': return { bg: light ? 'rgba(255,255,255,.65)' : 'rgba(255,255,255,.09)', border, texture }
-    default: return { bg: light ? 'rgba(180, 210, 255, .45)' : 'rgba(15, 76, 129, .5)', border, texture }
+    case 'red': return { bg: rgba(239, 68, 68, alpha), border, texture }
+    case 'green': return { bg: rgba(16, 185, 129, alpha), border, texture }
+    case 'purple': return { bg: rgba(168, 85, 247, alpha), border, texture }
+    case 'orange': return { bg: rgba(251, 146, 60, alpha), border, texture }
+    case 'yellow': return { bg: rgba(234, 179, 8, alpha), border, texture }
+    case 'gray': return { bg: rgba(120, 120, 128, light ? 0.38 : 0.35), border, texture }
+    case 'black': return { bg: rgba(0, 0, 0, light ? 0.45 : 0.55), border, texture }
+    case 'white': return { bg: rgba(255, 255, 255, light ? 0.65 : 0.10), border, texture }
+    default: /* blue */ return { bg: rgba(59, 130, 246, alpha), border, texture }
   }
 }
 
@@ -447,17 +450,17 @@ function drawMiniMap(wrap: HTMLElement, st: HexLayout): void {
   const emptyFill = isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.08)'
   const colorFor = (key?: any) => {
     if (!key) return emptyFill
-    // quick mapping to match main tone
+    const alpha = isLight ? 0.42 : 0.38
     switch (key) {
-      case 'red': return 'rgba(239, 68, 68, 0.55)'
-      case 'green': return 'rgba(16, 185, 129, 0.55)'
-      case 'purple': return 'rgba(168, 85, 247, 0.55)'
-      case 'orange': return 'rgba(249, 115, 22, 0.55)'
-      case 'yellow': return 'rgba(234, 179, 8, 0.55)'
-      case 'gray': return isLight ? 'rgba(0,0,0,0.25)' : 'rgba(255,255,255,0.2)'
-      case 'black': return 'rgba(0,0,0,0.55)'
-      case 'white': return 'rgba(255,255,255,0.55)'
-      default: return 'rgba(59, 130, 246, 0.55)'
+      case 'red': return `rgba(239, 68, 68, ${alpha})`
+      case 'green': return `rgba(16, 185, 129, ${alpha})`
+      case 'purple': return `rgba(168, 85, 247, ${alpha})`
+      case 'orange': return `rgba(251, 146, 60, ${alpha})`
+      case 'yellow': return `rgba(234, 179, 8, ${alpha})`
+      case 'gray': return isLight ? 'rgba(120,120,128,0.38)' : 'rgba(120,120,128,0.35)'
+      case 'black': return isLight ? 'rgba(0,0,0,0.45)' : 'rgba(0,0,0,0.55)'
+      case 'white': return isLight ? 'rgba(255,255,255,0.65)' : 'rgba(255,255,255,0.10)'
+      default: return `rgba(59, 130, 246, ${alpha})`
     }
   }
   const nodes = st.nodes || []
