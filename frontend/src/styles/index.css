@@ -555,6 +555,25 @@ body[data-lock]:not([data-lock="0"]) .hxw-wrap { pointer-events: none; }
 :root[data-theme="warm"] .hxw-mini, :root[data-theme="sakura"] .hxw-mini { background: rgba(255,255,255,.45); }
 .hxw-mini canvas { width: 120px; height: 120px; border-radius: 50%; }
 
+/* ---- Hex Widgets: Isometric View ---- */
+.hxw-wrap.hxw-iso { perspective: var(--hxw-persp, 1400px); perspective-origin: 58% 42%; overflow: visible;
+  --hxw-elev: 140px; /* raise board above ground */
+  --hxw-base-off: 160px; /* base depth below board */
+}
+.hxw-wrap.hxw-iso .hxw-canvas { transform-style: preserve-3d; transform-origin: 50% 55%; }
+/* Slight depth and ground shadow for widgets */
+.hxw-wrap.hxw-iso .hxw-widget .hxw-clip { box-shadow: 0 14px 24px rgba(0,0,0,.35), inset 0 1px 1px rgba(255,255,255,.06), inset 0 -8px 18px rgba(0,0,0,.14); }
+.hxw-wrap.hxw-iso .hxw-widget::after { content: ""; position: absolute; inset: 0; transform: translateZ(-1px); filter: blur(6px); opacity: .6; pointer-events: none; }
+
+/* Diorama base plate under the field */
+.hxw-base { z-index: 0 !important; border-radius: 14px; }
+.hxw-wrap.hxw-iso .hxw-base {
+  background:
+    radial-gradient(120% 100% at 50% 45%, rgba(255,255,255,.04), rgba(0,0,0,.10) 70%, rgba(0,0,0,.22) 100%),
+    var(--gh-canvas-subtle);
+  box-shadow: 0 28px 60px rgba(0,0,0,.45), 0 4px 0 rgba(0,0,0,.4) inset, 0 -4px 0 rgba(255,255,255,.04) inset;
+}
+
 /* Remove rectangular look for widgets placed in hex field */
 .hxw-body .widget { background: transparent !important; box-shadow: none !important; border: none !important; border-radius: 0 !important; }
 .hxw-body .gh-card { box-shadow: none !important; }
@@ -690,3 +709,6 @@ body[data-lock]:not([data-lock="0"]) .hxw-wrap { pointer-events: none; }
 .hxw-body .lnk-form, .hxw-body .cal-form { max-width: min(560px, 92%); width: 100%; margin: 0 auto; }
 /* Ensure inputs/buttons are interactive above any overlays */
 .hxw-body input, .hxw-body textarea, .hxw-body select, .hxw-body button { position: relative; z-index: 5; pointer-events: auto; }
+.hxw-stage { position: absolute; inset: 0; transform-origin: 50% 55%; z-index: 1; }
+.hxw-wrap.hxw-iso .hxw-stage { transform: rotateX(var(--hxw-rot-x, 46deg)) rotateZ(var(--hxw-rot-z, -22deg)) translateZ(calc(-1 * var(--hxw-elev, 140px))); transform-style: preserve-3d; }
+.hxw-wrap.hxw-iso .hxw-canvas { transform-style: preserve-3d; }

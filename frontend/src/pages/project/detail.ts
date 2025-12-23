@@ -585,6 +585,25 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
   applyCoreTabs(container, String(project.id))
   // Build hex-grid widget field for Summary
   try { renderHexWidgets(container, String(project.id)) } catch { }
+  // Apply saved view mode (2D/3D)
+  try {
+    const wrap = container.querySelector('#hxwWrap') as HTMLElement | null
+    const canvas = container.querySelector('#hxwCanvas') as HTMLElement | null
+    const key = `hxw-view-${project.id}`
+    const iso = localStorage.getItem(key) === 'iso'
+    if (iso) wrap?.classList.add('hxw-iso')
+    const btn = container.querySelector('#hxwView3d') as HTMLElement | null
+    const applyLabel = () => { if (!btn) return; btn.textContent = wrap?.classList.contains('hxw-iso') ? '2D' : '3D' }
+    applyLabel()
+    btn?.addEventListener('click', () => {
+      if (!wrap || !canvas) return
+      wrap.classList.toggle('hxw-iso')
+      localStorage.setItem(key, wrap.classList.contains('hxw-iso') ? 'iso' : '2d')
+      const st = (wrap as any)._hxw as any
+      if (st) { try { hxwApplyTransform(wrap, canvas, st) } catch {} }
+      applyLabel()
+    })
+  } catch {}
   // Bind FAB for adding widgets into hex field
   const fab = container.querySelector('#hxwFab') as HTMLElement | null
   fab?.addEventListener('click', () => {
@@ -3434,11 +3453,12 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
         const key = `${pid}:${id}`
         const prev = clockTimers.get(key)
         if (prev) { try { clearInterval(prev) } catch {} clockTimers.delete(key) }
+        try { const w = clockWatchers.get(key); if (w?.ro) w.ro.disconnect(); if (w?.raf) cancelAnimationFrame(w.raf); clockWatchers.delete(key) } catch {}
         const mode: 'digital' | 'analog' = (m.type === 'clock-digital') ? 'digital' : 'analog'
         let doFit: (() => void) | null = null
         const render = () => {
           const rect = box.getBoundingClientRect()
-          const size = Math.max(50, Math.min(rect.width, rect.height))
+          const size = Math.max(64, Math.min(rect.width, rect.height))
           if (mode === 'digital') {
             // Initial DOM for digital; sizes will be calculated precisely below
             box.innerHTML = `<div class=\"clk-digital font-mono font-semibold\" style=\"line-height:1; letter-spacing:0px; white-space:nowrap;\"></div><div class=\"clk-date mt-2 text-gray-400\"></div>`
@@ -3477,29 +3497,33 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
             }
             doFit()
           } else {
-            const svgSize = Math.floor(size * 0.95)
+            const svgSize = Math.floor(size * 0.96)
             const ticks = [0, 60, 120, 180, 240, 300]
               .map((a) => {
                 const r1 = 42, r2 = 47
                 const rad = a * Math.PI / 180
                 const x1 = 50 + Math.sin(rad) * r1; const y1 = 50 - Math.cos(rad) * r1
                 const x2 = 50 + Math.sin(rad) * r2; const y2 = 50 - Math.cos(rad) * r2
-                return `<line x1=\"${x1.toFixed(1)}\" y1=\"${y1.toFixed(1)}\" x2=\"${x2.toFixed(1)}\" y2=\"${y2.toFixed(1)}\" stroke=\"var(--clk-border)\" stroke-width=\"2\" stroke-linecap=\"round\"/>`
+                return `<line x1=\"${x1.toFixed(1)}\" y1=\"${y1.toFixed(1)}\" x2=\"${x2.toFixed(1)}\" y2=\"${y2.toFixed(1)}\" stroke=\"var(--clk-border)\" stroke-width=\"2\" stroke-linecap=\"round\" vector-effect=\"non-scaling-stroke\"/>`
               }).join('')
             // Hexスタイルのシンプルなダイヤル（外周はハニカムの背景で表現）
             box.innerHTML = `
               <div class=\"clk-analog\" style=\"--clk-border: var(--gh-border); --clk-major: var(--gh-contrast); --clk-minor: var(--gh-muted); --clk-sec: var(--gh-accent); color: var(--gh-contrast);\">
-                <svg viewBox=\"0 0 100 100\" width=\"${svgSize}\" height=\"${svgSize}\">
+                <svg viewBox=\"0 0 100 100\" width=\"${svgSize}\" height=\"${svgSize}\" preserveAspectRatio=\"xMidYMid meet\" shape-rendering=\"geometricPrecision\">
                   ${ticks}
-                  <line id=\"clk-h\" x1=\"50\" y1=\"50\" x2=\"50\" y2=\"34\" stroke=\"var(--clk-major)\" stroke-width=\"3.8\" stroke-linecap=\"round\" />
-                  <line id=\"clk-m\" x1=\"50\" y1=\"50\" x2=\"50\" y2=\"24\" stroke=\"var(--clk-minor)\" stroke-width=\"2.8\" stroke-linecap=\"round\" />
-                  <line id=\"clk-s\" x1=\"50\" y1=\"50\" x2=\"50\" y2=\"18\" stroke=\"var(--clk-sec)\" stroke-width=\"1.6\" stroke-linecap=\"round\" />
+                  <line id=\"clk-h\" x1=\"50\" y1=\"50\" x2=\"50\" y2=\"34\" stroke=\"var(--clk-major)\" stroke-width=\"3.8\" stroke-linecap=\"round\" vector-effect=\"non-scaling-stroke\" />
+                  <line id=\"clk-m\" x1=\"50\" y1=\"50\" x2=\"50\" y2=\"24\" stroke=\"var(--clk-minor)\" stroke-width=\"2.8\" stroke-linecap=\"round\" vector-effect=\"non-scaling-stroke\" />
+                  <line id=\"clk-s\" x1=\"50\" y1=\"50\" x2=\"50\" y2=\"18\" stroke=\"var(--clk-sec)\" stroke-width=\"1.6\" stroke-linecap=\"round\" vector-effect=\"non-scaling-stroke\" />
                   <circle cx=\"50\" cy=\"50\" r=\"2.8\" fill=\"var(--clk-major)\" />
                 </svg>
               </div>`
           }
         }
-        render()
+        // Defer first render to next frame to avoid 0-size reads during layout
+        try { const prevRaf = clockWatchers.get(key)?.raf; if (prevRaf) cancelAnimationFrame(prevRaf) } catch {}
+        const rafId = requestAnimationFrame(() => { render() })
+        const prevW = clockWatchers.get(key) || {}
+        clockWatchers.set(key, { ...prevW, raf: rafId })
         const tick = () => {
           const now = new Date()
           if (mode === 'digital') {
@@ -3528,6 +3552,15 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
         tick()
         const tid = window.setInterval(tick, 1000)
         clockTimers.set(key, tid as unknown as number)
+        // Observe resize to keep analog dial stable when the widget scales (2D/3D or layout)
+        try {
+          const existed = clockWatchers.get(key)?.ro
+          if (existed) existed.disconnect()
+          const ro = new ResizeObserver(() => { try { render() } catch {} })
+          ro.observe(box)
+          const prev = clockWatchers.get(key) || {}
+          clockWatchers.set(key, { ...prev, ro })
+        } catch {}
         // no mode toggle in split widgets
       }
     }
@@ -3863,6 +3896,7 @@ function clockSet(pid: string, id: string, mode: 'digital' | 'analog'): void {
   try { localStorage.setItem(clockKey(pid, id), mode) } catch { }
 }
 const clockTimers = new Map<string, number>()
+const clockWatchers = new Map<string, { ro?: ResizeObserver; raf?: number }>()
 
 // ---- Flow helpers ----
 type FlowNode = { id: string; kind: 'trigger' | 'action'; type: string; x: number; y: number; label?: string; cfg?: Record<string, any> }
@@ -4228,11 +4262,18 @@ function detailLayout(ctx: { id: number; name: string; fullName: string; owner: 
               <!-- Honeycomb widget field: full-screen behind left rail -->
               <div id="hxwHost" class="fixed inset-0 z-0">
                 <section class="hxw-wrap" id="hxwWrap">
-                  <div class="hxw-canvas" id="hxwCanvas" style="width:2000px; height:1400px"></div>
+                  <div class="hxw-stage" id="hxwStage">
+                    <div class="hxw-canvas hxw-base" id="hxwBase" style="width:2000px; height:1400px"></div>
+                    <div class="hxw-canvas" id="hxwCanvas" style="width:2000px; height:1400px"></div>
+                  </div>
                 </section>
               </div>
               <!-- Minimap (top-right) -->
               <div class="hxw-mini"><canvas id="hxwMini" width="120" height="120"></canvas></div>
+              <!-- View toggle (2D/3D) -->
+              <button id="hxwView3d" class="fixed bottom-5 right-20 z-[18] rounded-md bg-neutral-900/70 text-gray-200 ring-1 ring-neutral-600 px-2.5 py-1.5 text-sm shadow">
+                3D
+              </button>
               <!-- Floating add button (bottom-right) -->
               <button id="hxwFab" class="fixed bottom-5 right-5 z-[18] w-12 h-12 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white text-2xl leading-none grid place-items-center shadow-xl ring-2 ring-emerald-300/40">＋</button>
               <!-- Reopen rail button (visible only when rail is collapsed) -->
@@ -5363,7 +5404,16 @@ function hxwShapeFor(type: string): Array<[number, number]> {
 }
 
 function hxwApplyTransform(wrap: HTMLElement, canvas: HTMLElement, st: HexWLayout): void {
-  canvas.style.transform = `translate(${st.offsetX}px, ${st.offsetY}px) scale(${st.scale})`
+  const iso = wrap.classList.contains('hxw-iso')
+  const isoScale = iso ? 0.98 : 1
+  const sc = st.scale * isoScale
+  // Stage handles rotation/elevation so panning stays parallel to plane
+  const stage = document.getElementById('hxwStage') as HTMLElement | null
+  if (stage) stage.style.transform = iso ? 'rotateX(var(--hxw-rot-x, 46deg)) rotateZ(var(--hxw-rot-z, -22deg)) translateZ(calc(-1 * var(--hxw-elev, 140px)))' : ''
+  const move = `translate(${st.offsetX}px, ${st.offsetY}px) scale(${sc})`
+  canvas.style.transform = move
+  const base = document.getElementById('hxwBase') as HTMLElement | null
+  if (base) base.style.transform = move
   // update minimap
   try { hxwDrawMini(wrap, st) } catch { }
 }
@@ -5443,18 +5493,37 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
   const Z_MAX = 2.4
   const getMin = () => Math.max((wrap.clientWidth / (st.width || 1)), (wrap.clientHeight / (st.height || 1)))
   const enforceBounds = () => {
-    const m = 120 // margin for edge breathing room
     const vw = wrap.clientWidth
     const vh = wrap.clientHeight
     const W = (st.width || 0) * st.scale
     const H = (st.height || 0) * st.scale
-    const minX = Math.min(m, vw - W - m)
-    const maxX = m
-    const minY = Math.min(m, vh - H - m)
-    const maxY = m
-    if (!isFinite(minX) || !isFinite(minY)) return
-    st.offsetX = Math.max(minX, Math.min(maxX, st.offsetX))
-    st.offsetY = Math.max(minY, Math.min(maxY, st.offsetY))
+    if (!isFinite(vw) || !isFinite(vh)) return
+    const iso = wrap.classList.contains('hxw-iso')
+    let mX = 120, mY = 120
+    if (iso) {
+      // Increase bounds in 3D to compensate perspective skew so右下にも十分に移動できる
+      const parseDeg = (v: string, d: number) => { const n = parseFloat(v.replace('deg','')); return isNaN(n) ? d : n }
+      let rx = 46, rz = -22
+      try {
+        const cs = getComputedStyle(wrap)
+        rx = parseDeg(cs.getPropertyValue('--hxw-rot-x') || '', rx)
+        rz = parseDeg(cs.getPropertyValue('--hxw-rot-z') || '', rz)
+      } catch {}
+      const rxRad = rx * Math.PI / 180
+      const rzRad = rz * Math.PI / 180
+      const extraX = Math.abs(H * Math.sin(rxRad) * 0.65) + Math.abs(W * Math.sin(rzRad) * 0.25)
+      const extraY = Math.abs(H * Math.sin(rxRad) * 0.25) + Math.abs(W * Math.sin(rzRad) * 0.65)
+      mX += Math.round(extraX)
+      mY += Math.round(extraY)
+    }
+    const minX = (vw - W) - mX
+    const maxX = mX
+    const minY = (vh - H) - mY
+    const maxY = mY
+    if (W + 2 * mX <= vw) st.offsetX = Math.round((vw - W) / 2)
+    else st.offsetX = Math.max(minX, Math.min(maxX, st.offsetX))
+    if (H + 2 * mY <= vh) st.offsetY = Math.round((vh - H) / 2)
+    else st.offsetY = Math.max(minY, Math.min(maxY, st.offsetY))
   }
   let draggingStage = false, sx = 0, sy = 0, sox = 0, soy = 0, activePid: number | null = null
   let widgetDragging = false
@@ -5482,12 +5551,44 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
   })
   wrap.addEventListener('wheel', (e) => {
     if (widgetDragging) return
+    const zoomAt = (clientX: number, clientY: number, nextScale: number) => {
+      const iso = wrap.classList.contains('hxw-iso')
+      const ns = clamp(nextScale, getMin(), Z_MAX)
+      if (iso) { st.scale = ns; enforceBounds(); hxwApplyTransform(wrap, canvas, st); return }
+      const rect = wrap.getBoundingClientRect()
+      const prev = st.scale
+      const cx = clientX - rect.left
+      const cy = clientY - rect.top
+      const wx = (cx - st.offsetX) / prev
+      const wy = (cy - st.offsetY) / prev
+      st.scale = ns
+      st.offsetX = cx - wx * ns
+      st.offsetY = cy - wy * ns
+      enforceBounds(); hxwApplyTransform(wrap, canvas, st)
+    }
+    const getPxVar = (name: string, def: number): number => {
+      try {
+        const v = getComputedStyle(wrap).getPropertyValue(name).trim()
+        const n = parseFloat(v.replace('px',''))
+        return isNaN(n) ? def : n
+      } catch { return def }
+    }
+    const setElev = (px: number) => wrap.style.setProperty('--hxw-elev', `${Math.round(px)}px`)
+    const E_MIN = 60, E_MAX = 5000
     if (e.ctrlKey) {
       e.preventDefault()
-      const prev = st.scale
-      const ds = Math.exp(-e.deltaY * 0.0022)
-      st.scale = clamp(prev * ds, getMin(), Z_MAX)
-      enforceBounds(); hxwApplyTransform(wrap, canvas, st)
+      const iso = wrap.classList.contains('hxw-iso')
+      // Much higher sensitivity; 3D > 2D. In 3D invert direction (pinch out -> closer)
+      const ds2d = Math.exp(-e.deltaY * 0.0055)
+      const ds3d = Math.exp(e.deltaY * 0.0100)
+      if (iso) {
+        const cur = getPxVar('--hxw-elev', 140)
+        const next = Math.max(E_MIN, Math.min(E_MAX, cur * ds3d))
+        setElev(next); hxwApplyTransform(wrap, canvas, st)
+      } else {
+        const prev = st.scale
+        zoomAt(e.clientX, e.clientY, prev * ds2d)
+      }
     } else {
       e.preventDefault()
       st.offsetX -= e.deltaX
@@ -5509,9 +5610,29 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
       const d = dist()
       if (startDist === 0) { startDist = d; startScale = st.scale }
       if (d > 0 && startDist > 0) {
-        const s = Math.pow(d / startDist, 1.25)
-        st.scale = clamp(startScale * s, getMin(), Z_MAX)
-        enforceBounds(); hxwApplyTransform(wrap, canvas, st)
+        const ratio = d / startDist
+        const iso = wrap.classList.contains('hxw-iso')
+        const s = iso ? Math.pow(ratio, -2.7) : Math.pow(ratio, 1.9) // 3D inverted (out -> closer), 2D higher sensitivity
+        if (iso) {
+          const cur = (function(){ try { const v = getComputedStyle(wrap).getPropertyValue('--hxw-elev').trim(); const n = parseFloat(v.replace('px','')); return isNaN(n) ? 140 : n } catch { return 140 } })()
+          const next = Math.max(60, Math.min(E_MAX, cur * s))
+          wrap.style.setProperty('--hxw-elev', `${Math.round(next)}px`)
+          hxwApplyTransform(wrap, canvas, st)
+        } else {
+          const a = Array.from(pts.values())
+          const midX = (a[0].x + a[1].x) / 2
+          const midY = (a[0].y + a[1].y) / 2
+          const ns = clamp(startScale * s, getMin(), Z_MAX)
+          const rect = wrap.getBoundingClientRect()
+          const cx = midX - rect.left
+          const cy = midY - rect.top
+          const wx = (cx - st.offsetX) / st.scale
+          const wy = (cy - st.offsetY) / st.scale
+          st.scale = ns
+          st.offsetX = cx - wx * ns
+          st.offsetY = cy - wy * ns
+          enforceBounds(); hxwApplyTransform(wrap, canvas, st)
+        }
       }
     }
   })
@@ -6087,6 +6208,7 @@ export function renderHexWidgets(root: HTMLElement, pid: string): void {
   st.width = width; st.height = height
   canvas.style.width = `${width}px`
   canvas.style.height = `${height}px`
+  try { const base = document.getElementById('hxwBase') as HTMLElement | null; if (base) { base.style.width = `${width}px`; base.style.height = `${height}px` } } catch {}
   ; (wrap as any)._hxw = st
   ; (wrap as any)._hxwCols = COLS
   ; (wrap as any)._hxwRows = ROWS
