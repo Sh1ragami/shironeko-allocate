@@ -631,6 +631,7 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
   const rail = container.querySelector('#leftRail') as HTMLElement | null
   const railToggle = container.querySelector('#railToggle') as HTMLButtonElement | null
   const railToggleTop = container.querySelector('#railToggleTop') as HTMLButtonElement | null
+  const railReopen = container.querySelector('#railReopen') as HTMLButtonElement | null
   const railKey = `pj-rail-collapsed`
   const railWKey = `pj-rail-width`
   const setToggleIcon = () => {
@@ -647,6 +648,7 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
     if (!rail) return
     rail.classList.toggle('hidden', collapsed)
     setToggleIcon()
+    if (railReopen) railReopen.classList.toggle('hidden', !collapsed)
   }
   applyRail(localStorage.getItem(railKey) === '1')
   const onToggle = () => {
@@ -657,6 +659,7 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
   }
   railToggle?.addEventListener('click', onToggle)
   railToggleTop?.addEventListener('click', onToggle)
+  railReopen?.addEventListener('click', onToggle)
 
   // Resize (drag) support for left rail with min/max and persistence
   const tabsLeftPad = container.querySelector('#tabsLeftPad') as HTMLElement | null
@@ -818,8 +821,12 @@ function barSkeleton(): string {
 }
 
 function readmeSkeleton(): string {
-  // 内側の枠線も撤去し、読みやすいプレーンな背景に
-  return `<div class="h-full overflow-auto rounded bg-neutral-900/30 p-4 text-gray-200 whitespace-pre-wrap">Loading README...</div>`
+  // READMEはMarkdownのプレビューと同じ構造にし、Hex内では背景をHexと同化させる
+  return `
+    <div class="md-widget h-full">
+      <div class="md-preview whitespace-pre-wrap text-sm text-gray-200 p-3 h-full overflow-auto">Loading README...</div>
+    </div>
+  `
 }
 
 function hydrateOverview(root: HTMLElement, repo: any): void {
@@ -856,22 +863,143 @@ function committersRender(root: HTMLElement, stats: Array<{ login: string; avata
   if (!wrap) wrap = root.querySelector('[data-widget="committers"] .wg-content') as HTMLElement | null
   if (!wrap) return
   // Hex-packed layout when slots exist
-  const widget = wrap.closest('[data-widget="committers"]') as HTMLElement | null
+  const widget = (wrap.closest('.hxw-widget') as HTMLElement | null) || (wrap.closest('[data-widget="committers"]') as HTMLElement | null)
   const slotsWrap = widget?.querySelector('.hxw-cells') as HTMLElement | null
   if (slotsWrap) {
+    const gridEl = widget?.closest('#widgetGrid') as HTMLElement | null
+    const hxEl = widget?.closest('#hxwCanvas') as HTMLElement | null
+    const edit = ((gridEl && gridEl.getAttribute('data-edit') === '1') || (hxEl && hxEl.getAttribute('data-edit') === '1'))
+    // Make sure slots layer is visible
+    (slotsWrap as HTMLElement).style.display = ''
     const slots = Array.from(slotsWrap.querySelectorAll('.hxw-slot .slot-inner')) as HTMLElement[]
-    slots.forEach(s => s.innerHTML = '')
-    const top = stats.slice(0, slots.length)
-    top.forEach((s, i) => {
-      const cell = slots[i]; if (!cell) return
-      cell.innerHTML = `<div class="grid place-items-center">
-        <img src="${s.avatar_url || ''}" class="w-7 h-7 rounded-full ring-2 ring-[rgba(255,255,255,0.22)] object-cover" alt="${s.login}"/>
-        <div class="mt-1 text-[10px] text-gray-200 truncate max-w-[80%]">${s.login}</div>
-        <div class="text-[10px] text-emerald-300">${s.count}</div>
+    const wid = (widget?.getAttribute('data-widget') || '')
+    const pid = (document.getElementById('hxwCanvas') as HTMLElement | null)?.getAttribute('data-pid') || (root.getAttribute('data-pid') || '')
+    // state helpers
+    const cmKey = (p: string, w: string) => `pj-cm-users-${p}-${w}`
+    const cmGet = (): string[] => { try { return JSON.parse(localStorage.getItem(cmKey(pid, wid)) || '[]') as string[] } catch { return [] } }
+    const cmSet = (arr: string[]) => { localStorage.setItem(cmKey(pid, wid), JSON.stringify(arr)) }
+    const users = cmGet()
+    // center cell: label
+    if (slots[0]) {
+      slots[0].innerHTML = `<div class="text-center text-gray-100"><div class="text-[12px]">コミット数</div><div class="text-[11px] text-gray-300">過去90日</div></div>`
+    }
+    // make a picker overlay
+    const openPicker = async (slotIdx: number) => {
+      // Avoid stacking pickers
+      document.getElementById('cmPicker')?.remove()
+      const overlay = document.createElement('div')
+      overlay.id = 'cmPicker'
+      overlay.className = 'fixed inset-0 z-[90] bg-black/50 grid place-items-center'
+      overlay.innerHTML = `<div class="w-[min(420px,92vw)] rounded-lg bg-neutral-900 ring-2 ring-neutral-600 p-3 text-gray-100">
+        <div class="text-sm mb-2">メンバーを選択</div>
+        <input id="cm-q" class="w-full rounded bg-neutral-800/60 ring-2 ring-neutral-600 px-2 py-1 text-gray-100" placeholder="検索" />
+        <div id="cm-list" class="mt-2 max-h-64 overflow-auto divide-y divide-neutral-700"></div>
       </div>`
+      document.body.appendChild(overlay)
+      const listEl = overlay.querySelector('#cm-list') as HTMLElement
+      try {
+        let itemsHtml = ''
+        const seen = new Set<string>()
+        const pushUsers = (arr: Array<{ login: string; avatar_url?: string }>) => {
+          arr.forEach(u => {
+            const login = u.login || ''
+            if (!login || seen.has(login)) return
+            seen.add(login)
+            itemsHtml += `<button data-login="${login}" class=\"w-full text-left flex items-center gap-2 px-2 py-1 hover:bg-neutral-800/60\">\n              <img src=\"${u.avatar_url || `https://avatars.githubusercontent.com/${login}?s=64`}\" class=\"w-5 h-5 rounded-full\"/>\n              <span>${login}</span>\n            </button>`
+          })
+        }
+        // 1) プロジェクトのコラボレータ（コミット0でも全員）
+        try {
+          const collabs = await apiFetch<Array<{ login: string; avatar_url?: string }>>(`/projects/${pid}/collaborators`)
+          if (Array.isArray(collabs) && collabs.length) pushUsers(collabs)
+        } catch { /* ignore */ }
+        // 2) GitHub Collaborators（補完: リポジトリの全協力者=コミット0含む）
+        try {
+          const full = (root as HTMLElement).getAttribute('data-repo-full') || ((document.querySelector('[data-repo-full]') as HTMLElement | null)?.getAttribute('data-repo-full') || '')
+          if (full) {
+            const cols = await apiFetch<any[]>(`/github/collaborators?full_name=${encodeURIComponent(full)}`)
+            pushUsers((cols || []).map(c => ({ login: c.login || '', avatar_url: c.avatar_url || '' })))
+          }
+        } catch { /* ignore */ }
+        // 3) GitHub Contributors（さらに補完: committers）
+        try {
+          const full = (root as HTMLElement).getAttribute('data-repo-full') || ((document.querySelector('[data-repo-full]') as HTMLElement | null)?.getAttribute('data-repo-full') || '')
+          if (full) {
+            const contr = await apiFetch<any[]>(`/github/contributors?full_name=${encodeURIComponent(full)}`)
+            pushUsers((contr || []).map(c => ({ login: c.login || '', avatar_url: c.avatar_url || '' })))
+          }
+        } catch { /* ignore */ }
+        // 4) 左レールに既に描画済みのメンバー（最後の補完）
+        try {
+          const imgs = Array.from(document.querySelectorAll('#collabAvatars img[data-login]')) as HTMLImageElement[]
+          pushUsers(imgs.map(img => ({ login: img.getAttribute('data-login') || '', avatar_url: img.getAttribute('src') || '' })))
+        } catch { /* ignore */ }
+        listEl.innerHTML = itemsHtml || '<div class="text-gray-400 px-2 py-1">メンバーがいません</div>'
+        listEl.addEventListener('click', (e) => {
+          const b = (e.target as HTMLElement).closest('[data-login]') as HTMLElement | null
+          if (!b) return
+          const login = b.getAttribute('data-login') || ''
+          const next = users.slice()
+          next[slotIdx - 1] = login // outer ring indices start at 1
+          cmSet(next)
+          overlay.remove()
+          // rehydrate
+          try {
+            // Immediately replace the selected slot content (no full rebuild needed)
+            const s = slots[slotIdx]
+            if (s) {
+              s.innerHTML = `<div class=\"relative grid place-items-center\">\n                <button title=\"解除\" class=\"cm-del absolute top-0.5 right-0.5 text-[12px] text-gray-300 hover:text-white\">×</button>\n                <img src=\"https://avatars.githubusercontent.com/${login}?s=96\" class=\"rounded-full ring-2 ring-[rgba(255,255,255,0.22)] object-cover\" style=\"width:56px;height:56px\" alt=\"${login}\"/>\n                <div class=\"mt-1 text-[12px] text-gray-200 truncate max-w-[96%]\">${login}</div>\n                <div class=\"cm-count text-[13px] font-semibold text-emerald-300\">…</div>\n              </div>`
+              // allow re-pick on click (excluding delete)
+              s.addEventListener('click', (ev) => { const t = ev.target as HTMLElement; if (!t.closest('.cm-del')) openPicker(slotIdx) })
+              const del = s.querySelector('.cm-del') as HTMLElement | null
+              del?.addEventListener('click', (ev) => { ev.stopPropagation(); const next2 = users.slice(); next2[slotIdx - 1] = '' as any; cmSet(next2); s.innerHTML = `<button class=\\"cm-add text-2xl md:text-3xl text-gray-100\\">＋</button>`; (s.querySelector('.cm-add') as HTMLElement | null)?.addEventListener('click', () => openPicker(slotIdx)) })
+            }
+            // Update counts for all selected users
+            hydrateCommittersSelected(root)
+          } catch {}
+        })
+      } catch {
+        listEl.innerHTML = '<div class="text-gray-400 px-2 py-1">読み込みに失敗しました</div>'
+      }
+      overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove() })
+    }
+    // fill outer cells with + or selected user
+    slots.forEach((s, i) => {
+      if (i === 0) return
+      const login = users[i - 1] || ''
+      if (!login) {
+        if (edit) {
+          s.innerHTML = `<button class=\"cm-add text-2xl md:text-3xl text-gray-100\">＋</button>`
+          const btn = s.querySelector('.cm-add') as HTMLElement | null
+          btn?.addEventListener('click', () => openPicker(i))
+        } else {
+          s.innerHTML = `<div class=\"text-[12px] text-gray-100\">未設定</div>`
+        }
+      } else {
+        if (edit) {
+          s.innerHTML = `<div class=\"relative grid place-items-center\">\n          <button title=\"解除\" class=\"cm-del absolute top-0.5 right-0.5 text-[12px] text-gray-300 hover:text-white\">×</button>\n          <img src=\"https://avatars.githubusercontent.com/${login}?s=96\" class=\"rounded-full ring-2 ring-[rgba(255,255,255,0.22)] object-cover\" style=\"width:56px;height:56px\" alt=\"${login}\"/>\n          <div class=\"mt-1 text-[12px] text-gray-200 truncate max-w-[96%]\">${login}</div>\n          <div class=\"cm-count text-[13px] font-semibold text-emerald-300\">…</div>\n        </div>`
+          // allow re-pick on click username
+          s.addEventListener('click', (ev) => { const t = ev.target as HTMLElement; if (!t.closest('.cm-del')) openPicker(i) })
+          const del = s.querySelector('.cm-del') as HTMLElement | null
+          del?.addEventListener('click', (ev) => {
+            ev.stopPropagation()
+            const next = users.slice(); next[i - 1] = '' as any
+            cmSet(next)
+            // back to plus
+            s.innerHTML = `<button class=\\\"cm-add text-2xl md:text-3xl text-gray-100\\\">＋</button>`
+            const btn2 = s.querySelector('.cm-add') as HTMLElement | null
+            btn2?.addEventListener('click', () => openPicker(i))
+            try { hydrateCommittersSelected(root) } catch {}
+          })
+        } else {
+          s.innerHTML = `<div class=\"relative grid place-items-center\">\n          <img src=\"https://avatars.githubusercontent.com/${login}?s=96\" class=\"rounded-full ring-2 ring-[rgba(255,255,255,0.22)] object-cover\" style=\"width:56px;height:56px\" alt=\"${login}\"/>\n          <div class=\"mt-1 text-[12px] text-gray-200 truncate max-w-[96%]\">${login}</div>\n          <div class=\"cm-count text-[13px] font-semibold text-emerald-300\">…</div>\n        </div>`
+        }
+      }
     })
     // hide rectangular default area
     if (wrap) (wrap as HTMLElement).style.display = 'none'
+    // After layout, fetch commit counts for selected
+    try { hydrateCommittersSelected(root) } catch {}
     return
   }
   // Ensure the container follows the widget height (do not keep fixed 15rem)
@@ -940,13 +1068,111 @@ function hydrateCommittersFromCommits(root: HTMLElement, commits: any[]): void {
   committersRender(root, stats)
 }
 
+// Compute counts for currently selected users in the hex committers widget
+async function hydrateCommittersSelected(root: HTMLElement): Promise<void> {
+  const host = (root as HTMLElement)
+  const full = host.getAttribute('data-repo-full') || (document.querySelector('[data-repo-full]') as HTMLElement | null)?.getAttribute('data-repo-full') || ''
+  if (!full) return
+  const pid = (document.getElementById('hxwCanvas') as HTMLElement | null)?.getAttribute('data-pid') || (root.getAttribute('data-pid') || '')
+  const countObj = await ensureCommitCounts(full)
+  const widgets = Array.from(root.querySelectorAll('.hxw-widget[data-type="committers"]')) as HTMLElement[]
+  widgets.forEach((widEl) => {
+    const wid = widEl.getAttribute('data-widget') || ''
+    const cmKey = (p: string, w: string) => `pj-cm-users-${p}-${w}`
+    let users: string[] = []
+    try { users = JSON.parse(localStorage.getItem(cmKey(pid, wid)) || '[]') as string[] } catch { users = [] }
+    const slotsWrap = widEl.querySelector('.hxw-cells') as HTMLElement | null
+    if (!slotsWrap) return
+    const outers = Array.from(slotsWrap.querySelectorAll('.hxw-slot .slot-inner')).slice(1) as HTMLElement[]
+    outers.forEach((s, idx) => {
+      const login = users[idx] || ''
+      const el = s.querySelector('.cm-count') as HTMLElement | null
+      if (el) el.textContent = login ? String(countObj[login] || 0) : ''
+    })
+  })
+}
+
+async function committersPopulate(root: HTMLElement): Promise<void> {
+  const host = root as HTMLElement
+  const full = host.getAttribute('data-repo-full') || ((document.querySelector('[data-repo-full]') as HTMLElement | null)?.getAttribute('data-repo-full') || '')
+  const pid = (document.getElementById('hxwCanvas') as HTMLElement | null)?.getAttribute('data-pid') || (root.getAttribute('data-pid') || '')
+  const widgets = Array.from(root.querySelectorAll('.hxw-widget[data-type="committers"]')) as HTMLElement[]
+  if (widgets.length === 0) return
+  const counts = full ? await ensureCommitCounts(full) : {}
+  for (const widEl of widgets) {
+    const slotsWrap = widEl.querySelector('.hxw-cells') as HTMLElement | null
+    if (!slotsWrap) continue
+    const gridEl = widEl.closest('#widgetGrid') as HTMLElement | null
+    const hxEl = widEl.closest('#hxwCanvas') as HTMLElement | null
+    const edit = ((gridEl && gridEl.getAttribute('data-edit') === '1') || (hxEl && hxEl.getAttribute('data-edit') === '1'))
+    ;(slotsWrap as HTMLElement).style.display = ''
+    const wid = widEl.getAttribute('data-widget') || ''
+    const cmKey = (p: string, w: string) => `pj-cm-users-${p}-${w}`
+    let users: string[] = []
+    try { users = JSON.parse(localStorage.getItem(cmKey(pid, wid)) || '[]') as string[] } catch { users = [] }
+    const slots = Array.from(slotsWrap.querySelectorAll('.hxw-slot .slot-inner')) as HTMLElement[]
+    // center label
+    if (slots[0]) slots[0].innerHTML = `<div class=\"text-center text-gray-100\"><div class=\"text-[12px]\">コミット数</div><div class=\"text-[11px] text-gray-300\">過去90日</div></div>`
+    const openPicker = async (slotIdx: number) => {
+      document.getElementById('cmPicker')?.remove()
+      const overlay = document.createElement('div')
+      overlay.id = 'cmPicker'
+      overlay.className = 'fixed inset-0 z-[90] bg-black/50 grid place-items-center'
+      overlay.innerHTML = `<div class=\"w-[min(420px,92vw)] rounded-lg bg-neutral-900 ring-2 ring-neutral-600 p-3 text-gray-100\">\n        <div class=\"text-sm mb-2\">メンバーを選択</div>\n        <input id=\"cm-q\" class=\"w-full rounded bg-neutral-800/60 ring-2 ring-neutral-600 px-2 py-1 text-gray-100\" placeholder=\"検索\" />\n        <div id=\"cm-list\" class=\"mt-2 max-h-64 overflow-auto divide-y divide-neutral-700\"></div>\n      </div>`
+      document.body.appendChild(overlay)
+      const listEl = overlay.querySelector('#cm-list') as HTMLElement
+      const add = (arr: Array<{login:string;avatar_url?:string}>, seen: Set<string>) => {
+        arr.forEach(u => { const lg = u.login||''; if (!lg || seen.has(lg)) return; seen.add(lg); listEl.innerHTML += `<button data-login=\"${lg}\" class=\"w-full text-left flex items-center gap-2 px-2 py-1 hover:bg-neutral-800/60\">\n          <img src=\"${u.avatar_url || `https://avatars.githubusercontent.com/${lg}?s=64`}\" class=\"w-5 h-5 rounded-full\"/>\n          <span>${lg}</span>\n        </button>` }) }
+      try {
+        const seen = new Set<string>()
+        try { const collabs = await apiFetch<Array<{login:string;avatar_url?:string}>>(`/projects/${pid}/collaborators`); if (collabs) add(collabs, seen) } catch {}
+        if (full) { try { const cols = await apiFetch<any[]>(`/github/collaborators?full_name=${encodeURIComponent(full)}`); add((cols||[]).map(c=>({login:c.login||'',avatar_url:c.avatar_url||''})), seen) } catch {} }
+        if (full) { try { const contr = await apiFetch<any[]>(`/github/contributors?full_name=${encodeURIComponent(full)}`); add((contr||[]).map(c=>({login:c.login||'',avatar_url:c.avatar_url||''})), seen) } catch {} }
+        if (listEl.innerHTML === '') listEl.innerHTML = '<div class="text-gray-400 px-2 py-1">メンバーがいません</div>'
+        listEl.addEventListener('click', (e) => {
+          const b = (e.target as HTMLElement).closest('[data-login]') as HTMLElement | null
+          if (!b) return
+          const login = b.getAttribute('data-login') || ''
+          const next = users.slice(); next[slotIdx - 1] = login; localStorage.setItem(cmKey(pid, wid), JSON.stringify(next))
+          overlay.remove()
+          committersPopulate(root)
+        })
+      } catch { overlay.remove() }
+      overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove() })
+    }
+    // outer cells
+    slots.forEach((s, idx) => {
+      if (idx === 0) return
+      const login = users[idx - 1] || ''
+      if (!login) {
+        if (edit) {
+          s.innerHTML = `<button class=\"cm-add text-2xl md:text-3xl text-gray-100\">＋</button>`
+          ;(s.querySelector('.cm-add') as HTMLElement | null)?.addEventListener('click', () => openPicker(idx))
+        } else {
+          s.innerHTML = `<div class=\"text-[12px] text-gray-100\">未設定</div>`
+        }
+      } else {
+        if (edit) {
+          s.innerHTML = `<div class=\"relative grid place-items-center\">\n          <button title=\"解除\" class=\"cm-del absolute top-0.5 right-0.5 text-[12px] text-gray-300 hover:text-white\">×</button>\n          <img src=\"https://avatars.githubusercontent.com/${login}?s=96\" class=\"rounded-full ring-2 ring-[rgba(255,255,255,0.22)] object-cover\" style=\"width:56px;height:56px\" alt=\"${login}\"/>\n          <div class=\"mt-1 text-[12px] text-gray-200 truncate max-w-[96%]\">${login}</div>\n          <div class=\"cm-count text-[13px] font-semibold text-emerald-300\">${counts[login]||0}</div>\n        </div>`
+          s.addEventListener('click', (ev) => { const t = ev.target as HTMLElement; if (!t.closest('.cm-del')) openPicker(idx) })
+          ;(s.querySelector('.cm-del') as HTMLElement | null)?.addEventListener('click', (ev) => { ev.stopPropagation(); const next = users.slice(); next[idx - 1] = ''; localStorage.setItem(cmKey(pid, wid), JSON.stringify(next)); committersPopulate(root) })
+        } else {
+          s.innerHTML = `<div class=\"relative grid place-items-center\">\n          <img src=\"https://avatars.githubusercontent.com/${login}?s=96\" class=\"rounded-full ring-2 ring-[rgba(255,255,255,0.22)] object-cover\" style=\"width:56px;height:56px\" alt=\"${login}\"/>\n          <div class=\"mt-1 text-[12px] text-gray-200 truncate max-w-[96%]\">${login}</div>\n          <div class=\"cm-count text-[13px] font-semibold text-emerald-300\">${counts[login]||0}</div>\n        </div>`
+        }
+      }
+    })
+  }
+}
+
 function hydrateReadme(root: HTMLElement, text: string): void {
   const el = root.querySelector('[data-widget="readme"] .whitespace-pre-wrap') as HTMLElement | null
   if (!el) return
   el.innerHTML = mdRenderToHtml(text || 'README not found')
+  // Keep README readable: disable hex-slot splitting
+  /* readability mode */ if (false)
   // Hex-packed: place snippets into slots
   try {
-    const w = el.closest('[data-widget="readme"]') as HTMLElement | null
+    const w = (el.closest('.hxw-widget') as HTMLElement | null) || (el.closest('[data-widget="readme"]') as HTMLElement | null)
     const slotsWrap = w?.querySelector('.hxw-cells') as HTMLElement | null
     if (slotsWrap) {
       const slots = Array.from(slotsWrap.querySelectorAll('.hxw-slot .slot-inner')) as HTMLElement[]
@@ -955,6 +1181,12 @@ function hydrateReadme(root: HTMLElement, text: string): void {
       slots.forEach((s, i) => { s.innerHTML = parts[i] ? `<div class="text-[10px] leading-snug text-gray-100">${escHtml(parts[i]).slice(0,80)}</div>` : '' })
       ;(el.parentElement as HTMLElement | null)!.style.display = 'none'
     }
+  } catch {}
+  // Ensure any hex slots are hidden so the regular card remains visible
+  try {
+    const w = (el.closest('.hxw-widget') as HTMLElement | null) || (el.closest('[data-widget="readme"]') as HTMLElement | null)
+    const slotsWrap = w?.querySelector('.hxw-cells') as HTMLElement | null
+    if (slotsWrap) (slotsWrap as HTMLElement).style.display = 'none'
   } catch {}
   try {
     const w = el.closest('.widget') as HTMLElement | null
@@ -970,17 +1202,44 @@ function hydrateReadme(root: HTMLElement, text: string): void {
 
 function mdFillSlots(w: HTMLElement, pid: string, id: string, text: string): void {
   const slotsWrap = w.querySelector('.hxw-cells') as HTMLElement | null
-  const preview = w.querySelector('.md-preview') as HTMLElement | null
-  if (!slotsWrap) return
-  const plain = (text || '').replace(/\s+/g, ' ').trim()
-  const parts = plain.split(/(?<=[。\.!?])\s+/).filter(Boolean)
-  const slots = Array.from(slotsWrap.querySelectorAll('.hxw-slot .slot-inner')) as HTMLElement[]
-  slots.forEach((s, i) => { s.innerHTML = parts[i] ? `<div class="text-[11px] leading-snug text-gray-100">${escHtml(parts[i]).slice(0,90)}</div>` : '' })
-  if (preview) (preview.parentElement as HTMLElement | null)!.style.display = 'none'
+  // Prefer normal markdown card; hide hex slots if present
+  if (slotsWrap) (slotsWrap as HTMLElement).style.display = 'none'
 }
 
 // ------- Contributions heatmap (GitHub-like) -------
 type ContribCache = { at: number; start: string; days: Record<string, number> }
+
+// ------- Committers (counts per login) cache -------
+type CommitCountsCache = { at: number; counts: Record<string, number> }
+function ccKey(full: string): string { return `pj-commit-counts-v1-${full}` }
+function ccGet(full: string): CommitCountsCache | null {
+  try {
+    const raw = localStorage.getItem(ccKey(full)); if (!raw) return null
+    return JSON.parse(raw) as CommitCountsCache
+  } catch { return null }
+}
+function ccSet(full: string, data: CommitCountsCache): void {
+  try { localStorage.setItem(ccKey(full), JSON.stringify(data)) } catch { }
+}
+async function ensureCommitCounts(full: string): Promise<Record<string, number>> {
+  const ttl = 60 * 60 * 1000 // 1h
+  const cached = ccGet(full)
+  const now = Date.now()
+  if (cached && (now - cached.at) < ttl) return cached.counts || {}
+  // fetch last 90 days commits and aggregate
+  const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString()
+  const commits = await fetchCommitsPaged(full, since)
+  const map = new Map<string, number>()
+  ;(commits || []).forEach(c => {
+    const login = (c.author && c.author.login) || (c.commit && c.commit.author && c.commit.author.name) || ''
+    if (!login) return
+    map.set(login, (map.get(login) || 0) + 1)
+  })
+  const counts: Record<string, number> = {}
+  map.forEach((v, k) => { counts[k] = v })
+  ccSet(full, { at: now, counts })
+  return counts
+}
 
 function contribCacheKey(full: string): string { return `pj-contrib-cache-v1-${full}` }
 function contribGetCache(full: string): ContribCache | null {
@@ -1218,13 +1477,13 @@ function enableDragAndDrop(root: HTMLElement): void {
   const grid = root.querySelector('#widgetGrid') as HTMLElement | null
   if (!grid) return
   const pid = grid.getAttribute('data-pid') || '0'
-  // Remove deprecated widgets from saved meta and DOM (overview, milestones)
+  // Remove deprecated widgets from saved meta and DOM (overview, milestones, flow)
   try {
     const meta = getWidgetMeta(pid)
     let changed = false
     Object.entries(meta).forEach(([id, m]) => {
       const t = (m as any)?.type
-      if (t === 'overview' || t === 'milestones') {
+      if (t === 'overview' || t === 'milestones' || t === 'flow') {
         delete (meta as any)[id]
         changed = true
         const node = grid.querySelector(`[data-widget="${id}"]`)
@@ -2115,7 +2374,14 @@ type WidgetHeight = 'sm' | 'md' | 'lg'
 type WidgetMeta = { size: WidgetSize; h?: WidgetHeight; type?: string; bg?: string }
 
 function getWidgetMeta(pid: string): Record<string, WidgetMeta> {
-  try { return JSON.parse(localStorage.getItem(`pj-widgets-meta-${pid}`) || '{}') as Record<string, WidgetMeta> } catch { return {} }
+  try {
+    const raw = JSON.parse(localStorage.getItem(`pj-widgets-meta-${pid}`) || '{}') as Record<string, WidgetMeta>
+    // Remove deprecated types (flow)
+    const meta: Record<string, WidgetMeta> = {}
+    Object.entries(raw).forEach(([id, m]) => { if ((m?.type || '') !== 'flow') meta[id] = m })
+    if (Object.keys(meta).length !== Object.keys(raw).length) { try { setWidgetMeta(pid, meta) } catch {} }
+    return meta
+  } catch { return {} }
 }
 
 function setWidgetMeta(pid: string, meta: Record<string, WidgetMeta>): void {
@@ -2276,8 +2542,8 @@ function densifyTaskSummary(widgetEl: HTMLElement, scale: number): void {
   const h = Math.max(1, rect.height || areaEl.clientHeight || 0)
   const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v))
   // Base sizes from available height; clamp to sensible bounds
-  const labelPx = Math.round(clamp(h * 0.10, 12, 20))
-  const countPx = Math.round(clamp(h * 0.32, 20, 56))
+  const labelPx = Math.round(clamp(h * 0.12, 14, 24))
+  const countPx = Math.round(clamp(h * 0.36, 24, 72))
   const padPx = Math.round(clamp(h * 0.06, 8, 18))
   // Apply
   const labels = widgetEl.querySelectorAll('.tasksum-body .ts-label') as NodeListOf<HTMLElement>
@@ -2347,8 +2613,9 @@ function openWidgetPickerModal(root: HTMLElement, pid: string, onPick?: (type: s
             ${widgetCard('tasksum', 'タスクサマリー')}
             ${widgetCard('links', 'クイックリンク')}
             ${widgetCard('calendar', 'カレンダー')}
-            ${widgetCard('flow', 'ミニフロー')}
-            ${widgetCard('clock', '時計')}
+            ${widgetCard('clock', 'アナログ時計')}
+            ${widgetCard('clock-digital', 'デジタル時計')}
+            ${widgetCard('spacer', 'スペーサー(1セル)')}
           </div>
         </section>
       </div>
@@ -2372,7 +2639,7 @@ function openWidgetPickerModal(root: HTMLElement, pid: string, onPick?: (type: s
   const getCat = (t: string): string => {
     if (['readme', 'contrib', 'committers'].includes(t)) return 'github'
     if (['markdown'].includes(t)) return 'text'
-    if (['tasksum', 'links', 'calendar', 'clock', 'flow'].includes(t)) return 'manage'
+    if (['tasksum', 'links', 'calendar', 'clock', 'clock-digital', 'spacer'].includes(t)) return 'manage'
     return 'other'
   }
   const applyCat = (cat: string) => {
@@ -2405,6 +2672,7 @@ function widgetCard(type: string, title: string): string {
 
 function widgetThumb(type: string): string {
   // All class names are explicit to be kept by Tailwind JIT
+  if (type === 'spacer') return `<div class=\"w-20 h-20 bg-neutral-900/60 ring-2 ring-neutral-600 rounded grid place-items-center\"><span class=\"text-xs text-gray-400\">1セル</span></div>`
   if (type === 'contrib') {
     const palette = ['bg-neutral-800', 'bg-emerald-900', 'bg-emerald-800', 'bg-emerald-700', 'bg-emerald-600']
     const cells = Array.from({ length: 210 }).map((_, i) => {
@@ -2426,7 +2694,8 @@ function widgetThumb(type: string): string {
   if (type === 'milestones') return `<div class="w-full h-20 bg-neutral-900/60 ring-2 ring-neutral-600 rounded p-2 text-xs text-gray-400"><div>v1.0 リリース</div><div class="text-gray-500">2025-01-31</div></div>`
   if (type === 'links') return `<div class="w-full h-20 bg-neutral-900/60 ring-2 ring-neutral-600 rounded p-2 text-xs text-gray-400">- PR一覧\n- 仕様書</div>`
   if (type === 'calendar') return `<div class="w-full h-24 bg-neutral-900/60 ring-2 ring-neutral-600 rounded p-2 text-xs text-gray-300 grid place-items-center">Googleカレンダー<br/>(埋め込みURL)</div>`
-  if (type === 'clock') return `<div class="w-full h-24 bg-neutral-900/60 ring-2 ring-neutral-600 rounded grid place-items-center"><div class="text-2xl font-mono text-gray-200">12:34</div></div>`
+  if (type === 'clock') return `<div class="w-full h-24 bg-neutral-900/60 ring-2 ring-neutral-600 rounded grid place-items-center"><div class="text-sm text-gray-300">Analog</div></div>`
+  if (type === 'clock-digital') return `<div class="w-full h-24 bg-neutral-900/60 ring-2 ring-neutral-600 rounded grid place-items-center"><div class="text-2xl font-mono text-gray-200">12:34</div></div>`
   if (type === 'progress') return `<div class="w-full h-20 bg-neutral-900/60 ring-2 ring-neutral-600 rounded p-2"><div class="h-2 bg-neutral-800 rounded"><div class="h-2 bg-emerald-600 rounded w-1/2"></div></div><div class="text-[10px] text-gray-400 mt-1">50%</div></div>`
   if (type === 'team') return `<div class="w-full h-20 bg-neutral-900/60 ring-2 ring-neutral-600 rounded p-2 text-xs text-gray-400">👥 メンバー</div>`
   if (type === 'todo') return `<div class="w-full h-20 bg-neutral-900/60 ring-2 ring-neutral-600 rounded p-2 text-xs text-gray-400">- [ ] 項目</div>`
@@ -2577,37 +2846,37 @@ function renderLinkPreview(url: string, full: boolean = false): string {
   // Known providers
   const yt = youTubeId(url)
   if (yt) return full
-    ? `<div class=\"h-full min-h-[220px] overflow-hidden bg-black\"><iframe class=\"w-full h-full\" src=\"https://www.youtube.com/embed/${escHtml(yt)}\" allow=\"accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share\" referrerpolicy=\"strict-origin-when-cross-origin\" allowfullscreen></iframe></div>`
-    : `<div class=\"aspect-video overflow-hidden rounded-md ring-1 ring-neutral-600 bg-black\"><iframe class=\"w-full h-full\" src=\"https://www.youtube.com/embed/${escHtml(yt)}\" allow=\"accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share\" referrerpolicy=\"strict-origin-when-cross-origin\" allowfullscreen></iframe></div>`
+    ? `<div class=\"h-full min-h-[220px] overflow-hidden\"><iframe class=\"w-full h-full\" src=\"https://www.youtube.com/embed/${escHtml(yt)}\" allow=\"accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share\" referrerpolicy=\"strict-origin-when-cross-origin\" allowfullscreen></iframe></div>`
+    : `<div class=\"aspect-video overflow-hidden rounded-md ring-1 ring-neutral-600\"><iframe class=\"w-full h-full\" src=\"https://www.youtube.com/embed/${escHtml(yt)}\" allow=\"accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share\" referrerpolicy=\"strict-origin-when-cross-origin\" allowfullscreen></iframe></div>`
   const vm = vimeoId(url)
   if (vm) return full
-    ? `<div class=\"h-full min-h-[220px] overflow-hidden bg-black\"><iframe class=\"w-full h-full\" src=\"https://player.vimeo.com/video/${escHtml(vm)}\" allow=\"autoplay; fullscreen; picture-in-picture\" allowfullscreen></iframe></div>`
-    : `<div class=\"aspect-video overflow-hidden rounded-md ring-1 ring-neutral-600 bg-black\"><iframe class=\"w-full h-full\" src=\"https://player.vimeo.com/video/${escHtml(vm)}\" allow=\"autoplay; fullscreen; picture-in-picture\" allowfullscreen></iframe></div>`
+    ? `<div class=\"h-full min-h-[220px] overflow-hidden\"><iframe class=\"w-full h-full\" src=\"https://player.vimeo.com/video/${escHtml(vm)}\" allow=\"autoplay; fullscreen; picture-in-picture\" allowfullscreen></iframe></div>`
+    : `<div class=\"aspect-video overflow-hidden rounded-md ring-1 ring-neutral-600\"><iframe class=\"w-full h-full\" src=\"https://player.vimeo.com/video/${escHtml(vm)}\" allow=\"autoplay; fullscreen; picture-in-picture\" allowfullscreen></iframe></div>`
   const lm = loomId(url)
   if (lm) return full
-    ? `<div class=\"h-full min-h-[220px] overflow-hidden bg-black\"><iframe class=\"w-full h-full\" src=\"https://www.loom.com/embed/${escHtml(lm)}\" allowfullscreen></iframe></div>`
-    : `<div class=\"aspect-video overflow-hidden rounded-md ring-1 ring-neutral-600 bg-black\"><iframe class=\"w-full h-full\" src=\"https://www.loom.com/embed/${escHtml(lm)}\" allowfullscreen></iframe></div>`
+    ? `<div class=\"h-full min-h-[220px] overflow-hidden\"><iframe class=\"w-full h-full\" src=\"https://www.loom.com/embed/${escHtml(lm)}\" allowfullscreen></iframe></div>`
+    : `<div class=\"aspect-video overflow-hidden rounded-md ring-1 ring-neutral-600\"><iframe class=\"w-full h-full\" src=\"https://www.loom.com/embed/${escHtml(lm)}\" allowfullscreen></iframe></div>`
   const fg = figmaEmbed(url)
   if (fg) return full
-    ? `<div class=\"h-full min-h-[220px] overflow-hidden bg-neutral-900\"><iframe class=\"w-full h-full\" src=\"${escHtml(fg)}\" allowfullscreen></iframe></div>`
-    : `<div class=\"aspect-video overflow-hidden rounded-md ring-1 ring-neutral-600 bg-neutral-900\"><iframe class=\"w-full h-full\" src=\"${escHtml(fg)}\" allowfullscreen></iframe></div>`
+    ? `<div class=\"h-full min-h-[220px] overflow-hidden\"><iframe class=\"w-full h-full\" src=\"${escHtml(fg)}\" allowfullscreen></iframe></div>`
+    : `<div class=\"aspect-video overflow-hidden rounded-md ring-1 ring-neutral-600\"><iframe class=\"w-full h-full\" src=\"${escHtml(fg)}\" allowfullscreen></iframe></div>`
   const gd = googleDocEmbed(url)
   if (gd) return full
-    ? `<div class=\"h-full min-h-[220px] overflow-hidden bg-neutral-900\"><iframe class=\"w-full h-full\" src=\"${escHtml(gd)}\"></iframe></div>`
-    : `<div class=\"h-56 overflow-hidden rounded-md ring-1 ring-neutral-600 bg-neutral-900\"><iframe class=\"w-full h-full\" src=\"${escHtml(gd)}\"></iframe></div>`
+    ? `<div class=\"h-full min-h-[220px] overflow-hidden\"><iframe class=\"w-full h-full\" src=\"${escHtml(gd)}\"></iframe></div>`
+    : `<div class=\"h-56 overflow-hidden rounded-md ring-1 ring-neutral-600\"><iframe class=\"w-full h-full\" src=\"${escHtml(gd)}\"></iframe></div>`
   // GitHub lightweight card
   try {
     const u = new URL(url)
     if (u.hostname.includes('github.com')) {
       const path = u.pathname.replace(/^\/+/, '')
-      return `<div class=\"rounded-md bg-neutral-900 ring-1 ring-neutral-700 p-3 text-xs\">GitHub: <span class=\"text-gray-300\">${escHtml(path || '')}</span></div>`
+      return `<div class=\"rounded-md ring-1 ring-neutral-700 p-3 text-xs\">GitHub: <span class=\"text-gray-300\">${escHtml(path || '')}</span></div>`
     }
   } catch { }
   // Generic iframe attempt as best-effort
   const gen = renderGenericFrame(url, full)
   if (gen) return gen
   // Fallback text
-  return `<div class=\"rounded-md bg-neutral-900 ring-1 ring-neutral-700 p-6 text-xs text-gray-400 grid place-items-center\">プレビュー未対応</div>`
+  return `<div class=\"rounded-md ring-1 ring-neutral-700 p-6 text-xs text-gray-400 grid place-items-center\">プレビュー未対応</div>`
 }
 // OpenGraph/Twitter Card unfurl (server-assisted)
 type LinkMeta = { url?: string; title?: string; description?: string; image?: string; site_name?: string; favicon?: string }
@@ -2632,8 +2901,8 @@ function renderUnfurlSkeleton(hero: boolean): string {
   if (hero) {
     return `
       <div class=\"h-full flex flex-col\">
-        <div class=\"flex-1 min-h-[220px] bg-neutral-800/60\"></div>
-        <div class=\"p-4 border-t border-neutral-700/60 bg-neutral-900/60\">
+        <div class=\"flex-1 min-h-[220px]\"></div>
+        <div class=\"p-4 border-t border-neutral-700/60\">
           <div class=\"h-4 w-2/3 bg-neutral-800 rounded mb-2\"></div>
           <div class=\"h-3 w-4/5 bg-neutral-800 rounded\"></div>
         </div>
@@ -2642,7 +2911,7 @@ function renderUnfurlSkeleton(hero: boolean): string {
   }
   return `
     <div>
-      <div class=\"h-40 bg-neutral-800/60\"></div>
+      <div class=\"h-40\"></div>
       <div class=\"p-3\">
         <div class=\"h-4 w-3/4 bg-neutral-800 rounded mb-1\"></div>
         <div class=\"h-3 w-5/6 bg-neutral-800 rounded\"></div>
@@ -2657,15 +2926,15 @@ function renderUnfurlCard(meta: LinkMeta, url: string, hero: boolean): string {
   const site = escHtml(meta.site_name || linkDomain(url))
   const img = meta.image ? escHtml(meta.image) : ''
   const favicon = meta.favicon ? escHtml(meta.favicon) : ''
-  const media = img ? `<img src=\"${img}\" alt=\"\" class=\"w-full ${hero ? 'h-full min-h-[220px]' : 'h-40'} object-cover bg-neutral-800\" loading=\"lazy\"/>` : `<div class=\"${hero ? 'h-full min-h-[220px]' : 'h-40'} bg-neutral-800/60\"></div>`
+  const media = img ? `<img src=\"${img}\" alt=\"\" class=\"w-full ${hero ? 'h-full min-h-[220px]' : 'h-40'} object-cover\" loading=\"lazy\"/>` : `<div class=\"${hero ? 'h-full min-h-[220px]' : 'h-40'}\"></div>`
   if (hero) {
     return `
       <a href=\"${u}\" target=\"_blank\" class=\"block h-full flex flex-col\">
         <div class=\"flex-1\">${media}</div>
-        <div class=\"px-4 py-3 border-t border-neutral-700/60 bg-neutral-900/60\">
+        <div class=\"px-4 py-3 border-t border-neutral-700/60\">
           <div class=\"text-[15px] text-gray-100 font-medium truncate\">${title || u}</div>
           <div class=\"text-[12px] text-gray-400 mt-0.5 line-clamp-2\">${desc}</div>
-          <div class=\"text-[11px] text-gray-400 mt-1 flex items-center gap-2\">${favicon ? `<img src=\"${favicon}\" class=\"w-4 h-4\"/>` : ''}<span class=\"inline-block px-1.5 py-0.5 rounded bg-neutral-800/70 ring-1 ring-neutral-700\">${site}</span></div>
+          <div class=\"text-[11px] text-gray-400 mt-1 flex items-center gap-2\">${favicon ? `<img src=\"${favicon}\" class=\"w-4 h-4\"/>` : ''}<span class=\"inline-block px-1.5 py-0.5 rounded ring-1 ring-neutral-700\">${site}</span></div>
         </div>
       </a>
     `
@@ -2676,7 +2945,7 @@ function renderUnfurlCard(meta: LinkMeta, url: string, hero: boolean): string {
       <div class=\"p-3\">
         <div class=\"text-[15px] text-gray-100 font-medium truncate\">${title || u}</div>
         <div class=\"text-[12px] text-gray-400 mt-0.5 line-clamp-2\">${desc}</div>
-        <div class=\"text-[11px] text-gray-400 mt-1 flex items-center gap-2\">${favicon ? `<img src=\"${favicon}\" class=\"w-4 h-4\"/>` : ''}<span class=\"inline-block px-1.5 py-0.5 rounded bg-neutral-800/70 ring-1 ring-neutral-700\">${site}</span></div>
+        <div class=\"text-[11px] text-gray-400 mt-1 flex items-center gap-2\">${favicon ? `<img src=\"${favicon}\" class=\"w-4 h-4\"/>` : ''}<span class=\"inline-block px-1.5 py-0.5 rounded ring-1 ring-neutral-700\">${site}</span></div>
       </div>
     </a>
   `
@@ -2690,8 +2959,8 @@ function renderSimpleTile(url: string, hero: boolean): string {
       <div class=\"text-[12px] text-gray-400 mt-1 truncate\">${safeUrl}</div>
     </div>
   `
-  if (hero) return `<a href=\"${safeUrl}\" target=\"_blank\" class=\"block h-full rounded-xl ring-1 ring-neutral-600 bg-gradient-to-br from-neutral-900 to-neutral-800 hover:ring-neutral-500 transition-colors\">${inner}</a>`
-  return `<a href=\"${safeUrl}\" target=\"_blank\" class=\"block rounded-xl ring-1 ring-neutral-600 bg-gradient-to-br from-neutral-900 to-neutral-800 hover:ring-neutral-500 transition-colors\">${inner}</a>`
+  if (hero) return `<a href=\"${safeUrl}\" target=\"_blank\" class=\"block h-full rounded-xl ring-1 ring-neutral-600 hover:ring-neutral-500 transition-colors\">${inner}</a>`
+  return `<a href=\"${safeUrl}\" target=\"_blank\" class=\"block rounded-xl ring-1 ring-neutral-600 hover:ring-neutral-500 transition-colors\">${inner}</a>`
 }
 function renderLinkCardsUnfurl(list: QuickLink[], edit: boolean): string {
   if (!list || list.length === 0) return '<p class="text-gray-400">リンクはまだありません。</p>'
@@ -2769,9 +3038,9 @@ function renderLinkCards(list: QuickLink[], edit: boolean): string {
       if (single) {
         // Full-bleed single card uses entire widget height
         return `
-          <div class=\"lnk-card h-full flex flex-col rounded-xl ring-1 ring-neutral-600 bg-neutral-900/50 overflow-hidden\">
+          <div class=\"lnk-card h-full flex flex-col rounded-xl ring-1 ring-neutral-600 overflow-hidden\">
             <div class=\"flex-1 min-h-[200px]\">${body}</div>
-            <div class=\"px-4 py-3 border-t border-neutral-700/60 bg-neutral-900/60 flex items-center gap-2\">
+            <div class=\"px-4 py-3 border-t border-neutral-700/60 flex items-center gap-2\">
               <img src=\"${fav}\" alt=\"\" class=\"w-4 h-4 opacity-90\" onerror=\"this.style.display='none'\" />
               <div class=\"min-w-0 flex-1\">
                 <a href=\"${url}\" target=\"_blank\" class=\"text-[15px] text-sky-400 hover:text-sky-300 font-medium truncate inline-block max-w-full\">${title || url}</a>
@@ -2783,7 +3052,7 @@ function renderLinkCards(list: QuickLink[], edit: boolean): string {
         `
       }
       return `
-        <div class=\"lnk-card rounded-xl ring-1 ring-neutral-600 bg-neutral-900/50 overflow-hidden\">
+        <div class=\"lnk-card rounded-xl ring-1 ring-neutral-600 overflow-hidden\">
           ${body}
         </div>
       `
@@ -2795,12 +3064,12 @@ function renderLinkCards(list: QuickLink[], edit: boolean): string {
       </div>` : ''
     const previewCls = edit ? 'lnk-preview hidden mt-3' : 'lnk-preview mt-3'
     return `
-      <div class=\"lnk-card rounded-xl ring-1 ring-neutral-600 bg-neutral-900/50 p-3 shadow-[0_0_0_1px_rgba(255,255,255,0.02)_inset] hover:ring-neutral-500 transition-colors\">
+      <div class=\"lnk-card rounded-xl ring-1 ring-neutral-600 p-3 shadow-[0_0_0_1px_rgba(255,255,255,0.02)_inset] hover:ring-neutral-500 transition-colors\">
         <div class=\"flex items-start gap-3\">
           <img src=\"${fav}\" alt=\"\" class=\"w-5 h-5 mt-0.5 opacity-90\" onerror=\"this.style.display='none'\" />
           <div class=\"min-w-0 flex-1\">
             <a href=\"${url}\" target=\"_blank\" class=\"text-[15px] text-sky-400 hover:text-sky-300 font-medium truncate inline-block max-w-full\">${title || url}</a>
-            <div class=\"text-[11px] text-gray-400 mt-0.5\"><span class=\"inline-block px-1.5 py-0.5 rounded bg-neutral-800/70 ring-1 ring-neutral-700\">${domain}</span></div>
+            <div class=\"text-[11px] text-gray-400 mt-0.5\"><span class=\"inline-block px-1.5 py-0.5 rounded ring-1 ring-neutral-700\">${domain}</span></div>
           </div>
           ${actions}
         </div>
@@ -2808,6 +3077,39 @@ function renderLinkCards(list: QuickLink[], edit: boolean): string {
       </div>
     `
   }).join('')
+}
+
+// Hex circle preview for Links: unfurl metadata and fill circle with image or fallback
+async function hydrateLinkCircle(circle: HTMLElement, url: string): Promise<void> {
+  try {
+    if (!circle) return
+    const safeUrl = (url || '').trim()
+    if (!safeUrl) { circle.innerHTML = `<div class="w-full h-full grid place-items-center text-gray-300 text-sm">リンク未設定</div>`; return }
+    // Loading indicator
+    circle.innerHTML = `<div class="w-full h-full grid place-items-center text-[11px] text-gray-400">読み込み中…</div>`
+    let meta: LinkMeta | null = null
+    const cached = unfurlLoad(safeUrl)
+    if (cached && (Date.now() - (cached.ts || 0)) < UNFURL_TTL) meta = cached.meta
+    else { meta = await unfurlFetch(safeUrl); if (meta) unfurlSave(safeUrl, meta) }
+    const img = (meta && meta.image) ? String(meta.image) : ''
+    if (img) {
+      circle.innerHTML = `<a href="${escHtml(safeUrl)}" target="_blank" class="block w-full h-full"><img src="${escHtml(img)}" alt="" class="w-full h-full object-cover"/></a>`
+    } else {
+      const fav = faviconSrc(safeUrl)
+      const domain = linkDomain(safeUrl)
+      circle.innerHTML = `<a href="${escHtml(safeUrl)}" target="_blank" class="block w-full h-full grid place-items-center text-center">
+        <div class="flex items-center gap-2 text-gray-200 text-[12px] px-2">
+          ${fav ? `<img src="${fav}" class="w-5 h-5" onerror="this.style.display='none'"/>` : ''}
+          <span class="truncate max-w-[80%]">${escHtml(domain || safeUrl)}</span>
+        </div>
+      </a>`
+    }
+  } catch {
+    const domain = linkDomain(url)
+    circle.innerHTML = `<a href="${escHtml(url)}" target="_blank" class="block w-full h-full grid place-items-center text-center">
+      <div class="text-gray-300 text-xs px-2 truncate">${escHtml(domain || url)}</div>
+    </a>`
+  }
 }
 
 function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
@@ -2829,18 +3131,7 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
         const g = flowLoad(pid, id)
         // Hex-packed rendering if slots exist
         const slotsWrap = w.querySelector('.hxw-cells') as HTMLElement | null
-        if (slotsWrap) {
-          const slots = Array.from(slotsWrap.querySelectorAll('.hxw-slot .slot-inner')) as HTMLElement[]
-          slots.forEach(s => s.innerHTML = '')
-          const nodes = g.nodes.slice(0, slots.length)
-          nodes.forEach((n, i) => {
-            const s = slots[i]; if (!s) return
-            const icon = n.kind === 'trigger' ? '⏱' : (n.type === 'webhook' ? '🪝' : (n.type === 'github_issue' ? '🐙' : '🔔'))
-            s.innerHTML = `<div class=\"grid place-items-center text-gray-100 text-[11px]\">${icon}<div class=\"truncate max-w-[82%]\">${escHtml(n.label || n.type)}</div></div>`
-          })
-          (box as HTMLElement).style.display = 'none'
-          return
-        }
+        if (slotsWrap) { (slotsWrap as HTMLElement).style.display = 'none' }
         // clear
         canvas.innerHTML = ''
         const setDefs = () => { svg.innerHTML = '<defs><marker id="arr" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#34d399"/></marker></defs>' }
@@ -3126,13 +3417,13 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
         }
       }
     }
-    if (m.type === 'clock') {
+    if (m.type === 'clock' || m.type === 'clock-digital') {
       const box = w.querySelector('.clock-body') as HTMLElement | null
       if (box) {
         const key = `${pid}:${id}`
         const prev = clockTimers.get(key)
         if (prev) { try { clearInterval(prev) } catch {} clockTimers.delete(key) }
-        const mode = clockGet(pid, id)
+        const mode: 'digital' | 'analog' = (m.type === 'clock-digital') ? 'digital' : 'analog'
         let doFit: (() => void) | null = null
         const render = () => {
           const rect = box.getBoundingClientRect()
@@ -3176,23 +3467,23 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
             doFit()
           } else {
             const svgSize = Math.floor(size * 0.95)
-            const nums = Array.from({ length: 12 }).map((_, i) => {
-              const n = i + 1; const a = n * 30; const rad = a * Math.PI / 180; const rx = 50 + Math.sin(rad) * 36; const ry = 50 - Math.cos(rad) * 36; return `<text x=\"${rx.toFixed(1)}\" y=\"${(ry + 3).toFixed(1)}\" text-anchor=\"middle\" fill=\"var(--clk-major)\" font-size=\"8\">${n}</text>`
-            }).join('')
-            // Use CSS variables so it adapts to theme instantly
+            const ticks = [0, 60, 120, 180, 240, 300]
+              .map((a) => {
+                const r1 = 42, r2 = 47
+                const rad = a * Math.PI / 180
+                const x1 = 50 + Math.sin(rad) * r1; const y1 = 50 - Math.cos(rad) * r1
+                const x2 = 50 + Math.sin(rad) * r2; const y2 = 50 - Math.cos(rad) * r2
+                return `<line x1=\"${x1.toFixed(1)}\" y1=\"${y1.toFixed(1)}\" x2=\"${x2.toFixed(1)}\" y2=\"${y2.toFixed(1)}\" stroke=\"var(--clk-border)\" stroke-width=\"2\" stroke-linecap=\"round\"/>`
+              }).join('')
+            // Hexスタイルのシンプルなダイヤル（外周はハニカムの背景で表現）
             box.innerHTML = `
-              <div class=\"clk-analog\" style=\"--clk-face: var(--gh-canvas); --clk-border: var(--gh-border); --clk-major: var(--gh-contrast); --clk-minor: var(--gh-muted); --clk-sec: var(--gh-accent); color: var(--gh-contrast);\">
+              <div class=\"clk-analog\" style=\"--clk-border: var(--gh-border); --clk-major: var(--gh-contrast); --clk-minor: var(--gh-muted); --clk-sec: var(--gh-accent); color: var(--gh-contrast);\">
                 <svg viewBox=\"0 0 100 100\" width=\"${svgSize}\" height=\"${svgSize}\">
-                  <circle cx=\"50\" cy=\"50\" r=\"48\" fill=\"var(--clk-face)\" stroke=\"var(--clk-border)\" stroke-width=\"2\" />
-                  ${Array.from({ length: 60 }).map((_, i) => {
-                    const a = i * 6; const rad = a * Math.PI / 180; const r1 = i % 5 === 0 ? 41 : 44; const r2 = 46; const x1 = 50 + Math.sin(rad) * r1; const y1 = 50 - Math.cos(rad) * r1; const x2 = 50 + Math.sin(rad) * r2; const y2 = 50 - Math.cos(rad) * r2; const sw = i % 5 === 0 ? 2 : 1; const col = i % 5 === 0 ? 'var(--clk-minor)' : 'var(--clk-border)';
-                    return `<line x1=\"${x1.toFixed(1)}\" y1=\"${y1.toFixed(1)}\" x2=\"${x2.toFixed(1)}\" y2=\"${y2.toFixed(1)}\" stroke=\"${col}\" stroke-width=\"${sw}\" />`
-                  }).join('')}
-                  ${nums}
-                  <line id=\"clk-h\" x1=\"50\" y1=\"50\" x2=\"50\" y2=\"32\" stroke=\"var(--clk-major)\" stroke-width=\"3.5\" stroke-linecap=\"round\" />
-                  <line id=\"clk-m\" x1=\"50\" y1=\"50\" x2=\"50\" y2=\"22\" stroke=\"var(--clk-minor)\" stroke-width=\"2.5\" stroke-linecap=\"round\" />
-                  <line id=\"clk-s\" x1=\"50\" y1=\"50\" x2=\"50\" y2=\"18\" stroke=\"var(--clk-sec)\" stroke-width=\"1.5\" stroke-linecap=\"round\" />
-                  <circle cx=\"50\" cy=\"50\" r=\"2.5\" fill=\"var(--clk-major)\" />
+                  ${ticks}
+                  <line id=\"clk-h\" x1=\"50\" y1=\"50\" x2=\"50\" y2=\"34\" stroke=\"var(--clk-major)\" stroke-width=\"3.8\" stroke-linecap=\"round\" />
+                  <line id=\"clk-m\" x1=\"50\" y1=\"50\" x2=\"50\" y2=\"24\" stroke=\"var(--clk-minor)\" stroke-width=\"2.8\" stroke-linecap=\"round\" />
+                  <line id=\"clk-s\" x1=\"50\" y1=\"50\" x2=\"50\" y2=\"18\" stroke=\"var(--clk-sec)\" stroke-width=\"1.6\" stroke-linecap=\"round\" />
+                  <circle cx=\"50\" cy=\"50\" r=\"2.8\" fill=\"var(--clk-major)\" />
                 </svg>
               </div>`
           }
@@ -3226,15 +3517,7 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
         tick()
         const tid = window.setInterval(tick, 1000)
         clockTimers.set(key, tid as unknown as number)
-        const sel = w.querySelector('.clk-mode') as HTMLSelectElement | null
-        if (sel) {
-          sel.value = mode
-          sel.addEventListener('change', () => {
-            const val = sel.value === 'analog' ? 'analog' : 'digital'
-            clockSet(pid, id, val)
-            try { refreshDynamicWidgets(root, pid) } catch {}
-          })
-        }
+        // no mode toggle in split widgets
       }
     }
     if (m.type === 'tasksum') {
@@ -3246,24 +3529,26 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
             const slots = Array.from(slotsWrap.querySelectorAll('.hxw-slot .slot-inner')) as HTMLElement[]
             const order: Array<[string,string]> = [['todo','TODO'],['doing','DOING'],['review','REVIEW'],['done','DONE']]
             slots.forEach(s => s.innerHTML = '')
-            order.forEach(([k,label], i) => {
-              if (!slots[i]) return
-              slots[i].innerHTML = `<div class=\"grid place-items-center text-gray-100\"><div class=\"text-[10px]\">${label}</div><div class=\"text-[14px] font-semibold text-emerald-300\">${counts[k]||0}</div></div>`
+            // 4つまで表示（余りスロットは空のまま）
+            order.forEach(([key,label], idx) => {
+              if (!slots[idx]) return
+              const n = counts[key] || 0
+              slots[idx].innerHTML = `<div class=\"grid place-items-center\">\n                <div class=\"text-[16px] md:text-[18px] font-semibold text-gray-100\">${label}</div>\n                <div class=\"text-[28px] md:text-[32px] font-bold text-emerald-400\">${n}</div>\n              </div>`
             })
             ;(box as HTMLElement).style.display = 'none'
             return
           }
+          // スロットが無い場合のフォールバック（矩形レイアウト）
           box.innerHTML = `
-            <div class="ts-grid h-full grid grid-cols-2 md:grid-cols-4 grid-rows-2 md:grid-rows-1 gap-2 md:gap-3 place-items-stretch">
+            <div class="ts-grid h-full grid grid-cols-2 md:grid-cols-4 items-center text-sm text-gray-200">
               ${[['todo', 'TODO'], ['doing', 'DOING'], ['review', 'REVIEW'], ['done', 'DONE']]
-              .map(([k, label]) => `
-                  <div class=\"stat h-full rounded ring-2 ring-neutral-600 bg-neutral-800/40 p-2 md:p-3 flex flex-col items-center justify-center\">\
-                    <div class=\"ts-label text-center text-gray-300\">${label}</div>\
-                    <div class=\"ts-count text-emerald-400 font-semibold mt-1\">${counts[k] || 0}</div>\
-                  </div>
-                `).join('')}
-            </div>
-          `
+                .map(([k, label]) => `
+                  <div class=\"stat flex items-center justify-center gap-2\">\
+                    <div class=\"ts-label text-gray-300\">${label}</div>\
+                    <div class=\"ts-count text-emerald-300 font-semibold\">${counts[k] || 0}</div>\
+                  </div>`
+                ).join('')}
+            </div>`
           try { densifyTaskSummary(w, 1) } catch { }
         }
         // Start with local tasks immediately
@@ -3301,30 +3586,62 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
         const links = mdGetLinks(pid, id)
         const gridEl = w.closest('#widgetGrid') as HTMLElement | null
         const hxEl = w.closest('#hxwCanvas') as HTMLElement | null
-        const edit = (gridEl?.getAttribute('data-edit') === '1') || (hxEl?.getAttribute('data-edit') === '1')
+        const edit = ((gridEl && gridEl.getAttribute('data-edit') === '1') || (hxEl && hxEl.getAttribute('data-edit') === '1'))
         const slotsWrap = w.querySelector('.hxw-cells') as HTMLElement | null
         if (slotsWrap) {
+          // ハニカム: 非編集時はスロット層のポインターを無効化（円プレビューのリンクをクリック可能に）
+          ;(slotsWrap as HTMLElement).style.pointerEvents = edit ? 'auto' : 'none'
+          // ハニカム内は円形に近い合成表現でプレビュー
+          const content = w.querySelector('.wg-content') as HTMLElement | null
+          let circle = w.querySelector('.lnk-hex-circle') as HTMLElement | null
+          if (!circle && content) {
+            circle = document.createElement('div')
+            circle.className = 'lnk-hex-circle absolute inset-0 overflow-hidden'
+            circle.style.left = '0'; circle.style.top = '0'; (circle.style as any).right = '0'; (circle.style as any).bottom = '0'
+            circle.style.pointerEvents = 'auto'
+            content.appendChild(circle)
+          }
+          if (circle) {
+            if (edit && !(links && links[0] && links[0].url)) {
+              circle.style.display = 'none'
+            } else {
+              circle.style.display = ''
+              const l = links && links[0]
+              if (l && l.url) {
+                try { (window as any).requestIdleCallback ? (window as any).requestIdleCallback(() => hydrateLinkCircle(circle!, l.url)) : hydrateLinkCircle(circle!, l.url) } catch { circle.innerHTML = renderLinkPreview(l.url, true) }
+              } else {
+                circle.innerHTML = `<div class="w-full h-full grid place-items-center text-gray-300 text-sm">リンク未設定</div>`
+              }
+            }
+          }
+          // スロットのひとつに＋ボタンを配置し、ポップ入力で編集できるようにする
           const slots = Array.from(slotsWrap.querySelectorAll('.hxw-slot .slot-inner')) as HTMLElement[]
-          slots.forEach(s => s.innerHTML = '')
-          links.slice(0, slots.length).forEach((l, i) => {
-            const s = slots[i]; if (!s) return
-            const fav = faviconSrc(l.url)
-            s.innerHTML = `<a href="${escHtml(l.url)}" target="_blank" class="block w-[88%] mx-auto text-[10px] text-gray-100 hover:underline">
-              <div class="flex items-center justify-center gap-1">
-                ${fav ? `<img src="${fav}" class="w-3 h-3 rounded-sm"/>` : ''}
-                <span class="truncate">${escHtml(l.title || l.url)}</span>
-              </div>
-            </a>`
-          })
-          // forms: keep操作用に表示/非表示
+          const addIdx = Math.min(1, Math.max(0, Math.floor(slots.length / 2)))
+          const addSlot = slots[addIdx]
+          if (addSlot && edit && !(links && links[0] && links[0].url) && !addSlot.querySelector('.lnk-hex-add')) {
+            const btn = document.createElement('button')
+            btn.className = 'lnk-hex-add text-2xl md:text-3xl text-gray-100'
+            btn.textContent = '＋'
+            btn.addEventListener('click', (ev) => { ev.stopPropagation(); openLinkHexPopup(root, pid, id) })
+            addSlot.appendChild(btn)
+          }
+          // 編集モードでない、またはリンク設定済みなら＋を消す
+          if (addSlot && (!edit || (links && links[0] && links[0].url))) {
+            const ex = addSlot.querySelector('.lnk-hex-add') as HTMLElement | null
+            if (ex) ex.remove()
+          }
+          // ハニカム時は従来ボックスは非表示
+          if (box) (box as HTMLElement).style.display = 'none'
+          // 編集時のフォームは通常表示
           const form = w.querySelector('.lnk-form') as HTMLElement | null
           const addBtn = w.querySelector('.lnk-add') as HTMLElement | null
-          if (form) form.classList.toggle('hidden', !edit)
-          if (addBtn) addBtn.classList.toggle('hidden', !edit)
-          if (box) (box as HTMLElement).style.display = 'none'
+          if (form) form.classList.add('hidden')
+          if (addBtn) addBtn.classList.add('hidden')
           return
         }
+
         const form = w.querySelector('.lnk-form') as HTMLElement | null
+        const contentWrap = w.querySelector('.wg-content') as HTMLElement | null
         const addBtn = w.querySelector('.lnk-add') as HTMLElement | null
         if (edit) {
           // Edit mode: show only the input area (hide preview area completely)
@@ -3341,7 +3658,12 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
             if (titleEl) titleEl.value = cur?.title || ''
             if (urlEl) urlEl.value = cur?.url || ''
             if (err) { err.textContent = ''; err.classList.add('hidden') }
+            // Center the form within the hex
+            ;(form as HTMLElement).style.maxWidth = 'min(520px, 92%)'
+            ;(form as HTMLElement).style.width = '100%'
+            ;(form as HTMLElement).style.margin = '0 auto'
           }
+          if (contentWrap) { contentWrap.setAttribute('data-center', '1'); contentWrap.style.display = 'grid'; (contentWrap as HTMLElement).style.alignItems = 'center'; (contentWrap as HTMLElement).style.justifyItems = 'center' }
         } else {
           // View mode: render unfurl card, hide form
           box.classList.remove('hidden')
@@ -3349,6 +3671,7 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
           try { hydrateLinkCards(w) } catch { }
           if (form) form.classList.add('hidden')
           if (addBtn) addBtn.classList.add('hidden') // view mode never shows add
+          if (contentWrap) { contentWrap.removeAttribute('data-center'); contentWrap.style.display = ''; (contentWrap as HTMLElement).style.alignItems = ''; (contentWrap as HTMLElement).style.justifyItems = '' }
         }
       }
     }
@@ -3358,36 +3681,41 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
         const url = calGet(pid, id)
         const gridEl = w.closest('#widgetGrid') as HTMLElement | null
         const hxEl = w.closest('#hxwCanvas') as HTMLElement | null
-        const edit = (gridEl?.getAttribute('data-edit') === '1') || (hxEl?.getAttribute('data-edit') === '1')
+        const edit = ((gridEl && gridEl.getAttribute('data-edit') === '1') || (hxEl && hxEl.getAttribute('data-edit') === '1'))
         const slotsWrap = w.querySelector('.hxw-cells') as HTMLElement | null
         if (slotsWrap) {
+          // ハニカム: 非編集時はスロット層のポインターを無効化（プレビューやリンクの操作を阻害しない）
+          ;(slotsWrap as HTMLElement).style.pointerEvents = edit ? 'auto' : 'none'
+          // ハニカム：常にプレビュー + ＋ボタン（ポップで編集）。フォームは常に非表示
+          if (box) { box.classList.remove('hidden'); box.innerHTML = url ? renderCalendarFrame(url) : `<div class=\"h-full grid place-items-center text-gray-400\">カレンダーが設定されていません</div>` }
           const slots = Array.from(slotsWrap.querySelectorAll('.hxw-slot .slot-inner')) as HTMLElement[]
-          // Build a mini month across slots: show day numbers from 1..N
-          const now = new Date()
-          const y = now.getFullYear(), m0 = now.getMonth()
-          const first = new Date(y, m0, 1)
-          const last = new Date(y, m0 + 1, 0)
-          const daysInMonth = last.getDate()
-          const startOffset = first.getDay() // 0..6
-          // Fill with blanks then days
-          const cells: Array<string> = []
-          for (let i = 0; i < startOffset; i++) cells.push('')
-          for (let d = 1; d <= daysInMonth; d++) cells.push(String(d))
-          slots.forEach((s, i) => {
-            const d = cells[i] || ''
-            s.innerHTML = d ? `<div class="text-[11px] text-gray-100">${d}</div>` : ''
-          })
-          if (box) box.style.display = 'none'
+          const idx = Math.min(1, Math.max(0, Math.floor(slots.length / 2)))
+          const target = slots[idx]
+          if (target && edit && !url && !target.querySelector('.cal-hex-add')) {
+            const b = document.createElement('button')
+            b.className = 'cal-hex-add text-2xl md:text-3xl text-gray-100'
+            b.textContent = '＋'
+            b.addEventListener('click', (ev) => { ev.stopPropagation(); openCalHexPopup(root, pid, id) })
+            target.appendChild(b)
+          }
+          // 編集モードでない、またはURL設定済みなら＋を消す
+          if (target && (!edit || url)) {
+            const ex = target.querySelector('.cal-hex-add') as HTMLElement | null
+            if (ex) ex.remove()
+          }
           const form = w.querySelector('.cal-form') as HTMLElement | null
           const addBtn = w.querySelector('.cal-add') as HTMLElement | null
-          if (form) form.classList.toggle('hidden', !edit)
-          if (addBtn) addBtn.classList.toggle('hidden', !edit)
+          if (form) form.classList.add('hidden')
+          if (addBtn) addBtn.classList.add('hidden')
+          const contentWrap = w.querySelector('.wg-content') as HTMLElement | null
+          if (contentWrap) { contentWrap.removeAttribute('data-center'); contentWrap.style.display = ''; (contentWrap as HTMLElement).style.alignItems = ''; (contentWrap as HTMLElement).style.justifyItems = '' }
           return
         }
+        // ハニカムでない場合の従来動作
         const form = w.querySelector('.cal-form') as HTMLElement | null
+        const contentWrap = w.querySelector('.wg-content') as HTMLElement | null
         const addBtn = w.querySelector('.cal-add') as HTMLElement | null
         if (edit) {
-          // Show form, hide preview
           if (box) { box.innerHTML = ''; box.classList.add('hidden') }
           if (addBtn) addBtn.classList.add('hidden')
           if (form) {
@@ -3398,10 +3726,10 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
             if (err) { err.textContent = ''; err.classList.add('hidden') }
           }
         } else {
-          // View mode: render calendar
           if (box) { box.classList.remove('hidden'); box.innerHTML = url ? renderCalendarFrame(url) : `<div class=\"h-full grid place-items-center text-gray-400\">カレンダーが設定されていません</div>` }
           if (form) form.classList.add('hidden')
           if (addBtn) addBtn.classList.add('hidden')
+          if (contentWrap) { contentWrap.removeAttribute('data-center'); contentWrap.style.display = ''; (contentWrap as HTMLElement).style.alignItems = ''; (contentWrap as HTMLElement).style.justifyItems = '' }
         }
       }
     }
@@ -3424,6 +3752,74 @@ function calGet(pid: string, id: string): string {
 function calSet(pid: string, id: string, url: string): void {
   try { if (url) localStorage.setItem(calKey(pid, id), url); else localStorage.removeItem(calKey(pid, id)) } catch { }
 }
+
+// ---- Hex pop editors for Links/Calendar ----
+function openLinkHexPopup(root: HTMLElement, pid: string, id: string): void {
+  const overlay = document.createElement('div')
+  overlay.className = 'fixed inset-0 z-[90] bg-black/50 grid place-items-center'
+  const cur = mdGetLinks(pid, id)[0] || { title: '', url: '' }
+  overlay.innerHTML = `
+    <div class="w-[min(520px,92vw)] rounded-lg bg-neutral-900 ring-2 ring-neutral-600 p-3 text-gray-100">
+      <div class="text-sm mb-2">リンクを設定</div>
+      <div class="grid grid-cols-1 gap-2">
+        <input id="hxlnk-title" class="rounded bg-neutral-800/60 ring-2 ring-neutral-600 px-2 py-1 text-gray-100" placeholder="タイトル(任意)" value="${escHtml(cur.title || '')}" />
+        <input id="hxlnk-url" class="rounded bg-neutral-800/60 ring-2 ring-neutral-600 px-2 py-1 text-gray-100" placeholder="URL (https://...)" value="${escHtml(cur.url || '')}" />
+        <div class="flex justify-end gap-2">
+          <button id="hxlnk-save" class="rounded bg-emerald-700 hover:bg-emerald-600 text-white px-3 py-1">保存</button>
+          <button id="hxlnk-cancel" class="rounded ring-2 ring-neutral-600 px-3 py-1 hover:bg-neutral-800">キャンセル</button>
+        </div>
+        <p id="hxlnk-err" class="text-xs text-red-400 hidden"></p>
+      </div>
+    </div>`
+  document.body.appendChild(overlay)
+  const urlEl = overlay.querySelector('#hxlnk-url') as HTMLInputElement
+  const titleEl = overlay.querySelector('#hxlnk-title') as HTMLInputElement
+  const errEl = overlay.querySelector('#hxlnk-err') as HTMLElement
+  const close = () => overlay.remove()
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close() })
+  overlay.querySelector('#hxlnk-cancel')?.addEventListener('click', close)
+  overlay.querySelector('#hxlnk-save')?.addEventListener('click', () => {
+    let url = (urlEl.value || '').trim(); const title = (titleEl.value || '').trim()
+    if (url && !/^https?:\/\//i.test(url)) url = `https://${url}`
+    try { if (url) new URL(url) } catch { errEl.textContent = 'URLが正しくありません'; errEl.classList.remove('hidden'); return }
+    mdSetLinks(pid, id, url ? [{ title, url }] : [])
+    try { refreshDynamicWidgets(root, pid) } catch { }
+    close()
+  })
+  setTimeout(() => urlEl.focus(), 0)
+}
+
+function openCalHexPopup(root: HTMLElement, pid: string, id: string): void {
+  const overlay = document.createElement('div')
+  overlay.className = 'fixed inset-0 z-[90] bg-black/50 grid place-items-center'
+  const cur = calGet(pid, id)
+  overlay.innerHTML = `
+    <div class="w-[min(560px,92vw)] rounded-lg bg-neutral-900 ring-2 ring-neutral-600 p-3 text-gray-100">
+      <div class="text-sm mb-2">カレンダーURLを設定</div>
+      <div class="grid grid-cols-1 gap-2">
+        <input id="hxcal-url" class="rounded bg-neutral-800/60 ring-2 ring-neutral-600 px-2 py-1 text-gray-100" placeholder="埋め込みURL (https://calendar.google.com/calendar/embed?...)" value="${escHtml(cur || '')}" />
+        <div class="flex justify-end gap-2">
+          <button id="hxcal-save" class="rounded bg-emerald-700 hover:bg-emerald-600 text-white px-3 py-1">保存</button>
+          <button id="hxcal-cancel" class="rounded ring-2 ring-neutral-600 px-3 py-1 hover:bg-neutral-800">キャンセル</button>
+        </div>
+        <p id="hxcal-err" class="text-xs text-red-400 hidden"></p>
+      </div>
+    </div>`
+  document.body.appendChild(overlay)
+  const urlEl = overlay.querySelector('#hxcal-url') as HTMLInputElement
+  const errEl = overlay.querySelector('#hxcal-err') as HTMLElement
+  const close = () => overlay.remove()
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close() })
+  overlay.querySelector('#hxcal-cancel')?.addEventListener('click', close)
+  overlay.querySelector('#hxcal-save')?.addEventListener('click', () => {
+    let url = (urlEl.value || '').trim(); if (url && !/^https?:\/\//i.test(url)) url = `https://${url}`
+    try { if (url) new URL(url) } catch { errEl.textContent = 'URLが正しくありません'; errEl.classList.remove('hidden'); return }
+    calSet(pid, id, url)
+    try { refreshDynamicWidgets(root, pid) } catch { }
+    close()
+  })
+  setTimeout(() => urlEl.focus(), 0)
+}
 function renderCalendarFrame(url: string): string {
   let safe = url.trim()
   if (safe && !/^https?:\/\//i.test(safe)) safe = `https://${safe}`
@@ -3444,7 +3840,7 @@ function renderCalendarFrame(url: string): string {
   // Use theme-driven filter for Google Calendar
   const iframeStyle = isGcal ? `filter: var(--cal-filter);` : ''
   // Best-effort embed; apply sandbox and referrer policy consistently
-  return `<div class=\"h-full min-h-[220px] overflow-hidden bg-neutral-900\"><iframe class=\"w-full h-full\" style=\"${iframeStyle}\" src=\"${escHtml(safe)}\" sandbox=\"allow-scripts allow-same-origin allow-forms allow-popups\" referrerpolicy=\"no-referrer\"></iframe></div>`
+  return `<div class=\"h-full min-h-[220px] overflow-hidden\"><iframe class=\"w-full h-full\" style=\"${iframeStyle}\" src=\"${escHtml(safe)}\" sandbox=\"allow-scripts allow-same-origin allow-forms allow-popups\" referrerpolicy=\"no-referrer\"></iframe></div>`
 }
 
 // ---- Clock helpers ----
@@ -3476,8 +3872,8 @@ function widgetTitle(type: string): string {
     case 'markdown': return 'Markdown'
     case 'committers': return 'Top Committers'
     case 'calendar': return 'カレンダー'
-    case 'flow': return 'ミニフロー'
     case 'clock': return '時計'
+    case 'spacer': return 'スペーサー'
     default: return 'Widget'
   }
 }
@@ -3490,12 +3886,13 @@ function buildWidgetBody(type: string): string {
     case 'markdown': return markdownWidget()
     case 'tasksum': return `<div class=\"tasksum-body h-full text-sm text-gray-200\"></div>`
     case 'milestones': return `<ul class=\"text-sm text-gray-200 space-y-2\"><li>企画 <span class=\"text-gray-400\">(完了)</span></li><li>実装 <span class=\"text-gray-400\">(進行中)</span></li><li>リリース <span class=\"text-gray-400\">(未着手)</span></li></ul>`
+    case 'spacer': return `<div class=\"h-full\"></div>`
     case 'links': return `
       <div class=\"links-body h-full flex flex-col gap-3 text-sm text-gray-200\"></div>
       <div class=\"mt-2 text-xs edit-only\">
         <button class=\"lnk-add rounded ring-2 ring-neutral-600 px-2 py-0.5 hover:bg-neutral-800\">リンク追加</button>
       </div>
-      <div class=\"lnk-form mt-2 p-2 rounded bg-neutral-900/60 ring-2 ring-neutral-600 hidden edit-only\">
+      <div class=\"lnk-form mt-2 p-2 rounded ring-2 ring-neutral-600 hidden edit-only\">
         <div class=\"grid grid-cols-1 md:grid-cols-6 gap-2 items-center\">
           <input class=\"lnk-title md:col-span-2 rounded bg-neutral-800/60 ring-2 ring-neutral-600 px-2 py-1 text-gray-100\" placeholder=\"タイトル (任意)\" />
           <input class=\"lnk-url md:col-span-3 rounded bg-neutral-800/60 ring-2 ring-neutral-600 px-2 py-1 text-gray-100\" placeholder=\"URL (https://...)\" />
@@ -3506,26 +3903,12 @@ function buildWidgetBody(type: string): string {
         </div>
         <p class=\"lnk-error mt-1 text-red-400 text-xs hidden\"></p>
       </div>`
-    case 'flow': return `
-      <div class=\"flow-body relative h-full overflow-hidden rounded bg-neutral-900/30\">
-        <svg class=\"flow-svg absolute inset-0 pointer-events-none\"></svg>
-        <div class=\"flow-canvas absolute inset-0\"></div>
-        <div class=\"flow-toolbar edit-only absolute top-1 left-1 flex items-center gap-2 bg-neutral-900/70 ring-1 ring-neutral-600 rounded px-2 py-1\">
-          <button class=\"flow-add-tr rounded ring-2 ring-neutral-600 px-2 py-0.5 hover:bg-neutral-800\">トリガー追加</button>
-          <button class=\"flow-add-ac rounded ring-2 ring-neutral-600 px-2 py-0.5 hover:bg-neutral-800\">アクション追加</button>
-          <button class=\"flow-clear rounded ring-2 ring-rose-800 text-rose-200 px-2 py-0.5 hover:bg-rose-900/50\">全削除</button>
-        </div>
-        <div class=\"flow-runbar absolute top-1 right-1 flex items-center gap-2 bg-neutral-900/70 ring-1 ring-neutral-600 rounded px-2 py-1\">
-          <button class=\"flow-run rounded bg-emerald-700 hover:bg-emerald-600 text-white px-3 py-1\">テスト実行</button>
-        </div>
-        <div class=\"flow-log absolute bottom-1 left-1 right-1 p-2 rounded bg-neutral-900/70 ring-1 ring-neutral-700 text-[11px] text-gray-300 max-h-24 overflow-auto\"></div>
-      </div>`
     case 'calendar': return `
       <div class=\"cal-body h-full overflow-hidden\"></div>
       <div class=\"mt-2 text-xs edit-only\">
         <button class=\"cal-add rounded ring-2 ring-neutral-600 px-2 py-0.5 hover:bg-neutral-800\">カレンダーを設定</button>
       </div>
-      <div class=\"cal-form mt-2 p-2 rounded bg-neutral-900/60 ring-2 ring-neutral-600 hidden edit-only\">
+      <div class=\"cal-form mt-2 p-2 rounded ring-2 ring-neutral-600 hidden edit-only\">
         <div class=\"grid grid-cols-1 md:grid-cols-6 gap-2 items-center\">
           <input class=\"cal-url md:col-span-5 rounded bg-neutral-800/60 ring-2 ring-neutral-600 px-2 py-1 text-gray-100\" placeholder=\"埋め込みURL (https://calendar.google.com/calendar/embed?...)\" />
           <div class=\"flex gap-2 justify-end md:col-span-1\">
@@ -3786,7 +4169,10 @@ function detailLayout(ctx: { id: number; name: string; fullName: string; owner: 
       <!-- Main split: left sidebar (tabs/actions) / right content -->
       <div class="flex">
         <!-- Left rail: vertical tabs + collaborator add (sticky) -->
-        <aside id="leftRail" class="relative w-56 shrink-0 p-4 border-r border-neutral-600 bg-neutral-700/80 sticky top-0 h-[100vh] flex flex-col z-[20]">
+        <aside id="leftRail" class="relative w-56 shrink-0 p-3 border-r border-neutral-600 bg-neutral-900/40 backdrop-blur-sm sticky top-0 h-[100vh] flex flex-col z-[20]">
+          <div class="absolute -right-3 top-4 z-[21]">
+            <button id="railToggleTop" class="rounded-full bg-neutral-900/70 text-gray-200 ring-1 ring-neutral-600 w-7 h-7 grid place-items-center" title="サイドバーを折りたたむ">⮜</button>
+          </div>
           <div id="railResizer" class="absolute top-0 -right-1 w-2 h-full cursor-col-resize z-[5]"></div>
           <!-- Repo / Project breadcrumb at top of rail -->
           <div class="mb-5 pt-1">
@@ -3826,10 +4212,10 @@ function detailLayout(ctx: { id: number; name: string; fullName: string; owner: 
 
         <!-- Right content -->
         <div class="flex-1 min-w-0">
-          <main class="p-8">
+          <main class="p-0">
             <section class="space-y-3" id="tab-summary" data-tab="summary">
-              <!-- Honeycomb widget field confined to right content area -->
-              <div id="hxwHost" class="relative h-[calc(100vh-6rem)] min-h-[560px] rounded-lg overflow-hidden">
+              <!-- Honeycomb widget field: full-screen behind left rail -->
+              <div id="hxwHost" class="fixed inset-0 z-0">
                 <section class="hxw-wrap" id="hxwWrap">
                   <div class="hxw-canvas" id="hxwCanvas" style="width:2000px; height:1400px"></div>
                 </section>
@@ -3838,6 +4224,8 @@ function detailLayout(ctx: { id: number; name: string; fullName: string; owner: 
               <div class="hxw-mini"><canvas id="hxwMini" width="120" height="120"></canvas></div>
               <!-- Floating add button (bottom-right) -->
               <button id="hxwFab" class="fixed bottom-5 right-5 z-[18] w-12 h-12 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white text-2xl leading-none grid place-items-center shadow-xl ring-2 ring-emerald-300/40">＋</button>
+              <!-- Reopen rail button (visible only when rail is collapsed) -->
+              <button id="railReopen" class="fixed left-2 top-1/2 -translate-y-1/2 z-[21] w-8 h-8 rounded-full bg-neutral-900/70 text-gray-200 ring-1 ring-neutral-600 grid place-items-center shadow hidden" title="サイドバーを開く">⮞</button>
             </section>
 
             <section class="mt-8 hidden" id="tab-board" data-tab="board">
@@ -4904,7 +5292,14 @@ function hxwEnsureDefs(): SVGDefsElement {
 
 function hxwKey(pid: string): string { return `pj-hx-widgets-${pid}` }
 function hxwGetMeta(pid: string): Record<string, { type: string; q: number; r: number }> {
-  try { return JSON.parse(localStorage.getItem(hxwKey(pid)) || '{}') as any } catch { return {} }
+  try {
+    const raw = JSON.parse(localStorage.getItem(hxwKey(pid)) || '{}') as Record<string, { type: string; q: number; r: number }>
+    // Filter out deprecated mini-flow widgets if present
+    const meta: Record<string, { type: string; q: number; r: number }> = {}
+    Object.entries(raw).forEach(([id, m]) => { if ((m?.type || '') !== 'flow') meta[id] = m })
+    if (Object.keys(meta).length !== Object.keys(raw).length) { try { hxwSetMeta(pid, meta) } catch {} }
+    return meta
+  } catch { return {} }
 }
 function hxwSetMeta(pid: string, meta: Record<string, { type: string; q: number; r: number }>): void {
   localStorage.setItem(hxwKey(pid), JSON.stringify(meta))
@@ -4936,12 +5331,14 @@ function axGrow(count: number): Array<[number, number]> {
 function hxwShapeFor(type: string): Array<[number, number]> {
   switch (type) {
     case 'clock': return axGrow(7)
+    case 'clock-digital': return axGrow(7)
     case 'readme': return axGrow(19)
     case 'contrib': return axGrow(7)
-    case 'committers': return axGrow(6)
+    case 'committers': return axGrow(7)
     case 'markdown': return axGrow(7)
+    case 'spacer': return [[0, 0]] as any
     case 'links': return axGrow(4)
-    case 'tasksum': return axGrow(6)
+    case 'tasksum': return [[0,0],[1,0],[0,1],[1,1]] as any
     case 'calendar': return axGrow(12)
     default: return axGrow(6)
   }
@@ -5092,9 +5489,21 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
       const pid = canvas.getAttribute('data-pid') || '0'
       hxwPlaceWidgets(root, pid, st)
       hxwApplyTransform(wrap, canvas, st)
+      // Re-render widgets that depend on local data (e.g., Task Summary)
+      try { refreshDynamicWidgets(root, pid) } catch {}
+      // Rehydrate dynamic contents (e.g., committers slots) after layout rebuild
+      try { hxwRehydrate(root, pid) } catch { }
     } catch {}
     // toggle edit-only elements inside hex widgets
-    try { canvas.querySelectorAll('.edit-only').forEach((el) => (el as HTMLElement).classList.toggle('hidden', !on)) } catch {}
+    // ただし、links/cal のフォームはハニカムでは常に非表示（ポップで編集）
+    try {
+      canvas.querySelectorAll('.edit-only').forEach((el) => {
+        const w = (el as HTMLElement).closest('.hxw-widget') as HTMLElement | null
+        const t = w?.getAttribute('data-type') || ''
+        if (t === 'links' || t === 'calendar') { (el as HTMLElement).classList.add('hidden'); return }
+        (el as HTMLElement).classList.toggle('hidden', !on)
+      })
+    } catch {}
   }
   ; (canvas as any)._setEdit = setEdit
 
@@ -5159,6 +5568,11 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
   let draggingWid: HTMLElement | null = null
   let dragId = ''
   let startCells = new Set<string>()
+  // drag state for widgets
+  let wStartX = 0, wStartY = 0
+  let didDrag = false
+  let grabQ = 0, grabR = 0
+  let startAnchorQ = 0, startAnchorR = 0
   canvas.addEventListener('pointerdown', (e) => {
     const el = (e.target as HTMLElement).closest('.hxw-widget') as HTMLElement | null
     if (!el || !editOn) return
@@ -5175,12 +5589,32 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
     Array.from(el.querySelectorAll('[data-hxw-cell]')).forEach((n) => {
       startCells.add((n as HTMLElement).getAttribute('data-kr') || '')
     })
+    // set grab references to keep relative offset while dragging
+    wStartX = (e as PointerEvent).clientX; wStartY = (e as PointerEvent).clientY; didDrag = false
+    const { x, y } = toCanvasXY((e as PointerEvent).clientX, (e as PointerEvent).clientY)
+    const cell = toCell(x, y); grabQ = cell.q; grabR = cell.r
+    try {
+      const pid = canvas.getAttribute('data-pid') || '0'
+      const meta = hxwGetMeta(pid)
+      const cur = meta[dragId]
+      if (cur) { startAnchorQ = cur.q; startAnchorR = cur.r }
+      else { startAnchorQ = grabQ; startAnchorR = grabR }
+    } catch { startAnchorQ = grabQ; startAnchorR = grabR }
     try { (e as PointerEvent).pointerId && el.setPointerCapture((e as PointerEvent).pointerId) } catch {}
   })
   canvas.addEventListener('pointermove', (e) => {
     if (!draggingWid || !editOn) return
+    const dx = Math.abs(e.clientX - wStartX), dy = Math.abs(e.clientY - wStartY)
+    const moveEnough = Math.hypot(dx, dy) > DRAG_TOL
+    if (!didDrag && !moveEnough) return
+    didDrag = true
     const { x, y } = toCanvasXY(e.clientX, e.clientY)
-    const { q, r } = toCell(x, y)
+    const at = toCell(x, y)
+    // keep relative offset from the grabbed cell to the widget's anchor
+    const dq = grabQ - startAnchorQ
+    const dr = grabR - startAnchorR
+    const q = at.q - dq
+    const r = at.r - dr
     const shape = hxwShapeFor(draggingWid.getAttribute('data-type') || 'mock')
     const sx = stepX(), sy = stepY()
     const anc = oddqToAxial(q, r)
@@ -5199,8 +5633,13 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
     draggingWid = null
     widgetDragging = false
     try { (el as HTMLElement).style.zIndex = ''; (el as HTMLElement).style.cursor = '' } catch {}
+    if (!didDrag) { hideGhost(); return }
     const { x, y } = toCanvasXY(e.clientX, e.clientY)
-    const { q, r } = toCell(x, y)
+    const at = toCell(x, y)
+    const dq = grabQ - startAnchorQ
+    const dr = grabR - startAnchorR
+    const q = at.q - dq
+    const r = at.r - dr
     const type = el.getAttribute('data-type') || 'mock'
     const shape = hxwShapeFor(type)
     const sx = stepX(), sy = stepY()
@@ -5216,7 +5655,9 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
     // rebuild occupancy and reposition element
     hxwPlaceWidgets(root, pid, st)
     try { refreshDynamicWidgets(root, pid) } catch {}
+    try { hxwRehydrate(root, pid) } catch { }
     hideGhost()
+    didDrag = false
   })
   window.addEventListener('resize', () => hxwApplyTransform(wrap, canvas, st))
 
@@ -5374,7 +5815,7 @@ function hxwPlaceWidgets(root: HTMLElement, pid: string, st: HexWLayout): void {
       // ensure a hidden body exists so that downstream clipping/background setup works
       const bodyInit = document.createElement('div')
       bodyInit.className = 'hxw-body'
-      bodyInit.style.display = 'none'
+      // Show the widget body by default so content renders as a normal card
       bodyInit.style.left = '0px'
       bodyInit.style.top = '0px'
       bodyInit.style.width = `${boxW}px`
@@ -5416,6 +5857,13 @@ function hxwPlaceWidgets(root: HTMLElement, pid: string, st: HexWLayout): void {
     // Apply clipping to the union of hex cells via global SVG defs
     const body = host!.querySelector('.hxw-body') as HTMLElement | null
     if (body) {
+      // Ensure the body is visible (previously hidden for slot-only mode)
+      body.style.display = ''
+      // Keep a safe inset so rectangular content sits within the hex union
+      const padX = Math.max(8, Math.round(Math.min(st.tile * 0.24, boxW * 0.14)))
+      const padY = Math.max(6, Math.round(Math.min(st.tile * 0.18, boxH * 0.14)))
+      body.style.padding = `${padY}px ${padX}px`
+      body.style.boxSizing = 'border-box'
       const cid = `hxwcp-${(pid || '').replace(/[^a-zA-Z0-9_-]/g, '')}-${(id || '').replace(/[^a-zA-Z0-9_-]/g, '')}`
       const defs = hxwEnsureDefs()
       let clip = defs.querySelector(`#${cid}`) as SVGClipPathElement | null
@@ -5445,8 +5893,14 @@ function hxwPlaceWidgets(root: HTMLElement, pid: string, st: HexWLayout): void {
         poly.setAttribute('points', pts)
         clip!.appendChild(poly)
       })
-      // Do not clip content; apply clipping only to the background layer so content is fully readable
-      body.style.overflow = 'visible'
+      // Keep content inside but allow scrolling within widgets like README
+      body.style.overflow = 'auto'
+      const padX2 = Math.max(8, Math.round(Math.min(st.tile * 0.24, boxW * 0.14)))
+      const padY2 = Math.max(6, Math.round(Math.min(st.tile * 0.18, boxH * 0.14)))
+      body.style.padding = `${padY2}px ${padX2}px`
+      body.style.boxSizing = 'border-box'
+      ;(body.style as any).clipPath = `url(#${cid})`
+      ;(body.style as any).webkitClipPath = `url(#${cid})`
       // Build/update flat background layer clipped to the same shape (no seams)
       const themeBg = (document.documentElement.getAttribute('data-theme') || 'dark')
       const lightBg = themeBg !== 'dark'
@@ -5511,6 +5965,14 @@ function hxwPlaceWidgets(root: HTMLElement, pid: string, st: HexWLayout): void {
       slot.appendChild(clip)
       cellsWrap!.appendChild(slot)
     })
+    // For widgets that should not use cell slots (inputs/markdown等)、スロット要素自体を除去して本体を優先
+    try {
+      const t = (host!.getAttribute('data-type') || '').toLowerCase()
+      // NOTE: Links/Calendar need slots in hex to place the single “＋” button
+      // so we exclude them from the noSlots list.
+      const noSlots = t === 'readme' || t === 'markdown' || t === 'flow'
+      if (noSlots && cellsWrap) { cellsWrap.remove(); cellsWrap = null as any }
+    } catch {}
 
     // Draw outer outline only (no internal edges) using neighbor test
     try {
@@ -5587,7 +6049,31 @@ export function renderHexWidgets(root: HTMLElement, pid: string): void {
   const H = Math.round(W * 0.866)
   const stepX = () => Math.round(W * 0.75)
   const stepY = () => H
-  const COLS = 20, ROWS = 14
+  // Compute dynamic grid size so that the placeable field fills (and slightly exceeds) the viewport
+  const vw = Math.max(320, wrap.clientWidth)
+  const vh = Math.max(240, wrap.clientHeight)
+  const pad = 2400 // extend well beyond viewport so edges never show
+  const needW = vw + pad
+  const needH = vh + pad
+  // ensure grid also covers current widgets footprint
+  const metaAll = hxwGetMeta(pid)
+  let usedMinQ = 0, usedMaxQ = 0, usedMinR = 0, usedMaxR = 0, hasUse = false
+  Object.entries(metaAll).forEach(([_, m]: any) => {
+    const anc = oddqToAxial(m.q, m.r)
+    const rel = hxwShapeFor(m.type || 'mock')
+    rel.forEach(([ax, az]) => {
+      const o = axialToOddq(anc.x + ax, anc.z + az)
+      if (!hasUse) { usedMinQ = usedMaxQ = o.q; usedMinR = usedMaxR = o.r; hasUse = true }
+      usedMinQ = Math.min(usedMinQ, o.q); usedMaxQ = Math.max(usedMaxQ, o.q)
+      usedMinR = Math.min(usedMinR, o.r); usedMaxR = Math.max(usedMaxR, o.r)
+    })
+  })
+  const needColsByView = Math.max(3, Math.ceil((needW - W) / stepX()) + 1)
+  const needRowsByView = Math.max(3, Math.ceil((needH - H) / stepY() - 0.5))
+  const needColsByUse = hasUse ? (Math.max(3, (usedMaxQ - usedMinQ + 1) + 8)) : 0
+  const needRowsByUse = hasUse ? (Math.max(3, (usedMaxR - usedMinR + 1) + 8)) : 0
+  const COLS = Math.max(needColsByView, needColsByUse || 0)
+  const ROWS = Math.max(needRowsByView, needRowsByUse || 0)
   const width = stepX() * (COLS - 1) + W
   const height = stepY() * (ROWS + 0.5)
   st.width = width; st.height = height
@@ -5724,17 +6210,23 @@ async function hxwRehydrate(root: HTMLElement, pid: string): Promise<void> {
   }
   // Contributions（常に再描画）
   try { if (full) hydrateContribHeatmap(root, full) } catch {}
-  // Committers（まずcommits、だめならcontributors）
-  if (full) {
-    try {
-      const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString()
-      const commits = await apiFetch<any[]>(`/github/commits?full_name=${encodeURIComponent(full)}&since=${encodeURIComponent(since)}&per_page=100`)
-      hydrateCommittersFromCommits(root, commits)
-    } catch {
+  // Committers（Hexスロットがある場合は選択ユーザー＋キャッシュで高速更新）
+  try {
+    const hasHex = root.querySelector('.hxw-widget[data-type="committers"]') as HTMLElement | null
+    if (hasHex) {
+      await committersPopulate(root)
+    } else if (full) {
+      // フォールバック（従来の棒グラフ用）
       try {
-        const contr = await apiFetch<any[]>(`/github/contributors?full_name=${encodeURIComponent(full)}`)
-        hydrateCommittersFromContributors(root, contr)
-      } catch {}
+        const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString()
+        const commits = await apiFetch<any[]>(`/github/commits?full_name=${encodeURIComponent(full)}&since=${encodeURIComponent(since)}&per_page=100`)
+        hydrateCommittersFromCommits(root, commits)
+      } catch {
+        try {
+          const contr = await apiFetch<any[]>(`/github/contributors?full_name=${encodeURIComponent(full)}`)
+          hydrateCommittersFromContributors(root, contr)
+        } catch {}
+      }
     }
-  }
+  } catch {}
 }

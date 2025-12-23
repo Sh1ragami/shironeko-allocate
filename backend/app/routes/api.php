@@ -24,6 +24,7 @@ Route::middleware('token.auth')->group(function () {
     Route::get('/github/repos', [\App\Http\Controllers\Api\GitHubProxyController::class, 'repos']);
     Route::get('/github/repo', [\App\Http\Controllers\Api\GitHubProxyController::class, 'repo']);
     Route::get('/github/contributors', [\App\Http\Controllers\Api\GitHubProxyController::class, 'contributors']);
+    Route::get('/github/collaborators', [\App\Http\Controllers\Api\GitHubProxyController::class, 'collaborators']);
     Route::get('/github/readme', [\App\Http\Controllers\Api\GitHubProxyController::class, 'readme']);
     Route::get('/github/search/users', [\App\Http\Controllers\Api\GitHubProxyController::class, 'searchUsers']);
     Route::get('/github/commits', [\App\Http\Controllers\Api\GitHubProxyController::class, 'commits']);

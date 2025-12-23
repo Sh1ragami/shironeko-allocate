@@ -544,6 +544,7 @@ body[data-lock]:not([data-lock="0"]) .hxw-wrap { pointer-events: none; }
 .hxw-slot { position: absolute; }
 .hxw-slot .hxw-clip { background: transparent; border: none; }
 .hxw-slot .slot-inner { position: absolute; inset: 0; display: grid; place-items: center; padding: 6px; text-align: center; }
+.hxw-widget[data-type="committers"] .hxw-slot .slot-inner { padding: 2px; }
 .hxw-slot .slot-inner img { pointer-events: auto; }
 .hxw-slot .slot-inner a, .hxw-slot .slot-inner input, .hxw-slot .slot-inner textarea, .hxw-slot .slot-inner button { pointer-events: auto; }
 
@@ -562,7 +563,7 @@ body[data-lock]:not([data-lock="0"]) .hxw-wrap { pointer-events: none; }
 .hxw-body .flow-body,
 .hxw-body .todo-body,
 .hxw-body .tasksum-body { background: transparent; }
-.hxw-body .links-body, .hxw-body .cal-body, .hxw-body .flow-body, .hxw-body .md-widget { background: var(--hxw-fill, transparent); }
+/* Contents should not set their own background; rely on hex background only */
 .hxw-body .rounded, .hxw-body .rounded-md, .hxw-body .rounded-lg, .hxw-body .rounded-xl { border-radius: 0 !important; }
 
 /* Contrast for empty vs filled hexes */
@@ -642,6 +643,8 @@ body[data-lock]:not([data-lock="0"]) .hxw-wrap { pointer-events: none; }
   filter: drop-shadow(0 0 0 var(--rl-grid));
   animation: rlDrift2 24s linear infinite reverse;
 }
+
+/* (Removed) card look inside hex; use hex fill so it blends */
 .route-loading .rl-wrap { position: relative; width: 260px; height: 260px; }
 .route-loading .rl-hex { position: absolute; inset: 0; clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%); border: 2px solid var(--gh-border); }
 .route-loading .rl-hex-a { transform: scale(1); animation: rlPulse 1.4s ease-in-out infinite; background: linear-gradient(135deg, rgba(255,255,255,.06), rgba(0,0,0,.08)); }
@@ -680,3 +683,9 @@ body[data-lock]:not([data-lock="0"]) .hxw-wrap { pointer-events: none; }
 
 @keyframes ctClose { from { clip-path: circle(125vmax at var(--cx) var(--cy)); } to { clip-path: circle(0 at var(--cx) var(--cy)); } }
 @keyframes ctFade { from { opacity: 1 } to { opacity: 0 } }
+
+/* Center edit-forms inside hex widgets */
+.hxw-body [data-center="1"] { display: grid !important; align-items: center !important; justify-items: center !important; }
+.hxw-body .lnk-form, .hxw-body .cal-form { max-width: min(560px, 92%); width: 100%; margin: 0 auto; }
+/* Ensure inputs/buttons are interactive above any overlays */
+.hxw-body input, .hxw-body textarea, .hxw-body select, .hxw-body button { position: relative; z-index: 5; pointer-events: auto; }
