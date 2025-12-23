@@ -1793,6 +1793,68 @@ function enableDragAndDrop(root: HTMLElement): void {
     dragAllowed = false
   })
 
+  // Right-click shortcut menu (grid widgets, edit mode only)
+  grid.addEventListener('contextmenu', (e) => {
+    const t = e.target as HTMLElement
+    const w = t.closest('.widget') as HTMLElement | null
+    if (!w) return
+    e.preventDefault(); e.stopPropagation()
+    const scoped = grid.getAttribute('data-pid') || '' // e.g., "123:custom-..."
+    const [pidOnly, scope] = ((): [string, string] => { const a = scoped.split(':'); return [a[0] || '', a[1] || ''] })()
+    const wid = w.getAttribute('data-widget') || ''
+    const idKey = `gd:${pidOnly}:${scope}:${wid}`
+    const cur = scGet(pidOnly)
+    const on = cur.includes(idKey)
+    document.getElementById('hxwScMenu')?.remove()
+    const menu = document.createElement('div')
+    menu.id = 'hxwScMenu'
+    menu.className = 'fixed z-[70] rounded-md bg-neutral-900 ring-2 ring-neutral-600 shadow-lg p-1 text-sm text-gray-200'
+    const item = document.createElement('button')
+    item.className = 'px-3 py-1.5 hover:bg-neutral-800 rounded'
+    item.textContent = on ? 'ショートカットから削除' : 'ショートカットに追加'
+    item.addEventListener('click', () => {
+      if (on) scRemove(pidOnly, idKey); else scAdd(pidOnly, idKey)
+      try { hxwRenderShortcuts(root, pidOnly) } catch {}
+      menu.remove(); document.removeEventListener('click', onDoc)
+    })
+    menu.appendChild(item)
+    document.body.appendChild(menu)
+    const x = (e as MouseEvent).clientX, y = (e as MouseEvent).clientY
+    const mw = menu.offsetWidth || 150, mh = menu.offsetHeight || 38
+    const left = Math.max(8, Math.min(window.innerWidth - mw - 8, x + 6))
+    const top = Math.max(8, Math.min(window.innerHeight - mh - 8, y + 6))
+    menu.style.left = `${left}px`
+    menu.style.top = `${top}px`
+    const startX = x, startY = y
+    const startSX = (window.pageXOffset || document.documentElement.scrollLeft || 0)
+    const startSY = (window.pageYOffset || document.documentElement.scrollTop || 0)
+    const close = () => {
+      try { document.removeEventListener('click', onDoc) } catch {}
+      try { window.removeEventListener('mousemove', onMove) } catch {}
+      try { window.removeEventListener('scroll', onScr, true) } catch {}
+      try { window.removeEventListener('keydown', onKey) } catch {}
+      menu.remove()
+    }
+    const onDoc = (ev: MouseEvent) => { if (!menu.contains(ev.target as Node)) close() }
+    const onMove = (ev: MouseEvent) => {
+      const r = menu.getBoundingClientRect(); const m = 12
+      const inside = ev.clientX >= r.left - m && ev.clientX <= r.right + m && ev.clientY >= r.top - m && ev.clientY <= r.bottom + m
+      if (!inside) close()
+    }
+    const onScr = () => {
+      const sx = (window.pageXOffset || document.documentElement.scrollLeft || 0)
+      const sy = (window.pageYOffset || document.documentElement.scrollTop || 0)
+      if (Math.abs(sx - startSX) + Math.abs(sy - startSY) > 24) close()
+    }
+    const onKey = (ev: KeyboardEvent) => { if (ev.key === 'Escape') close() }
+    setTimeout(() => {
+      document.addEventListener('click', onDoc)
+      window.addEventListener('mousemove', onMove)
+      window.addEventListener('scroll', onScr, true)
+      window.addEventListener('keydown', onKey)
+    }, 0)
+  })
+
   // Context menu: background color picker (edit mode only)
   const closeBgMenu = () => { bgMenuEl?.remove(); bgMenuEl = null }
   const openBgMenu = (x: number, y: number, widget: HTMLElement) => {
@@ -4468,6 +4530,8 @@ function detailLayout(ctx: { id: number; name: string; fullName: string; owner: 
                   </div>
                 </section>
               </div>
+              <!-- Shortcuts rail (left edge, always visible) -->
+              <div id="hxwShortcuts" class="fixed left-2 top-1/2 -translate-y-1/2 z-[19] flex flex-col gap-2"></div>
               <!-- Minimap (top-right) -->
               <div class="hxw-mini"><canvas id="hxwMini" width="120" height="120"></canvas></div>
               <!-- View toggle (2D/3D) -->
@@ -5569,6 +5633,90 @@ function hxwSetMeta(pid: string, meta: Record<string, { type: string; q: number;
   localStorage.setItem(hxwKey(pid), JSON.stringify(meta))
 }
 
+// ---- Shortcuts (hex widgets) ----
+function scKey(pid: string): string { return `pj-hxw-sc-${pid}` }
+function scGet(pid: string): string[] {
+  try { const a = JSON.parse(localStorage.getItem(scKey(pid)) || '[]') as string[]; return Array.isArray(a) ? a : [] } catch { return [] }
+}
+function scSet(pid: string, ids: string[]): void { try { localStorage.setItem(scKey(pid), JSON.stringify(Array.from(new Set(ids)))) } catch {} }
+function scAdd(pid: string, id: string): void { const a = scGet(pid); if (!a.includes(id)) { a.push(id); scSet(pid, a) } }
+function scRemove(pid: string, id: string): void { const a = scGet(pid).filter(x => x !== id); scSet(pid, a); try { scNameDelete(pid, id) } catch {} }
+function scNameKey(pid: string): string { return `pj-hxw-sc-name-${pid}` }
+function scNameMap(pid: string): Record<string, string> { try { return JSON.parse(localStorage.getItem(scNameKey(pid)) || '{}') as Record<string, string> } catch { return {} } }
+function scNameSet(pid: string, id: string, name: string): void { const m = scNameMap(pid); m[id] = name; localStorage.setItem(scNameKey(pid), JSON.stringify(m)) }
+function scNameGet(pid: string, id: string): string { try { const m = scNameMap(pid); return m[id] || '' } catch { return '' } }
+function scNameDelete(pid: string, id: string): void { const m = scNameMap(pid); if (id in m) { delete m[id]; localStorage.setItem(scNameKey(pid), JSON.stringify(m)) } }
+function hxwFocusWidget(root: HTMLElement, pid: string, id: string): void {
+  const wrap = root.querySelector('#hxwWrap') as HTMLElement | null
+  const canvas = root.querySelector('#hxwCanvas') as HTMLElement | null
+  if (!wrap || !canvas) return
+  const st: any = (wrap as any)._hxw
+  const host = canvas.querySelector(`.hxw-widget[data-widget="${id}"]`) as HTMLElement | null
+  if (!host || !st) return
+  const left = parseFloat(host.getAttribute('data-left') || '0')
+  const top = parseFloat(host.getAttribute('data-top') || '0')
+  const w = parseFloat(host.getAttribute('data-w') || '0')
+  const h = parseFloat(host.getAttribute('data-h') || '0')
+  const cx = left + w / 2
+  const cy = top + h / 2
+  const sc = st.scale || 1
+  st.offsetX = Math.round(wrap.clientWidth / 2 - cx * sc)
+  st.offsetY = Math.round(wrap.clientHeight / 2 - cy * sc)
+  try { hxwApplyTransform(wrap, canvas, st) } catch {}
+}
+function hxwRenderShortcuts(root: HTMLElement, pid: string): void {
+  const rail = root.querySelector('#hxwShortcuts') as HTMLElement | null
+  const wrap = root.querySelector('#hxwWrap') as HTMLElement | null
+  const canvas = root.querySelector('#hxwCanvas') as HTMLElement | null
+  if (!rail || !wrap || !canvas) return
+  const metaHex = hxwGetMeta(pid)
+  const raw = scGet(pid)
+  // normalize / prune
+  const normalized: string[] = []
+  raw.forEach((s) => {
+    if (s.startsWith('gd:')) {
+      // keep grid shortcuts of same pid
+      const parts = s.split(':')
+      if (parts.length >= 4 && parts[1] === String(pid)) normalized.push(s)
+    } else {
+      if (metaHex[s]) normalized.push(s)
+    }
+  })
+  if (normalized.length !== raw.length) scSet(pid, normalized)
+  rail.innerHTML = ''
+  normalized.forEach((key) => {
+    let label = 'Widget'
+    let onClick: () => void = () => {}
+    if (key.startsWith('gd:')) {
+      const [, p, scope, wid] = key.split(':')
+      const scoped = `${p}:${scope}`
+      const metaG = getWidgetMeta(scoped)
+      const type = (metaG[wid]?.type || 'widget')
+      try { label = scNameGet(pid, key) || widgetTitle(type) } catch { label = scNameGet(pid, key) || 'Widget' }
+      onClick = () => {
+        // show target tab
+        const sec = root.querySelector(`section[data-tab="${scope}"]`) as HTMLElement | null
+        if (sec) {
+          root.querySelectorAll('section[data-tab]').forEach((s) => (s as HTMLElement).classList.toggle('hidden', s !== sec))
+          // scroll widget into view
+          const el = sec.querySelector(`.widget[data-widget="${wid}"]`) as HTMLElement | null
+          if (el) { try { el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' }) } catch { el.scrollIntoView() } }
+        }
+      }
+    } else {
+      const type = (metaHex[key]?.type || 'widget')
+      try { label = scNameGet(pid, key) || widgetTitle(type) } catch { label = scNameGet(pid, key) || 'Widget' }
+      onClick = () => hxwFocusWidget(root, pid, key)
+    }
+    const btn = document.createElement('button')
+    btn.className = 'w-8 h-8 rounded-full ring-1 ring-neutral-600 bg-neutral-900/80 text-gray-200 grid place-items-center text-[11px] hover:bg-neutral-900/60'
+    btn.title = label
+    btn.textContent = label.slice(0, 2)
+    btn.addEventListener('click', onClick)
+    rail.appendChild(btn)
+  })
+}
+
 // Parity-independent shapes using axial coordinates
 type Ax = { x: number; z: number }
 const AX_DIRS: Ax[] = [ { x: +1, z: 0 }, { x: +1, z: -1 }, { x: 0, z: -1 }, { x: -1, z: 0 }, { x: -1, z: +1 }, { x: 0, z: +1 } ]
@@ -5756,12 +5904,38 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
     if (activePid === null || e.pointerId !== activePid) return
     if ((e.buttons === 0) && !draggingStage) return
     const dx = e.clientX - sx, dy = e.clientY - sy
-    if (!draggingStage && Math.hypot(dx, dy) > DRAG_TOL) draggingStage = true
+    if (!draggingStage && Math.hypot(dx, dy) > DRAG_TOL) {
+      draggingStage = true
+      try { document.getElementById('hxwScMenu')?.remove() } catch {}
+    }
     if (!draggingStage) return
     st.offsetX = sox + dx; st.offsetY = soy + dy; enforceBounds(); hxwApplyTransform(wrap, canvas, st)
   })
+  let _menuWheelAccum = 0
+  let _menuWheelTimer: any
   wrap.addEventListener('wheel', (e) => {
     if (widgetDragging) return
+    // If the wheel event is over a scrollable element inside a widget, allow native scroll
+    const t = e.target as HTMLElement
+    const isScrollableEl = (el: HTMLElement): boolean => {
+      const cs = getComputedStyle(el)
+      const canY = (cs.overflowY === 'auto' || cs.overflowY === 'scroll') && el.scrollHeight > el.clientHeight
+      const canX = (cs.overflowX === 'auto' || cs.overflowX === 'scroll') && el.scrollWidth > el.clientWidth
+      return canY || canX
+    }
+    let cur: HTMLElement | null = t
+    let overScrollable = false
+    while (cur && cur !== wrap) { if (isScrollableEl(cur)) { overScrollable = true; break } cur = cur.parentElement }
+    // Only close menu on wheel if we're actually panning/zooming the field (not when scrolling inside a widget)
+    if (!e.ctrlKey && overScrollable) return
+    const menuOpen = !!document.getElementById('hxwScMenu')
+    if (menuOpen) {
+      // accumulate wheel delta; close after small threshold so微小スクロールでは維持
+      _menuWheelAccum += Math.abs((e as WheelEvent).deltaX || 0) + Math.abs((e as WheelEvent).deltaY || 0)
+      clearTimeout(_menuWheelTimer as any)
+      _menuWheelTimer = setTimeout(() => { _menuWheelAccum = 0 }, 180)
+      if (_menuWheelAccum > 60) { try { document.getElementById('hxwScMenu')?.remove() } catch {}; _menuWheelAccum = 0 }
+    }
     const zoomAt = (clientX: number, clientY: number, nextScale: number) => {
       const iso = wrap.classList.contains('hxw-iso')
       const ns = clamp(nextScale, getMin(), Z_MAX)
@@ -5875,6 +6049,7 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
         (el as HTMLElement).classList.toggle('hidden', !on)
       })
     } catch {}
+    // (Shortcut icons removed; use contextual menu instead)
   }
   ; (canvas as any)._setEdit = setEdit
 
@@ -5893,6 +6068,13 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
     const r = Math.round(cy / sy - (q % 2 ? 0.5 : 0))
     return { q, r }
   }
+  // Capture phase: suppress browser default menu but let our handler run
+  wrap.addEventListener('contextmenu', (e) => {
+    const t = e.target as HTMLElement
+    if (!t.closest('.hxw-widget')) return
+    // Only prevent default; allow event to propagate so our canvas handler can open the menu
+    e.preventDefault()
+  }, true)
   const canPlace = (cells: Array<{ q: number; r: number }>, ignore: Set<string>): boolean => {
     const mask: Set<string> = (wrap as any)._hxwMask || new Set<string>()
     const inBounds = (q: number, r: number) => mask.size ? mask.has(`${q},${r}`) : (q >= 0 && r >= 0 && q < ((wrap as any)._hxwCols || 0) && r < ((wrap as any)._hxwRows || 0))
@@ -6047,6 +6229,72 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
   window.addEventListener('resize', () => hxwApplyTransform(wrap, canvas, st))
 
   // Delegated clicks for widgets inside hex field (links/calendar forms)
+  canvas.addEventListener('contextmenu', (e) => {
+    const hostHx = (e.target as HTMLElement).closest('.hxw-widget') as HTMLElement | null
+    if (!hostHx) return
+    try { (e as any).stopImmediatePropagation?.() } catch {}
+    e.preventDefault(); e.stopPropagation()
+    const pid2 = canvas.getAttribute('data-pid') || '0'
+    const wid = hostHx.getAttribute('data-widget') || ''
+    const on = scGet(pid2).includes(wid)
+    document.getElementById('hxwScMenu')?.remove()
+    const menu = document.createElement('div')
+    menu.id = 'hxwScMenu'
+    menu.className = 'fixed z-[70] rounded-md bg-neutral-900 ring-2 ring-neutral-600 shadow-lg p-2 text-sm text-gray-200'
+    if (!on) {
+      menu.innerHTML = `<div class=\"space-y-2\">\n        <input id=\"sc-name\" class=\"w-52 rounded bg-neutral-800/60 ring-2 ring-neutral-600 px-2 py-1 text-gray-100\" placeholder=\"ショートカット名（任意）\" />\n        <div class=\"flex gap-2 justify-end\">\n          <button id=\"sc-add\" class=\"px-3 py-1 rounded bg-emerald-700 hover:bg-emerald-600 text-white\">追加</button>\n          <button id=\"sc-cancel\" class=\"px-3 py-1 rounded ring-1 ring-neutral-600 hover:bg-neutral-800\">キャンセル</button>\n        </div>\n      </div>`
+    } else {
+      menu.innerHTML = `<div class=\"p-1\"><button id=\"sc-del\" class=\"w-full text-left px-3 py-1.5 hover:bg-neutral-800 rounded\">ショートカットから削除</button></div>`
+    }
+    document.body.appendChild(menu)
+    const x = (e as MouseEvent).clientX, y = (e as MouseEvent).clientY
+    const w = menu.offsetWidth || 150, h = menu.offsetHeight || 38
+    const left = Math.max(8, Math.min(window.innerWidth - w - 8, x + 6))
+    const top = Math.max(8, Math.min(window.innerHeight - h - 8, y + 6))
+    menu.style.left = `${left}px`
+    menu.style.top = `${top}px`
+    const startX = x, startY = y
+    const close = () => {
+      try { document.removeEventListener('click', onDoc) } catch {}
+      try { window.removeEventListener('mousemove', onMove) } catch {}
+      try { window.removeEventListener('scroll', onScr, true) } catch {}
+      try { window.removeEventListener('keydown', onKey) } catch {}
+      menu.remove()
+    }
+    const onDoc = (ev: MouseEvent) => { if (!menu.contains(ev.target as Node)) close() }
+    const onMove = (ev: MouseEvent) => {
+      const r = menu.getBoundingClientRect(); const m = 12
+      const inside = ev.clientX >= r.left - m && ev.clientX <= r.right + m && ev.clientY >= r.top - m && ev.clientY <= r.bottom + m
+      if (!inside) close()
+    }
+    const onScr = () => {
+      const sx = (window.pageXOffset || document.documentElement.scrollLeft || 0)
+      const sy = (window.pageYOffset || document.documentElement.scrollTop || 0)
+      if (Math.abs(sx - startSX) + Math.abs(sy - startSY) > 24) close()
+    }
+    const onKey = (ev: KeyboardEvent) => { if (ev.key === 'Escape') close() }
+    setTimeout(() => {
+      document.addEventListener('click', onDoc)
+      window.addEventListener('mousemove', onMove)
+      window.addEventListener('scroll', onScr, true)
+      window.addEventListener('keydown', onKey)
+    }, 0)
+    // Actions
+    const addBtn = menu.querySelector('#sc-add') as HTMLElement | null
+    const cancelBtn = menu.querySelector('#sc-cancel') as HTMLElement | null
+    const delBtn = menu.querySelector('#sc-del') as HTMLElement | null
+    const nameInput = menu.querySelector('#sc-name') as HTMLInputElement | null
+    addBtn?.addEventListener('click', () => {
+      const name = (nameInput?.value || '').trim()
+      scAdd(pid2, wid)
+      if (name) scNameSet(pid2, wid, name)
+      try { hxwRenderShortcuts(root, pid2) } catch {}
+      close()
+    })
+    cancelBtn?.addEventListener('click', close)
+    delBtn?.addEventListener('click', () => { scRemove(pid2, wid); try { hxwRenderShortcuts(root, pid2) } catch {}; close() })
+    nameInput?.focus()
+  })
   canvas.addEventListener('click', (e) => {
     const pid = canvas.getAttribute('data-pid') || '0'
     const pickW = (el: HTMLElement | null): HTMLElement | null => (el?.closest('.widget') as HTMLElement | null)
@@ -6132,6 +6380,7 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
     const calCancel = (e.target as HTMLElement).closest('.cal-cancel') as HTMLElement | null
     if (calCancel) { const w = pickW(calCancel); if (!w) return; const form = w.querySelector('.cal-form') as HTMLElement | null; if (form) form.classList.add('hidden'); return }
   })
+  // (single handler above handles contextmenu always)
 }
 
 function hxwPlaceWidgets(root: HTMLElement, pid: string, st: HexWLayout): void {
@@ -6188,6 +6437,10 @@ function hxwPlaceWidgets(root: HTMLElement, pid: string, st: HexWLayout): void {
     host!.style.top = `${minY}px`
     host!.style.width = `${boxW}px`
     host!.style.height = `${boxH}px`
+    host!.setAttribute('data-left', String(minX))
+    host!.setAttribute('data-top', String(minY))
+    host!.setAttribute('data-w', String(boxW))
+    host!.setAttribute('data-h', String(boxH))
     // prepare empty background layer; actual fill and clipping applied after clipPath is ready
     Array.from(host!.querySelectorAll('.hxw-bg')).forEach(n => n.remove())
     const bg = document.createElement('div')
@@ -6327,6 +6580,14 @@ function hxwPlaceWidgets(root: HTMLElement, pid: string, st: HexWLayout): void {
       const noSlots = t === 'readme' || t === 'markdown' || t === 'flow'
       if (noSlots && cellsWrap) { cellsWrap.remove(); cellsWrap = null as any }
     } catch {}
+    // Hide rectangular body for compact slot-driven widgets (invite/account/tabnew)
+    try {
+      const t = (host!.getAttribute('data-type') || '').toLowerCase()
+      if (t === 'invite' || t === 'account' || t === 'tabnew') {
+        const body2 = host!.querySelector('.hxw-body') as HTMLElement | null
+        if (body2) body2.style.display = 'none'
+      }
+    } catch {}
 
     // Draw outer outline only (no internal edges) using neighbor test
     try {
@@ -6386,9 +6647,12 @@ function hxwPlaceWidgets(root: HTMLElement, pid: string, st: HexWLayout): void {
       path.setAttribute('stroke-linecap', 'round')
       outline.appendChild(path)
     } catch {}
+
+    // (Shortcut UI moved to contextual menu; no persistent icon in widgets)
   }
   Object.entries(meta).forEach(([id, m]) => upsertOne(id, m.type, m.q, m.r))
   existing.forEach((el) => el.remove())
+  try { const pid = (canvas.getAttribute('data-pid') || '0'); hxwRenderShortcuts(root, pid) } catch {}
 }
 
 export function renderHexWidgets(root: HTMLElement, pid: string): void {
