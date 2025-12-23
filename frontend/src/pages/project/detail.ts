@@ -583,7 +583,7 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
   const fab = container.querySelector('#hxwFab') as HTMLElement | null
   fab?.addEventListener('click', () => {
     openWidgetPickerModal(container, String(project.id), (type) => {
-      try { hxwAddWidget(container, String(project.id), type) } catch {}
+      try { hxwStartPlacement(container, String(project.id), type) } catch {}
     })
   })
 
@@ -2376,9 +2376,14 @@ type WidgetMeta = { size: WidgetSize; h?: WidgetHeight; type?: string; bg?: stri
 function getWidgetMeta(pid: string): Record<string, WidgetMeta> {
   try {
     const raw = JSON.parse(localStorage.getItem(`pj-widgets-meta-${pid}`) || '{}') as Record<string, WidgetMeta>
-    // Remove deprecated types (flow)
+    // Remove deprecated/disabled types
     const meta: Record<string, WidgetMeta> = {}
-    Object.entries(raw).forEach(([id, m]) => { if ((m?.type || '') !== 'flow') meta[id] = m })
+    Object.entries(raw).forEach(([id, m]) => {
+      const t = (m?.type || '')
+      if (t === 'flow') return
+      if (t === 'calendar') return // calendar widget retired
+      meta[id] = m
+    })
     if (Object.keys(meta).length !== Object.keys(raw).length) { try { setWidgetMeta(pid, meta) } catch {} }
     return meta
   } catch { return {} }
@@ -2612,7 +2617,7 @@ function openWidgetPickerModal(root: HTMLElement, pid: string, onPick?: (type: s
             ${widgetCard('markdown', 'Markdownブロック')}
             ${widgetCard('tasksum', 'タスクサマリー')}
             ${widgetCard('links', 'クイックリンク')}
-            ${widgetCard('calendar', 'カレンダー')}
+            
             ${widgetCard('clock', 'アナログ時計')}
             ${widgetCard('clock-digital', 'デジタル時計')}
             ${widgetCard('spacer', 'スペーサー(1セル)')}
@@ -2631,7 +2636,7 @@ function openWidgetPickerModal(root: HTMLElement, pid: string, onPick?: (type: s
     if (!card || !gridEl.contains(card)) return
     const type = card.getAttribute('data-widget-type')!
     if (onPick) onPick(type)
-    else addWidget(root, pid, type)
+    else hxwStartPlacement(root, pid, type)
     close()
   })
   // Category filtering
@@ -2639,7 +2644,7 @@ function openWidgetPickerModal(root: HTMLElement, pid: string, onPick?: (type: s
   const getCat = (t: string): string => {
     if (['readme', 'contrib', 'committers'].includes(t)) return 'github'
     if (['markdown'].includes(t)) return 'text'
-    if (['tasksum', 'links', 'calendar', 'clock', 'clock-digital', 'spacer'].includes(t)) return 'manage'
+    if (['tasksum', 'links', 'clock', 'clock-digital', 'spacer'].includes(t)) return 'manage'
     return 'other'
   }
   const applyCat = (cat: string) => {
@@ -5294,9 +5299,14 @@ function hxwKey(pid: string): string { return `pj-hx-widgets-${pid}` }
 function hxwGetMeta(pid: string): Record<string, { type: string; q: number; r: number }> {
   try {
     const raw = JSON.parse(localStorage.getItem(hxwKey(pid)) || '{}') as Record<string, { type: string; q: number; r: number }>
-    // Filter out deprecated mini-flow widgets if present
+    // Filter out deprecated or disabled widget types
     const meta: Record<string, { type: string; q: number; r: number }> = {}
-    Object.entries(raw).forEach(([id, m]) => { if ((m?.type || '') !== 'flow') meta[id] = m })
+    Object.entries(raw).forEach(([id, m]) => {
+      const t = (m?.type || '')
+      if (t === 'flow') return
+      if (t === 'calendar') return // calendar widget retired
+      meta[id] = m
+    })
     if (Object.keys(meta).length !== Object.keys(raw).length) { try { hxwSetMeta(pid, meta) } catch {} }
     return meta
   } catch { return {} }
@@ -5310,6 +5320,8 @@ type Ax = { x: number; z: number }
 const AX_DIRS: Ax[] = [ { x: +1, z: 0 }, { x: +1, z: -1 }, { x: 0, z: -1 }, { x: -1, z: 0 }, { x: -1, z: +1 }, { x: 0, z: +1 } ]
 function oddqToAxial(q: number, r: number): Ax { return { x: q, z: r - ((q - (q & 1)) >> 1) } }
 function axialToOddq(x: number, z: number): { q: number; r: number } { const q = x; const r = z + ((q - (q & 1)) >> 1); return { q, r } }
+// Row-offset(odd-r) → axial（フィールドシルエットを90°回したい時に使用）
+function oddrToAxialR(q: number, r: number): Ax { const x = q - ((r - (r & 1)) >> 1); const z = r; return { x, z } }
 function axGrow(count: number): Array<[number, number]> {
   const seen = new Set<string>()
   const out: Array<[number, number]> = []
@@ -5357,6 +5369,8 @@ function hxwDrawMini(wrap: HTMLElement, st: HexWLayout): void {
   const W = mini.width, H = mini.height
   ctx.clearRect(0, 0, W, H)
   ctx.save()
+  // Clip to circle so content matches project list minimap
+  try { ctx.beginPath(); ctx.arc(W / 2, H / 2, Math.min(W, H) / 2 - 3, 0, Math.PI * 2); ctx.clip() } catch { }
   const pad = 2
   const sx = (W - pad * 2) / (st.width || 1)
   const sy = (H - pad * 2) / (st.height || 1)
@@ -5386,7 +5400,6 @@ function hxwDrawMini(wrap: HTMLElement, st: HexWLayout): void {
   }
   const isLight = (document.documentElement.getAttribute('data-theme') || 'dark') !== 'dark'
   const emptyFill = isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.08)'
-  const filledFill = 'rgba(59,130,246,0.55)'
   const nodes = (wrap as any)._hxw?.nodes as Array<{ x: number; y: number; q: number; r: number }>
   if (nodes) nodes.forEach(n => drawHex(n.x, n.y, emptyFill))
   try {
@@ -5395,8 +5408,24 @@ function hxwDrawMini(wrap: HTMLElement, st: HexWLayout): void {
     cells.forEach((c) => {
       const x = parseFloat((c.getAttribute('data-x') || '0'))
       const y = parseFloat((c.getAttribute('data-y') || '0'))
-      drawHex(x, y, filledFill)
+      const rgb = (c.getAttribute('data-rgb') || '').trim()
+      const fill = rgb ? `rgba(${rgb},0.55)` : (isLight ? 'rgba(0,0,0,0.25)' : 'rgba(255,255,255,0.25)')
+      drawHex(x, y, fill)
     })
+  } catch { }
+  // Viewport frame
+  try {
+    const vx = (-st.offsetX) / st.scale
+    const vy = (-st.offsetY) / st.scale
+    const vw = wrap.clientWidth / st.scale
+    const vh = wrap.clientHeight / st.scale
+    const rectX = ox + vx * s
+    const rectY = oy + vy * s
+    const rectW = vw * s
+    const rectH = vh * s
+    ctx.strokeStyle = isLight ? 'rgba(0,0,0,0.85)' : 'rgba(255,255,255,0.85)'
+    ctx.lineWidth = 1.4
+    ctx.strokeRect(rectX, rectY, rectW, rectH)
   } catch { }
   ctx.restore()
 }
@@ -5425,6 +5454,7 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
   let widgetDragging = false
   const DRAG_TOL = 4
   wrap.addEventListener('pointerdown', (e) => {
+    if ((wrap as any)._placing) return
     // Do not start background panning when grabbing a widget in edit mode
     const isEdit = canvas.getAttribute('data-edit') === '1'
     const target = e.target as HTMLElement
@@ -5435,6 +5465,7 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
   })
   window.addEventListener('pointerup', (e) => { if (activePid === null || e.pointerId === activePid) { draggingStage = false; activePid = null; sx = 0; sy = 0 } })
   window.addEventListener('pointermove', (e) => {
+    if ((wrap as any)._placing) return
     if (widgetDragging) return
     if (activePid === null || e.pointerId !== activePid) return
     if ((e.buttons === 0) && !draggingStage) return
@@ -5457,12 +5488,14 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
       st.offsetY -= e.deltaY
       enforceBounds(); hxwApplyTransform(wrap, canvas, st)
     }
+    // 配置モード中はスクロール後にゴーストを再計算
+    try { const rf = (wrap as any)._placeRefresh as (()=>void)|undefined; if (rf) rf() } catch {}
   }, { passive: false })
   // pinch zoom
   const pts = new Map<number, { x: number; y: number }>()
   const dist = () => { const a = Array.from(pts.values()); if (a.length < 2) return 0; const dx = a[0].x - a[1].x, dy = a[0].y - a[1].y; return Math.hypot(dx, dy) }
   let startDist = 0, startScale = st.scale
-  wrap.addEventListener('pointerdown', (e) => { pts.set(e.pointerId, { x: e.clientX, y: e.clientY }) })
+  wrap.addEventListener('pointerdown', (e) => { if ((wrap as any)._placing) return; pts.set(e.pointerId, { x: e.clientX, y: e.clientY }) })
   wrap.addEventListener('pointermove', (e) => {
     if (!pts.has(e.pointerId)) return
     pts.set(e.pointerId, { x: e.clientX, y: e.clientY })
@@ -5523,7 +5556,8 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
     return { q, r }
   }
   const canPlace = (cells: Array<{ q: number; r: number }>, ignore: Set<string>): boolean => {
-    const inBounds = (q: number, r: number) => q >= 0 && r >= 0 && q < ((wrap as any)._hxwCols || 0) && r < ((wrap as any)._hxwRows || 0)
+    const mask: Set<string> = (wrap as any)._hxwMask || new Set<string>()
+    const inBounds = (q: number, r: number) => mask.size ? mask.has(`${q},${r}`) : (q >= 0 && r >= 0 && q < ((wrap as any)._hxwCols || 0) && r < ((wrap as any)._hxwRows || 0))
     for (const c of cells) {
       if (!inBounds(c.q, c.r)) return false
       const k = `${c.q},${c.r}`
@@ -5753,35 +5787,7 @@ function hxwPlaceWidgets(root: HTMLElement, pid: string, st: HexWLayout): void {
   const wrap = root.querySelector('#hxwWrap') as HTMLElement | null
   const canvas = root.querySelector('#hxwCanvas') as HTMLElement | null
   if (!wrap || !canvas) return
-  // Failsafe: ensure background cells exist
-  const bgCount = canvas.querySelectorAll('.hxw-hex[data-kind="bg"]').length
-  if (bgCount === 0) {
-    const W = st.tile
-    const H = Math.round(W * 0.866)
-    const stepX = () => Math.round(W * 0.75)
-    const stepY = () => H
-    const COLS = (wrap as any)._hxwCols || 20
-    const ROWS = (wrap as any)._hxwRows || 14
-    for (let q = 0; q < COLS; q++) {
-      for (let r = 0; r < ROWS; r++) {
-        const x = q * stepX()
-        const y = Math.round((r + (q % 2 ? 0.5 : 0)) * stepY())
-        const el = document.createElement('div')
-        el.className = 'hxw-hex'
-        el.setAttribute('data-kind', 'bg')
-        el.setAttribute('data-q', String(q))
-        el.setAttribute('data-r', String(r))
-        el.style.left = `${x}px`
-        el.style.top = `${y}px`
-        el.style.width = `${W}px`
-        el.style.height = `${H}px`
-        const clip = document.createElement('div')
-        clip.className = 'hxw-clip'
-        el.appendChild(clip)
-        canvas.appendChild(el)
-      }
-    }
-  }
+  // Background cells are built by renderHexWidgets using the hex mask; do not auto-seed a rectangle here.
   const meta = hxwGetMeta(pid)
   const sx = Math.round((st.tile) * 0.75)
   const sy = Math.round((st.tile) * 0.866)
@@ -5849,6 +5855,9 @@ function hxwPlaceWidgets(root: HTMLElement, pid: string, st: HexWLayout): void {
       hex.style.height = `${tileH}px`
       hex.setAttribute('data-hxw-cell', '1')
       hex.setAttribute('data-kr', `${cq},${cr}`)
+      // absolute canvas coordinates for minimap rendering
+      hex.setAttribute('data-x', String(x))
+      hex.setAttribute('data-y', String(y))
       // Keep as hidden markers so drag logic can ignore self-occupancy
       hex.style.display = 'none'
       host!.appendChild(hex)
@@ -5930,6 +5939,8 @@ function hxwPlaceWidgets(root: HTMLElement, pid: string, st: HexWLayout): void {
       const base = palette[idx]
       const fillFlat = `rgba(${base[0]},${base[1]},${base[2]}, ${lightBg ? 0.30 : 0.34})`
       host!.style.setProperty('--hxw-fill', fillFlat)
+      // annotate each cell with base rgb so minimap can color-match
+      try { Array.from(host!.querySelectorAll('.hxw-hex.hxw-filled')).forEach((n) => (n as HTMLElement).setAttribute('data-rgb', `${base[0]},${base[1]},${base[2]}`)) } catch {}
       let bgFlat = host!.querySelector('.hxw-bg') as HTMLElement | null
       if (!bgFlat) { bgFlat = document.createElement('div'); bgFlat.className = 'hxw-bg'; host!.insertBefore(bgFlat, body) }
       bgFlat.style.left = '0px'
@@ -6049,12 +6060,9 @@ export function renderHexWidgets(root: HTMLElement, pid: string): void {
   const H = Math.round(W * 0.866)
   const stepX = () => Math.round(W * 0.75)
   const stepY = () => H
-  // Compute dynamic grid size so that the placeable field fills (and slightly exceeds) the viewport
+  // Compute grid size from desired hex radius (strict hex field)
   const vw = Math.max(320, wrap.clientWidth)
   const vh = Math.max(240, wrap.clientHeight)
-  const pad = 2400 // extend well beyond viewport so edges never show
-  const needW = vw + pad
-  const needH = vh + pad
   // ensure grid also covers current widgets footprint
   const metaAll = hxwGetMeta(pid)
   let usedMinQ = 0, usedMaxQ = 0, usedMinR = 0, usedMaxR = 0, hasUse = false
@@ -6068,12 +6076,14 @@ export function renderHexWidgets(root: HTMLElement, pid: string): void {
       usedMinR = Math.min(usedMinR, o.r); usedMaxR = Math.max(usedMaxR, o.r)
     })
   })
-  const needColsByView = Math.max(3, Math.ceil((needW - W) / stepX()) + 1)
-  const needRowsByView = Math.max(3, Math.ceil((needH - H) / stepY() - 0.5))
-  const needColsByUse = hasUse ? (Math.max(3, (usedMaxQ - usedMinQ + 1) + 8)) : 0
-  const needRowsByUse = hasUse ? (Math.max(3, (usedMaxR - usedMinR + 1) + 8)) : 0
-  const COLS = Math.max(needColsByView, needColsByUse || 0)
-  const ROWS = Math.max(needRowsByView, needRowsByUse || 0)
+  // Base hex radius from viewport
+  const viewCols = Math.max(3, Math.ceil(vw / stepX()))
+  const viewRows = Math.max(3, Math.ceil(vh / stepY()))
+  const R_VIEW = Math.max(1, Math.floor(Math.min(viewCols, viewRows) / 2) - 1)
+  // 今の約8倍の大きさに拡大
+  const R_STRICT = Math.max(3, Math.floor(R_VIEW * 8))
+  const COLS = 2 * R_STRICT + 1
+  const ROWS = 2 * R_STRICT + 1
   const width = stepX() * (COLS - 1) + W
   const height = stepY() * (ROWS + 0.5)
   st.width = width; st.height = height
@@ -6086,27 +6096,126 @@ export function renderHexWidgets(root: HTMLElement, pid: string): void {
   // build background nodes
   const nodes: Array<{ q: number; r: number; x: number; y: number }> = []
   canvas.innerHTML = ''
+  // Build a rounded hex mask so the field extends in a beehive-like shape (not a rectangle)
+  const mask = new Set<string>()
+  // シルエット位置は固定（中央基準）
+  const centerQ = Math.floor(COLS / 2)
+  const centerR = Math.floor(ROWS / 2)
+  const rotateField = false // 綺麗な正六角形に戻す（回転しない）
+  const cax = rotateField ? oddrToAxialR(centerQ, centerR) : oddqToAxial(centerQ, centerR)
+  const hexDist = (a: { x: number; z: number }, b: { x: number; z: number }): number => {
+    const dx = a.x - b.x, dz = a.z - b.z, dy = -dx - dz
+    return Math.floor((Math.abs(dx) + Math.abs(dy) + Math.abs(dz)) / 2)
+  }
+  // Use the strict radius computed above soマスクとグリッドが一致
+  const R = R_STRICT
   for (let q = 0; q < COLS; q++) {
     for (let r = 0; r < ROWS; r++) {
-      const x = q * stepX()
-      const y = Math.round((r + (q % 2 ? 0.5 : 0)) * stepY())
-      nodes.push({ q, r, x, y })
-      const el = document.createElement('div')
-      el.className = 'hxw-hex'
-      el.setAttribute('data-kind', 'bg')
-      el.setAttribute('data-q', String(q))
-      el.setAttribute('data-r', String(r))
-      el.style.left = `${x}px`
-      el.style.top = `${y}px`
-      el.style.width = `${W}px`
-      el.style.height = `${H}px`
-      const clip = document.createElement('div')
-      clip.className = 'hxw-clip'
-      el.appendChild(clip)
-      canvas.appendChild(el)
+      const ax = rotateField ? oddrToAxialR(q, r) : oddqToAxial(q, r)
+      const d = hexDist(ax, cax)
+      if (d <= R) {
+        mask.add(`${q},${r}`)
+        const x = q * stepX()
+        const y = Math.round((r + (q % 2 ? 0.5 : 0)) * stepY())
+        nodes.push({ q, r, x, y })
+        const el = document.createElement('div')
+        el.className = 'hxw-hex'
+        el.setAttribute('data-kind', 'bg')
+        el.setAttribute('data-q', String(q))
+        el.setAttribute('data-r', String(r))
+        el.style.left = `${x}px`
+        el.style.top = `${y}px`
+        el.style.width = `${W}px`
+        el.style.height = `${H}px`
+        const clip = document.createElement('div')
+        clip.className = 'hxw-clip'
+        el.appendChild(clip)
+        canvas.appendChild(el)
+      }
     }
   }
   ; (wrap as any)._hxw.nodes = nodes
+  ; (wrap as any)._hxwMask = mask
+
+  // Prune widgets that are now outside the hex field mask
+  try {
+    const meta = hxwGetMeta(pid)
+    let changed = false
+    const inMask = (q: number, r: number) => mask.has(`${q},${r}`)
+    Object.entries(meta).forEach(([id, m]: any) => {
+      const anc = oddqToAxial(m.q, m.r)
+      const rel = hxwShapeFor(m.type || 'mock')
+      let ok = true
+      for (const [ax, az] of rel) {
+        const o = axialToOddq(anc.x + ax, anc.z + az)
+        if (!inMask(o.q, o.r)) { ok = false; break }
+      }
+      if (!ok) { delete meta[id]; changed = true }
+    })
+    if (changed) hxwSetMeta(pid, meta)
+  } catch { }
+
+  // Build a clipPath (背景参考用)。ウィジェットは切らないため適用しない。
+  try {
+    const present = mask
+    const polyPts = (px: number, py: number) => ([
+      [px + W * 0.25, py + 0],
+      [px + W * 0.75, py + 0],
+      [px + W * 1.00, py + H * 0.5],
+      [px + W * 0.75, py + H * 1.0],
+      [px + W * 0.25, py + H * 1.0],
+      [px + W * 0.00, py + H * 0.5],
+    ])
+    const neighbor = (q: number, r: number, dir: number): { q: number; r: number } => {
+      const odd = (q & 1) === 1
+      switch (dir) {
+        case 0: return { q, r: r - 1 }
+        case 1: return odd ? { q: q + 1, r } : { q: q + 1, r: r - 1 }
+        case 2: return odd ? { q: q + 1, r: r + 1 } : { q: q + 1, r }
+        case 3: return { q, r: r + 1 }
+        case 4: return odd ? { q: q - 1, r: r + 1 } : { q: q - 1, r }
+        case 5: return odd ? { q: q - 1, r } : { q: q - 1, r: r - 1 }
+        default: return { q, r }
+      }
+    }
+    const segs: string[] = []
+    present.forEach((_, key) => {
+      const [qs, rs] = key.split(',').map((n) => parseInt(n, 10))
+      const px = qs * stepX()
+      const py = Math.round((rs + (qs % 2 ? 0.5 : 0)) * stepY())
+      const P = polyPts(px, py)
+      for (let i = 0; i < 6; i++) {
+        const nb = neighbor(qs, rs, i)
+        if (present.has(`${nb.q},${nb.r}`)) continue
+        const A = P[i], B = P[(i + 1) % 6]
+        segs.push(`M ${Math.round(A[0])} ${Math.round(A[1])} L ${Math.round(B[0])} ${Math.round(B[1])}`)
+      }
+    })
+    const defs = hxwEnsureDefs()
+    const cid = `hxw-canvas-clip-${pid}`
+    let cp = defs.querySelector(`#${cid}`) as SVGClipPathElement | null
+    if (!cp) { cp = document.createElementNS('http://www.w3.org/2000/svg', 'clipPath') as any; cp.setAttribute('id', cid); cp.setAttribute('clipPathUnits', 'userSpaceOnUse'); defs.appendChild(cp) }
+    cp.innerHTML = ''
+    // Simpler: union-clip by adding one polygon per present cell
+    present.forEach((_, key) => {
+      const [qs, rs] = key.split(',').map((n) => parseInt(n, 10))
+      const px = qs * stepX()
+      const py = Math.round((rs + (qs % 2 ? 0.5 : 0)) * stepY())
+      const pts = [
+        [px + W * 0.25, py + 0],
+        [px + W * 0.75, py + 0],
+        [px + W * 1.00, py + H * 0.5],
+        [px + W * 0.75, py + H * 1.0],
+        [px + W * 0.25, py + H * 1.0],
+        [px + W * 0.00, py + H * 0.5],
+      ].map(([x,y]) => `${x},${y}`).join(' ')
+      const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polygon')
+      poly.setAttribute('points', pts)
+      cp!.appendChild(poly)
+    })
+    // clipPath は適用しない（背景六角形のみ描画されるので不要）
+    try { (canvas.style as any).clipPath = ''; (canvas.style as any).webkitClipPath = '' } catch {}
+  } catch { }
 
   // seed defaults if empty
   const meta = hxwGetMeta(pid)
@@ -6138,6 +6247,127 @@ export function renderHexWidgets(root: HTMLElement, pid: string): void {
   try { hxwRehydrate(root, pid) } catch {}
 }
 
+// ---- Placement mode: pick a widget from the modal, then place freely on canvas ----
+function hxwStartPlacement(root: HTMLElement, pid: string, type: string): void {
+  const wrap = root.querySelector('#hxwWrap') as HTMLElement | null
+  const canvas = root.querySelector('#hxwCanvas') as HTMLElement | null
+  if (!wrap || !canvas) return
+  const st: HexWLayout = (wrap as any)._hxw
+  const sx = Math.round((st.tile || 200) * 0.75)
+  const sy = Math.round((st.tile || 200) * 0.866)
+  const stepX = () => Math.round((st.tile || 200) * 0.75)
+  const stepY = () => Math.round((st.tile || 200) * 0.866)
+  const toCanvasXY = (clientX: number, clientY: number): { x: number; y: number } => {
+    const rect = wrap.getBoundingClientRect()
+    const x = (clientX - rect.left - st.offsetX) / st.scale
+    const y = (clientY - rect.top - st.offsetY) / st.scale
+    return { x, y }
+  }
+  const toCell = (cx: number, cy: number): { q: number; r: number } => {
+    const q = Math.round(cx / stepX())
+    const r = Math.round(cy / stepY() - (q % 2 ? 0.5 : 0))
+    return { q, r }
+  }
+  const ensureGhost = (): HTMLElement => {
+    let g = document.getElementById('hxwPlaceGhost') as HTMLElement | null
+    if (g) return g
+    g = document.createElement('div')
+    g.id = 'hxwPlaceGhost'
+    g.className = 'hxw-ghost'
+    g.style.position = 'absolute'
+    g.style.left = '0px'
+    g.style.top = '0px'
+    g.style.pointerEvents = 'none'
+    canvas.appendChild(g)
+    return g
+  }
+  const drawGhost = (cells: Array<{ x: number; y: number }>, ok: boolean) => {
+    const g = ensureGhost()
+    g.innerHTML = ''
+    const W = st.tile, H = Math.round((st.tile) * 0.866)
+    const fill = ok ? 'rgba(16,185,129,0.28)' : 'rgba(239,68,68,0.28)'
+    const stroke = ok ? 'rgba(16,185,129,0.85)' : 'rgba(239,68,68,0.85)'
+    for (const c of cells) {
+      const hex = document.createElement('div')
+      hex.className = 'hxw-hex'
+      hex.style.left = `${c.x}px`
+      hex.style.top = `${c.y}px`
+      hex.style.width = `${W}px`
+      hex.style.height = `${H}px`
+      const clip = document.createElement('div')
+      clip.className = 'hxw-clip'
+      clip.style.background = fill
+      clip.style.border = `2px dashed ${stroke}`
+      hex.appendChild(clip)
+      g.appendChild(hex)
+    }
+    g.style.display = 'block'
+  }
+  const hideGhost = () => { const g = document.getElementById('hxwPlaceGhost') as HTMLElement | null; if (g) g.style.display = 'none' }
+  const canPlace = (cells: Array<{ q: number; r: number }>): boolean => {
+    const mask: Set<string> = (wrap as any)._hxwMask || new Set<string>()
+    const inBounds = (q: number, r: number) => mask.size ? mask.has(`${q},${r}`) : (q >= 0 && r >= 0 && q < ((wrap as any)._hxwCols || 0) && r < ((wrap as any)._hxwRows || 0))
+    const occ: Set<string> = (wrap as any)._hxwOcc || new Set<string>()
+    for (const c of cells) {
+      if (!inBounds(c.q, c.r)) return false
+      if (occ.has(`${c.q},${c.r}`)) return false
+    }
+    return true
+  }
+  // live follow
+  let last: { q: number; r: number } | null = null
+  let lastClientX = 0, lastClientY = 0
+  const renderAt = (clientX: number, clientY: number) => {
+    const pos = toCanvasXY(clientX, clientY)
+    const anc = toCell(pos.x, pos.y)
+    if (last && last.q === anc.q && last.r === anc.r) return
+    last = anc
+    const rel = hxwShapeFor(type)
+    const cellsOdd = rel.map(([ax, az]) => axialToOddq(oddqToAxial(anc.q, anc.r).x + ax, oddqToAxial(anc.q, anc.r).z + az))
+    const ok = canPlace(cellsOdd)
+    const cellsPx = cellsOdd.map(c => ({ x: c.q * sx, y: Math.round((c.r + (c.q % 2 ? 0.5 : 0)) * sy) }))
+    drawGhost(cellsPx, ok)
+  }
+  const move = (e: PointerEvent | MouseEvent) => { lastClientX = (e as MouseEvent).clientX; lastClientY = (e as MouseEvent).clientY; renderAt(lastClientX, lastClientY) }
+  const click = (e: MouseEvent) => {
+    e.preventDefault(); e.stopPropagation()
+    const pos = toCanvasXY(e.clientX, e.clientY)
+    const anc = toCell(pos.x, pos.y)
+    const rel = hxwShapeFor(type)
+    const cellsOdd = rel.map(([ax, az]) => axialToOddq(oddqToAxial(anc.q, anc.r).x + ax, oddqToAxial(anc.q, anc.r).z + az))
+    if (!canPlace(cellsOdd)) return
+    // place
+    const meta = hxwGetMeta(pid)
+    const id = `w-${type}-${Date.now()}`
+    meta[id] = { type, q: anc.q, r: anc.r }
+    hxwSetMeta(pid, meta)
+    hxwPlaceWidgets(root, pid, st)
+    try { refreshDynamicWidgets(root, pid) } catch {}
+    try { hxwRehydrate(root, pid) } catch {}
+    cleanup()
+  }
+  const key = (e: KeyboardEvent) => { if (e.key === 'Escape') { cleanup() } }
+  const cleanup = () => {
+    hideGhost()
+    wrap.removeEventListener('mousemove', move as any)
+    wrap.removeEventListener('pointermove', move as any)
+    canvas.removeEventListener('click', click as any)
+    window.removeEventListener('keydown', key)
+    // restore hand cursor
+    wrap.style.cursor = ''
+    ;(wrap as any)._placing = false
+    ;(wrap as any)._placeRefresh = null
+  }
+  // Begin placement mode
+  wrap.addEventListener('mousemove', move as any)
+  wrap.addEventListener('pointermove', move as any)
+  canvas.addEventListener('click', click as any)
+  window.addEventListener('keydown', key)
+  wrap.style.cursor = 'crosshair'
+  ;(wrap as any)._placing = true
+  ;(wrap as any)._placeRefresh = () => { if (lastClientX && lastClientY) renderAt(lastClientX, lastClientY) }
+}
+
 // Find first-fit anchor near center for given widget type and add it
 function hxwAddWidget(root: HTMLElement, pid: string, type: string): void {
   const wrap = root.querySelector('#hxwWrap') as HTMLElement | null
@@ -6166,9 +6396,10 @@ function hxwAddWidget(root: HTMLElement, pid: string, type: string): void {
   }
   const canPlaceAt = (q: number, r: number) => {
     const anc = oddqToAxial(q, r)
+    const mask: Set<string> = (wrap as any)._hxwMask || new Set<string>()
     for (const [ax, az] of shape) {
       const pos = axialToOddq(anc.x + ax, anc.z + az)
-      if (pos.q < 0 || pos.r < 0 || pos.q >= COLS || pos.r >= ROWS) return false
+      if (mask.size ? !mask.has(`${pos.q},${pos.r}`) : (pos.q < 0 || pos.r < 0 || pos.q >= COLS || pos.r >= ROWS)) return false
       if (occ.has(`${pos.q},${pos.r}`)) return false
     }
     return true

@@ -532,6 +532,7 @@ body[data-lock]:not([data-lock="0"]) .hx-wrap { pointer-events: none; }
 /* Lock interaction behind modal overlays */
 body[data-lock]:not([data-lock="0"]) .hxw-wrap { pointer-events: none; }
 .hxw-hex { position: absolute; z-index: 0; }
+/* 元のタイル形状（pointy-topに最適化されていた値へ戻す） */
 .hxw-clip { width: 100%; height: 100%; clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%); background: var(--gh-canvas-subtle); border: 1px solid var(--gh-border); border-radius: 8px; overflow: hidden; }
 .hxw-widget .hxw-clip { border: none !important; } /* 内部の区切り線は非表示（外周は別SVGで描画） */
 .hxw-bg { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
