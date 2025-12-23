@@ -4530,8 +4530,8 @@ function detailLayout(ctx: { id: number; name: string; fullName: string; owner: 
                   </div>
                 </section>
               </div>
-              <!-- Shortcuts rail (left edge, always visible) -->
-              <div id="hxwShortcuts" class="fixed left-2 top-1/2 -translate-y-1/2 z-[19] flex flex-col gap-2"></div>
+              <!-- Shortcuts rail (peek from left; expands on hover) -->
+              <div id="hxwShortcuts" class="hxw-sc-rail flex flex-col"></div>
               <!-- Minimap (top-right) -->
               <div class="hxw-mini"><canvas id="hxwMini" width="120" height="120"></canvas></div>
               <!-- View toggle (2D/3D) -->
@@ -5659,10 +5659,49 @@ function hxwFocusWidget(root: HTMLElement, pid: string, id: string): void {
   const h = parseFloat(host.getAttribute('data-h') || '0')
   const cx = left + w / 2
   const cy = top + h / 2
-  const sc = st.scale || 1
-  st.offsetX = Math.round(wrap.clientWidth / 2 - cx * sc)
-  st.offsetY = Math.round(wrap.clientHeight / 2 - cy * sc)
-  try { hxwApplyTransform(wrap, canvas, st) } catch {}
+  // Desired zoom when focusing via shortcut
+  const Z_MAX = 2.4
+  const minScale = Math.max((wrap.clientWidth / (st.width || 1)), (wrap.clientHeight / (st.height || 1)))
+  const target = 1.35
+  const destScale = Math.max(minScale, Math.min(Z_MAX, target))
+  // Smoothly animate scale and pan to keep continuity
+  const s0 = st.scale || 1
+  const vw = wrap.clientWidth
+  const vh = wrap.clientHeight
+  const ease = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2) // easeInOutCubic
+  const dur = 420
+  let raf = 0
+  try { if ((wrap as any)._hxwAnim) cancelAnimationFrame((wrap as any)._hxwAnim) } catch {}
+  const t0 = performance.now()
+  const step = (now: number) => {
+    const p = Math.min(1, (now - t0) / dur)
+    const k = ease(p)
+    const s = s0 + (destScale - s0) * k
+    st.scale = s
+    st.offsetX = Math.round(vw / 2 - cx * s)
+    st.offsetY = Math.round(vh / 2 - cy * s)
+    try { hxwApplyTransform(wrap, canvas, st) } catch {}
+    if (p < 1) { (wrap as any)._hxwAnim = requestAnimationFrame(step) } else { (wrap as any)._hxwAnim = 0 }
+  }
+  ;(wrap as any)._hxwAnim = requestAnimationFrame(step)
+  // Blink a dashed outline around the focused widget (fallback: also set inline animation on path)
+  const flash = () => {
+    try {
+      host.classList.add('hxw-flash')
+      const path = host.querySelector('svg.hxw-outline path') as SVGPathElement | null
+      if (path) {
+        path.style.stroke = 'var(--gh-contrast)'
+        path.style.strokeWidth = '3'
+        path.style.strokeDasharray = '9 7'
+        path.style.animation = 'hxwDashBlink .42s ease-in-out 4'
+        setTimeout(() => { try { path.style.animation = '' } catch {} }, 2000)
+      }
+      setTimeout(() => { try { host.classList.remove('hxw-flash') } catch {} }, 2000)
+    } catch {}
+  }
+  // if outline not yet mounted, retry briefly
+  if (host.querySelector('svg.hxw-outline path')) flash()
+  else setTimeout(flash, 50)
 }
 function hxwRenderShortcuts(root: HTMLElement, pid: string): void {
   const rail = root.querySelector('#hxwShortcuts') as HTMLElement | null
@@ -5684,7 +5723,15 @@ function hxwRenderShortcuts(root: HTMLElement, pid: string): void {
   })
   if (normalized.length !== raw.length) scSet(pid, normalized)
   rail.innerHTML = ''
-  normalized.forEach((key) => {
+  const palette: Array<[string, string]> = [
+    ['#22d3ee', '#3b82f6'], // cyan → blue
+    ['#f59e0b', '#ef4444'], // amber → red
+    ['#10b981', '#84cc16'], // emerald → lime
+    ['#a855f7', '#ec4899'], // violet → pink
+    ['#f97316', '#f43f5e'], // orange → rose
+    ['#06b6d4', '#8b5cf6'], // cyan → violet
+  ]
+  normalized.forEach((key, idx) => {
     let label = 'Widget'
     let onClick: () => void = () => {}
     if (key.startsWith('gd:')) {
@@ -5700,7 +5747,10 @@ function hxwRenderShortcuts(root: HTMLElement, pid: string): void {
           root.querySelectorAll('section[data-tab]').forEach((s) => (s as HTMLElement).classList.toggle('hidden', s !== sec))
           // scroll widget into view
           const el = sec.querySelector(`.widget[data-widget="${wid}"]`) as HTMLElement | null
-          if (el) { try { el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' }) } catch { el.scrollIntoView() } }
+          if (el) {
+            try { el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' }) } catch { el.scrollIntoView() }
+            try { el.classList.add('widget-flash'); setTimeout(() => el.classList.remove('widget-flash'), 1800) } catch {}
+          }
         }
       }
     } else {
@@ -5709,9 +5759,12 @@ function hxwRenderShortcuts(root: HTMLElement, pid: string): void {
       onClick = () => hxwFocusWidget(root, pid, key)
     }
     const btn = document.createElement('button')
-    btn.className = 'w-8 h-8 rounded-full ring-1 ring-neutral-600 bg-neutral-900/80 text-gray-200 grid place-items-center text-[11px] hover:bg-neutral-900/60'
+    btn.className = 'hxw-shortcut'
     btn.title = label
     btn.textContent = label.slice(0, 2)
+    // assign gradient colors via CSS variables for visual variety
+    const [c1, c2] = palette[idx % palette.length]
+    try { btn.style.setProperty('--hxw-sc-a', c1); btn.style.setProperty('--hxw-sc-b', c2) } catch {}
     btn.addEventListener('click', onClick)
     rail.appendChild(btn)
   })

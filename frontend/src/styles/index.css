@@ -712,3 +712,89 @@ body[data-lock]:not([data-lock="0"]) .hxw-wrap { pointer-events: none; }
 .hxw-stage { position: absolute; inset: 0; transform-origin: 50% 55%; z-index: 1; }
 .hxw-wrap.hxw-iso .hxw-stage { transform: rotateX(var(--hxw-rot-x, 46deg)) rotateZ(var(--hxw-rot-z, -22deg)) translateZ(calc(-1 * var(--hxw-elev, 140px))); transform-style: preserve-3d; }
 .hxw-wrap.hxw-iso .hxw-canvas { transform-style: preserve-3d; }
+
+/* ---- Shortcuts Rail (peek on left) ---- */
+.hxw-sc-rail {
+  --sc-size: 44px;
+  --sc-gap: 0px;
+  --sc-overlap: -8px;
+  position: fixed;
+  left: 0;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 19;
+  padding: 0;
+  gap: var(--sc-gap) !important;
+  transition: transform .18s ease;
+}
+.hxw-sc-rail:hover, .hxw-sc-rail:focus-within {
+  --sc-size: 64px;
+  --sc-gap: 10px;
+  --sc-overlap: 0px;
+  transform: translate(0, -50%);
+}
+.hxw-sc-rail:not(:hover):not(:focus-within) .hxw-shortcut { opacity: .6; }
+.hxw-sc-rail:hover .hxw-shortcut, .hxw-sc-rail:focus-within .hxw-shortcut { opacity: 1; }
+
+/* ---- Hex Shortcuts (left rail) ---- */
+.hxw-shortcut {
+  position: relative;
+  width: var(--sc-size);
+  height: var(--sc-size);
+  display: grid;
+  place-items: center;
+  /* Hexagon shape: pointy top */
+  clip-path: polygon(25% 6%, 75% 6%, 100% 50%, 75% 94%, 25% 94%, 0% 50%);
+  background: linear-gradient(135deg, var(--hxw-sc-a, #4f46e5), var(--hxw-sc-b, #06b6d4));
+  color: #ffffff;
+  font-weight: 800;
+  font-size: 13px;
+  letter-spacing: .02em;
+  border: 1px solid rgba(255,255,255,.22);
+  box-shadow: 0 10px 24px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.08);
+  backdrop-filter: saturate(120%) brightness(1.03);
+  transition: width .18s ease, height .18s ease, transform .12s ease, filter .15s ease, box-shadow .15s ease, opacity .18s ease;
+  text-shadow: 0 1px 2px rgba(0,0,0,.25);
+}
+.hxw-sc-rail .hxw-shortcut + .hxw-shortcut { margin-top: var(--sc-overlap); transition: margin .18s ease; }
+.hxw-shortcut::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  clip-path: inherit;
+  background:
+    radial-gradient(120% 80% at 10% 0%, rgba(255,255,255,.12), transparent 60%),
+    radial-gradient(140% 100% at 100% 100%, rgba(0,0,0,.12), transparent 60%);
+  opacity: .6;
+}
+.hxw-shortcut:hover {
+  transform: translateY(-2px);
+  filter: brightness(1.05) saturate(1.1);
+  box-shadow: 0 14px 30px rgba(0,0,0,.38), inset 0 1px 0 rgba(255,255,255,.10);
+}
+.hxw-shortcut:active { transform: translateY(0) scale(.98); }
+:root[data-theme="warm"] .hxw-shortcut,
+:root[data-theme="sakura"] .hxw-shortcut { border-color: rgba(0,0,0,.18); text-shadow: none; }
+
+/* Focus flash for widgets (dashed blinking outline) */
+.hxw-widget.hxw-flash .hxw-outline path {
+  stroke: var(--gh-contrast) !important;
+  stroke-width: 3 !important;
+  stroke-dasharray: 9 7 !important;
+  animation: hxwDashBlink .42s ease-in-out 4;
+}
+.widget.widget-flash {
+  outline: 3px dashed var(--gh-contrast);
+  outline-offset: 3px;
+  animation: hxwBlink .42s ease-in-out 4;
+}
+@keyframes hxwBlink {
+  0%, 100% { opacity: .15 }
+  50% { opacity: 1 }
+}
+@keyframes hxwDashBlink {
+  0%   { stroke-dashoffset: 0;   opacity: .2 }
+  50%  { stroke-dashoffset: 18;  opacity: 1 }
+  100% { stroke-dashoffset: 0;   opacity: .2 }
+}
