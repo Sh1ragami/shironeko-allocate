@@ -577,6 +577,15 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
 
   setupTabs(container, String(project.id))
   applyCoreTabs(container, String(project.id))
+  // Build hex-grid widget field for Summary
+  try { renderHexWidgets(container, String(project.id)) } catch { }
+  // Bind FAB for adding widgets into hex field
+  const fab = container.querySelector('#hxwFab') as HTMLElement | null
+  fab?.addEventListener('click', () => {
+    openWidgetPickerModal(container, String(project.id), (type) => {
+      try { hxwAddWidget(container, String(project.id), type) } catch {}
+    })
+  })
 
   // DnD (Summary widgets)
   enableDragAndDrop(container)
@@ -696,6 +705,8 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
     const panel = container.querySelector(`section[data-tab="${tabId}"]`) as HTMLElement | null
     const grid = panel?.querySelector('#widgetGrid') as HTMLElement | null
     if (grid && (grid as any)._setEdit) { (grid as any)._setEdit(on) }
+    const hx = panel?.querySelector('#hxwCanvas') as HTMLElement | null
+    if (hx && (hx as any)._setEdit) { (hx as any)._setEdit(on) }
   })
   // Initialize built-in tab lock icons
   try {
@@ -704,6 +715,11 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
       const on = localStorage.getItem(`wg-edit-${project.id}`) === '1'
       sumBtn.innerHTML = on ? LOCK_OPEN_RIGHT_SVG : LOCK_SVG
       sumBtn.setAttribute('aria-pressed', on ? 'true' : 'false')
+      // Apply to hex widget field immediately
+      try {
+        const hx = container.querySelector('#hxwCanvas') as HTMLElement | null
+        if (hx && (hx as any)._setEdit) { (hx as any)._setEdit(on) }
+      } catch {}
     }
   } catch { }
 
@@ -839,6 +855,25 @@ function committersRender(root: HTMLElement, stats: Array<{ login: string; avata
   let wrap = root.querySelector('[data-widget="committers"] .h-60') as HTMLElement | null
   if (!wrap) wrap = root.querySelector('[data-widget="committers"] .wg-content') as HTMLElement | null
   if (!wrap) return
+  // Hex-packed layout when slots exist
+  const widget = wrap.closest('[data-widget="committers"]') as HTMLElement | null
+  const slotsWrap = widget?.querySelector('.hxw-cells') as HTMLElement | null
+  if (slotsWrap) {
+    const slots = Array.from(slotsWrap.querySelectorAll('.hxw-slot .slot-inner')) as HTMLElement[]
+    slots.forEach(s => s.innerHTML = '')
+    const top = stats.slice(0, slots.length)
+    top.forEach((s, i) => {
+      const cell = slots[i]; if (!cell) return
+      cell.innerHTML = `<div class="grid place-items-center">
+        <img src="${s.avatar_url || ''}" class="w-7 h-7 rounded-full ring-2 ring-[rgba(255,255,255,0.22)] object-cover" alt="${s.login}"/>
+        <div class="mt-1 text-[10px] text-gray-200 truncate max-w-[80%]">${s.login}</div>
+        <div class="text-[10px] text-emerald-300">${s.count}</div>
+      </div>`
+    })
+    // hide rectangular default area
+    if (wrap) (wrap as HTMLElement).style.display = 'none'
+    return
+  }
   // Ensure the container follows the widget height (do not keep fixed 15rem)
   if (wrap.classList.contains('h-60')) {
     wrap.classList.remove('h-60')
@@ -854,9 +889,9 @@ function committersRender(root: HTMLElement, stats: Array<{ login: string; avata
   const reserve = Math.min(Math.max(avatarSize + 12, 28), Math.max(28, Math.round(h * 0.55))) + labelSpace
   const gapClass = h <= 110 ? 'gap-2' : 'gap-4'
   wrap.innerHTML = `
-    <div class="relative w-full h-full rounded-md" style="background-color: var(--gh-canvas-subtle); border: 1px solid var(--gh-border); border-radius: var(--radius-card, 12px);">
+    <div class="relative w-full h-full rounded-md" style="background-color: transparent; border: none;">
       <div class="absolute inset-0 grid" style="grid-template-rows: repeat(4, 1fr)">
-        ${[0, 1, 2, 3].map(() => '<div class=\"border-t border-dotted\" style=\"border-color: var(--gh-border);\"></div>').join('')}
+        ${[0, 1, 2, 3].map(() => '<div class=\"border-t border-dotted\" style=\"border-color: rgba(255,255,255,0.12);\"></div>').join('')}
       </div>
       <div class="absolute inset-0 flex items-end ${gapClass} justify-evenly px-2 md:px-4">
         ${top
@@ -909,6 +944,18 @@ function hydrateReadme(root: HTMLElement, text: string): void {
   const el = root.querySelector('[data-widget="readme"] .whitespace-pre-wrap') as HTMLElement | null
   if (!el) return
   el.innerHTML = mdRenderToHtml(text || 'README not found')
+  // Hex-packed: place snippets into slots
+  try {
+    const w = el.closest('[data-widget="readme"]') as HTMLElement | null
+    const slotsWrap = w?.querySelector('.hxw-cells') as HTMLElement | null
+    if (slotsWrap) {
+      const slots = Array.from(slotsWrap.querySelectorAll('.hxw-slot .slot-inner')) as HTMLElement[]
+      const plain = (el.textContent || '').replace(/\s+/g, ' ').trim()
+      const parts = plain.split(/(?<=[。\.!?])\s+/).filter(Boolean)
+      slots.forEach((s, i) => { s.innerHTML = parts[i] ? `<div class="text-[10px] leading-snug text-gray-100">${escHtml(parts[i]).slice(0,80)}</div>` : '' })
+      ;(el.parentElement as HTMLElement | null)!.style.display = 'none'
+    }
+  } catch {}
   try {
     const w = el.closest('.widget') as HTMLElement | null
     if (w) {
@@ -919,6 +966,17 @@ function hydrateReadme(root: HTMLElement, text: string): void {
       densifyReadme(w, scale)
     }
   } catch { }
+}
+
+function mdFillSlots(w: HTMLElement, pid: string, id: string, text: string): void {
+  const slotsWrap = w.querySelector('.hxw-cells') as HTMLElement | null
+  const preview = w.querySelector('.md-preview') as HTMLElement | null
+  if (!slotsWrap) return
+  const plain = (text || '').replace(/\s+/g, ' ').trim()
+  const parts = plain.split(/(?<=[。\.!?])\s+/).filter(Boolean)
+  const slots = Array.from(slotsWrap.querySelectorAll('.hxw-slot .slot-inner')) as HTMLElement[]
+  slots.forEach((s, i) => { s.innerHTML = parts[i] ? `<div class="text-[11px] leading-snug text-gray-100">${escHtml(parts[i]).slice(0,90)}</div>` : '' })
+  if (preview) (preview.parentElement as HTMLElement | null)!.style.display = 'none'
 }
 
 // ------- Contributions heatmap (GitHub-like) -------
@@ -1098,7 +1156,39 @@ function renderContribHeatmap(root: HTMLElement, full: string, cache: ContribCac
 async function hydrateContribHeatmap(root: HTMLElement, full: string): Promise<void> {
   try {
     const data = await ensureContribData(full)
-    renderContribHeatmap(root, full, data)
+    // If hex slots exist for contrib widgets, render into slots; otherwise fallback to rectangular heatmap
+    const widgets = Array.from(root.querySelectorAll('[data-widget="contrib"]')) as HTMLElement[]
+    let usedSlots = false
+    widgets.forEach((w) => {
+      const slotsWrap = w.querySelector('.hxw-cells') as HTMLElement | null
+      if (!slotsWrap) return
+      const slots = Array.from(slotsWrap.querySelectorAll('.hxw-slot .slot-inner')) as HTMLElement[]
+      if (slots.length === 0) return
+      usedSlots = true
+      // last N days mapped to slots L->R (old->new)
+      const end = new Date(); end.setUTCHours(0,0,0,0)
+      const start = new Date(end.getTime() - (slots.length - 1) * 86400000)
+      const days: string[] = []
+      const cur = new Date(start)
+      while (cur <= end) { days.push(formatDate(cur)); cur.setUTCDate(cur.getUTCDate() + 1) }
+      let max = 0
+      days.forEach(d => { max = Math.max(max, data.days[d] || 0) })
+      const color = (n: number) => {
+        if (n <= 0) return 'rgba(255,255,255,0.10)'
+        const t = max > 0 ? (n / max) : 0
+        const a = 0.25 + 0.55 * Math.sqrt(t)
+        return `rgba(59,130,246,${a.toFixed(3)})` // blue tone for activity
+      }
+      slots.forEach((s, i) => {
+        const d = days[i]
+        const n = data.days[d] || 0
+        s.innerHTML = `<div class="w-4 h-4 rounded-full" title="${d}: ${n}" style="background:${color(n)}"></div>`
+      })
+      // hide default rectangular area
+      const body = w.querySelector('.contrib-body') as HTMLElement | null
+      if (body) body.style.display = 'none'
+    })
+    if (!usedSlots) renderContribHeatmap(root, full, data)
     // Observe size changes to keep grid fitted to widget
     try {
       const bodies = root.querySelectorAll('.contrib-body') as NodeListOf<HTMLElement>
@@ -1980,6 +2070,7 @@ function enableDragAndDrop(root: HTMLElement): void {
     const preview = (wrap as HTMLElement).querySelector('.md-preview') as HTMLElement | null
     const txt = mdMap[id] || ''
     if (preview) preview.innerHTML = mdRenderToHtml(txt || 'ここにMarkdownを書いてください')
+    try { if (w) mdFillSlots(w, pid, id, txt) } catch {}
   })
   // Apply visibility (editor vs preview) per edit state
   try { syncMdWidgets(grid.getAttribute('data-edit') === '1') } catch { }
@@ -2001,6 +2092,7 @@ function enableDragAndDrop(root: HTMLElement): void {
     const t = window.setTimeout(() => {
       mdSet(pid, id, val)
       if (preview) preview.innerHTML = mdRenderToHtml(val || 'ここにMarkdownを書いてください')
+      try { mdFillSlots(w, pid, id, val) } catch {}
       // re-apply density scaling after re-render
       try {
         const cols = parseInt((w.getAttribute('data-cols') || '8'), 10)
@@ -2230,7 +2322,7 @@ function ensureWidgets(root: HTMLElement, pid: string): void {
   })
 }
 
-function openWidgetPickerModal(root: HTMLElement, pid: string): void {
+function openWidgetPickerModal(root: HTMLElement, pid: string, onPick?: (type: string) => void): void {
   const overlay = document.createElement('div')
   overlay.className = 'fixed inset-0 z-[66] bg-black/60 backdrop-blur-[1px] grid place-items-center fade-overlay'
   overlay.innerHTML = `
@@ -2271,7 +2363,8 @@ function openWidgetPickerModal(root: HTMLElement, pid: string): void {
     const card = (ev.target as HTMLElement).closest('[data-widget-type]') as HTMLElement | null
     if (!card || !gridEl.contains(card)) return
     const type = card.getAttribute('data-widget-type')!
-    addWidget(root, pid, type)
+    if (onPick) onPick(type)
+    else addWidget(root, pid, type)
     close()
   })
   // Category filtering
@@ -2718,9 +2811,12 @@ function renderLinkCards(list: QuickLink[], edit: boolean): string {
 }
 
 function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
-  // Task summary
-  const meta = getWidgetMeta(pid)
-  Object.entries(meta).forEach(([id, m]) => {
+  // Task summary + union with hex widgets meta
+  const metaGrid = getWidgetMeta(pid)
+  const metaHex = hxwGetMeta(pid)
+  const ids = new Set<string>([...Object.keys(metaGrid || {}), ...Object.keys(metaHex || {})])
+  ids.forEach((id) => {
+    const m = (metaHex as any)[id] || (metaGrid as any)[id] || {}
     const w = root.querySelector(`[data-widget="${id}"]`) as HTMLElement | null
     if (!w) return
     if (m.type === 'flow') {
@@ -2731,6 +2827,20 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
         const gridEl = w.closest('#widgetGrid') as HTMLElement | null
         const edit = gridEl?.getAttribute('data-edit') === '1'
         const g = flowLoad(pid, id)
+        // Hex-packed rendering if slots exist
+        const slotsWrap = w.querySelector('.hxw-cells') as HTMLElement | null
+        if (slotsWrap) {
+          const slots = Array.from(slotsWrap.querySelectorAll('.hxw-slot .slot-inner')) as HTMLElement[]
+          slots.forEach(s => s.innerHTML = '')
+          const nodes = g.nodes.slice(0, slots.length)
+          nodes.forEach((n, i) => {
+            const s = slots[i]; if (!s) return
+            const icon = n.kind === 'trigger' ? '⏱' : (n.type === 'webhook' ? '🪝' : (n.type === 'github_issue' ? '🐙' : '🔔'))
+            s.innerHTML = `<div class=\"grid place-items-center text-gray-100 text-[11px]\">${icon}<div class=\"truncate max-w-[82%]\">${escHtml(n.label || n.type)}</div></div>`
+          })
+          (box as HTMLElement).style.display = 'none'
+          return
+        }
         // clear
         canvas.innerHTML = ''
         const setDefs = () => { svg.innerHTML = '<defs><marker id="arr" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#34d399"/></marker></defs>' }
@@ -3130,7 +3240,19 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
     if (m.type === 'tasksum') {
       const box = w.querySelector('.tasksum-body') as HTMLElement | null
       if (box) {
+        const slotsWrap = w.querySelector('.hxw-cells') as HTMLElement | null
         const render = (counts: Record<string, number>) => {
+          if (slotsWrap) {
+            const slots = Array.from(slotsWrap.querySelectorAll('.hxw-slot .slot-inner')) as HTMLElement[]
+            const order: Array<[string,string]> = [['todo','TODO'],['doing','DOING'],['review','REVIEW'],['done','DONE']]
+            slots.forEach(s => s.innerHTML = '')
+            order.forEach(([k,label], i) => {
+              if (!slots[i]) return
+              slots[i].innerHTML = `<div class=\"grid place-items-center text-gray-100\"><div class=\"text-[10px]\">${label}</div><div class=\"text-[14px] font-semibold text-emerald-300\">${counts[k]||0}</div></div>`
+            })
+            ;(box as HTMLElement).style.display = 'none'
+            return
+          }
           box.innerHTML = `
             <div class="ts-grid h-full grid grid-cols-2 md:grid-cols-4 grid-rows-2 md:grid-rows-1 gap-2 md:gap-3 place-items-stretch">
               ${[['todo', 'TODO'], ['doing', 'DOING'], ['review', 'REVIEW'], ['done', 'DONE']]
@@ -3178,7 +3300,30 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
       if (box) {
         const links = mdGetLinks(pid, id)
         const gridEl = w.closest('#widgetGrid') as HTMLElement | null
-        const edit = gridEl?.getAttribute('data-edit') === '1'
+        const hxEl = w.closest('#hxwCanvas') as HTMLElement | null
+        const edit = (gridEl?.getAttribute('data-edit') === '1') || (hxEl?.getAttribute('data-edit') === '1')
+        const slotsWrap = w.querySelector('.hxw-cells') as HTMLElement | null
+        if (slotsWrap) {
+          const slots = Array.from(slotsWrap.querySelectorAll('.hxw-slot .slot-inner')) as HTMLElement[]
+          slots.forEach(s => s.innerHTML = '')
+          links.slice(0, slots.length).forEach((l, i) => {
+            const s = slots[i]; if (!s) return
+            const fav = faviconSrc(l.url)
+            s.innerHTML = `<a href="${escHtml(l.url)}" target="_blank" class="block w-[88%] mx-auto text-[10px] text-gray-100 hover:underline">
+              <div class="flex items-center justify-center gap-1">
+                ${fav ? `<img src="${fav}" class="w-3 h-3 rounded-sm"/>` : ''}
+                <span class="truncate">${escHtml(l.title || l.url)}</span>
+              </div>
+            </a>`
+          })
+          // forms: keep操作用に表示/非表示
+          const form = w.querySelector('.lnk-form') as HTMLElement | null
+          const addBtn = w.querySelector('.lnk-add') as HTMLElement | null
+          if (form) form.classList.toggle('hidden', !edit)
+          if (addBtn) addBtn.classList.toggle('hidden', !edit)
+          if (box) (box as HTMLElement).style.display = 'none'
+          return
+        }
         const form = w.querySelector('.lnk-form') as HTMLElement | null
         const addBtn = w.querySelector('.lnk-add') as HTMLElement | null
         if (edit) {
@@ -3212,7 +3357,33 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
       if (box) {
         const url = calGet(pid, id)
         const gridEl = w.closest('#widgetGrid') as HTMLElement | null
-        const edit = gridEl?.getAttribute('data-edit') === '1'
+        const hxEl = w.closest('#hxwCanvas') as HTMLElement | null
+        const edit = (gridEl?.getAttribute('data-edit') === '1') || (hxEl?.getAttribute('data-edit') === '1')
+        const slotsWrap = w.querySelector('.hxw-cells') as HTMLElement | null
+        if (slotsWrap) {
+          const slots = Array.from(slotsWrap.querySelectorAll('.hxw-slot .slot-inner')) as HTMLElement[]
+          // Build a mini month across slots: show day numbers from 1..N
+          const now = new Date()
+          const y = now.getFullYear(), m0 = now.getMonth()
+          const first = new Date(y, m0, 1)
+          const last = new Date(y, m0 + 1, 0)
+          const daysInMonth = last.getDate()
+          const startOffset = first.getDay() // 0..6
+          // Fill with blanks then days
+          const cells: Array<string> = []
+          for (let i = 0; i < startOffset; i++) cells.push('')
+          for (let d = 1; d <= daysInMonth; d++) cells.push(String(d))
+          slots.forEach((s, i) => {
+            const d = cells[i] || ''
+            s.innerHTML = d ? `<div class="text-[11px] text-gray-100">${d}</div>` : ''
+          })
+          if (box) box.style.display = 'none'
+          const form = w.querySelector('.cal-form') as HTMLElement | null
+          const addBtn = w.querySelector('.cal-add') as HTMLElement | null
+          if (form) form.classList.toggle('hidden', !edit)
+          if (addBtn) addBtn.classList.toggle('hidden', !edit)
+          return
+        }
         const form = w.querySelector('.cal-form') as HTMLElement | null
         const addBtn = w.querySelector('.cal-add') as HTMLElement | null
         if (edit) {
@@ -3615,7 +3786,7 @@ function detailLayout(ctx: { id: number; name: string; fullName: string; owner: 
       <!-- Main split: left sidebar (tabs/actions) / right content -->
       <div class="flex">
         <!-- Left rail: vertical tabs + collaborator add (sticky) -->
-        <aside id="leftRail" class="relative w-56 shrink-0 p-4 border-r border-neutral-600 bg-neutral-700/80 sticky top-0 h-[100vh] flex flex-col">
+        <aside id="leftRail" class="relative w-56 shrink-0 p-4 border-r border-neutral-600 bg-neutral-700/80 sticky top-0 h-[100vh] flex flex-col z-[20]">
           <div id="railResizer" class="absolute top-0 -right-1 w-2 h-full cursor-col-resize z-[5]"></div>
           <!-- Repo / Project breadcrumb at top of rail -->
           <div class="mb-5 pt-1">
@@ -3657,11 +3828,16 @@ function detailLayout(ctx: { id: number; name: string; fullName: string; owner: 
         <div class="flex-1 min-w-0">
           <main class="p-8">
             <section class="space-y-3" id="tab-summary" data-tab="summary">
-              <div class="grid gap-3 md:gap-4 grid-cols-1 md:grid-cols-12" id="widgetGrid" data-pid="${ctx.id}" style="grid-auto-rows: 3.5rem;">
-                ${widgetShell('contrib', 'Contributions', contributionWidget())}
-                ${widgetShell('committers', 'Top Committers', barSkeleton())}
-                ${widgetShell('readme', 'README', readmeSkeleton())}
+              <!-- Honeycomb widget field confined to right content area -->
+              <div id="hxwHost" class="relative h-[calc(100vh-6rem)] min-h-[560px] rounded-lg overflow-hidden">
+                <section class="hxw-wrap" id="hxwWrap">
+                  <div class="hxw-canvas" id="hxwCanvas" style="width:2000px; height:1400px"></div>
+                </section>
               </div>
+              <!-- Minimap (top-right) -->
+              <div class="hxw-mini"><canvas id="hxwMini" width="120" height="120"></canvas></div>
+              <!-- Floating add button (bottom-right) -->
+              <button id="hxwFab" class="fixed bottom-5 right-5 z-[18] w-12 h-12 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white text-2xl leading-none grid place-items-center shadow-xl ring-2 ring-emerald-300/40">＋</button>
             </section>
 
             <section class="mt-8 hidden" id="tab-board" data-tab="board">
@@ -4693,4 +4869,872 @@ function saveTasks(pid: string, tasks: Task[]): void {
 
 function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string))
+}
+
+// ---------------- Honeycomb Widgets (Detail Summary) ----------------
+
+type HexWLayout = {
+  scale: number
+  tile: number
+  width: number
+  height: number
+  offsetX: number
+  offsetY: number
+  inited?: boolean
+  nodes?: Array<{ q: number; r: number; x: number; y: number }>
+}
+
+function hxwEnsureDefs(): SVGDefsElement {
+  let root = document.getElementById('hxw-defs-root') as SVGSVGElement | null
+  if (!root) {
+    root = document.createElementNS('http://www.w3.org/2000/svg', 'svg') as SVGSVGElement
+    root.id = 'hxw-defs-root'
+    root.setAttribute('width', '0'); root.setAttribute('height', '0')
+    ;(root.style as any).position = 'absolute'
+    ;(root.style as any).width = '0px'; (root.style as any).height = '0px'
+    const defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs')
+    defs.id = 'hxw-defs'
+    root.appendChild(defs)
+    document.body.appendChild(root)
+  }
+  let defs = root.querySelector('#hxw-defs') as SVGDefsElement | null
+  if (!defs) { defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs') as SVGDefsElement; defs.id = 'hxw-defs'; root.appendChild(defs) }
+  return defs
+}
+
+function hxwKey(pid: string): string { return `pj-hx-widgets-${pid}` }
+function hxwGetMeta(pid: string): Record<string, { type: string; q: number; r: number }> {
+  try { return JSON.parse(localStorage.getItem(hxwKey(pid)) || '{}') as any } catch { return {} }
+}
+function hxwSetMeta(pid: string, meta: Record<string, { type: string; q: number; r: number }>): void {
+  localStorage.setItem(hxwKey(pid), JSON.stringify(meta))
+}
+
+// Parity-independent shapes using axial coordinates
+type Ax = { x: number; z: number }
+const AX_DIRS: Ax[] = [ { x: +1, z: 0 }, { x: +1, z: -1 }, { x: 0, z: -1 }, { x: -1, z: 0 }, { x: -1, z: +1 }, { x: 0, z: +1 } ]
+function oddqToAxial(q: number, r: number): Ax { return { x: q, z: r - ((q - (q & 1)) >> 1) } }
+function axialToOddq(x: number, z: number): { q: number; r: number } { const q = x; const r = z + ((q - (q & 1)) >> 1); return { q, r } }
+function axGrow(count: number): Array<[number, number]> {
+  const seen = new Set<string>()
+  const out: Array<[number, number]> = []
+  const q: Array<[number, number]> = [[0, 0]]
+  const key = (a: number, b: number) => `${a},${b}`
+  seen.add(key(0, 0))
+  while (q.length && out.length < count) {
+    const cur = q.shift()!
+    out.push(cur)
+    for (const d of AX_DIRS) {
+      const nx = cur[0] + d.x, nz = cur[1] + d.z
+      const k = key(nx, nz)
+      if (!seen.has(k)) { seen.add(k); q.push([nx, nz]) }
+      if (out.length + q.length >= count) break
+    }
+  }
+  return out
+}
+function hxwShapeFor(type: string): Array<[number, number]> {
+  switch (type) {
+    case 'clock': return axGrow(7)
+    case 'readme': return axGrow(19)
+    case 'contrib': return axGrow(7)
+    case 'committers': return axGrow(6)
+    case 'markdown': return axGrow(7)
+    case 'links': return axGrow(4)
+    case 'tasksum': return axGrow(6)
+    case 'calendar': return axGrow(12)
+    default: return axGrow(6)
+  }
+}
+
+function hxwApplyTransform(wrap: HTMLElement, canvas: HTMLElement, st: HexWLayout): void {
+  canvas.style.transform = `translate(${st.offsetX}px, ${st.offsetY}px) scale(${st.scale})`
+  // update minimap
+  try { hxwDrawMini(wrap, st) } catch { }
+}
+
+function hxwDrawMini(wrap: HTMLElement, st: HexWLayout): void {
+  const mini = document.getElementById('hxwMini') as HTMLCanvasElement | null
+  if (!mini) return
+  const ctx = mini.getContext('2d')!
+  const W = mini.width, H = mini.height
+  ctx.clearRect(0, 0, W, H)
+  ctx.save()
+  const pad = 2
+  const sx = (W - pad * 2) / (st.width || 1)
+  const sy = (H - pad * 2) / (st.height || 1)
+  const s = Math.max(sx, sy) * 1.15
+  const vx = (-st.offsetX) / st.scale
+  const vy = (-st.offsetY) / st.scale
+  const vw = wrap.clientWidth / st.scale
+  const vh = wrap.clientHeight / st.scale
+  const cxView = vx + vw / 2
+  const cyView = vy + vh / 2
+  const ox = W / 2 - cxView * s
+  const oy = H / 2 - cyView * s
+  const t = st.tile || 200
+  const hw = t * 0.25 * s, hh = (t * 0.866) * s
+  const drawHex = (x: number, y: number, fill: string) => {
+    ctx.beginPath()
+    const px = ox + x * s, py = oy + y * s
+    ctx.moveTo(px + hw, py)
+    ctx.lineTo(px + hw * 3, py)
+    ctx.lineTo(px + hw * 4, py + hh / 2)
+    ctx.lineTo(px + hw * 3, py + hh)
+    ctx.lineTo(px + hw, py + hh)
+    ctx.lineTo(px + 0, py + hh / 2)
+    ctx.closePath()
+    ctx.fillStyle = fill
+    ctx.fill()
+  }
+  const isLight = (document.documentElement.getAttribute('data-theme') || 'dark') !== 'dark'
+  const emptyFill = isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.08)'
+  const filledFill = 'rgba(59,130,246,0.55)'
+  const nodes = (wrap as any)._hxw?.nodes as Array<{ x: number; y: number; q: number; r: number }>
+  if (nodes) nodes.forEach(n => drawHex(n.x, n.y, emptyFill))
+  try {
+    const canvasEl = document.getElementById('hxwCanvas') as HTMLElement | null
+    const cells = Array.from(canvasEl?.querySelectorAll('[data-hxw-cell]') || []) as HTMLElement[]
+    cells.forEach((c) => {
+      const x = parseFloat((c.getAttribute('data-x') || '0'))
+      const y = parseFloat((c.getAttribute('data-y') || '0'))
+      drawHex(x, y, filledFill)
+    })
+  } catch { }
+  ctx.restore()
+}
+
+function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLElement, st: HexWLayout): void {
+  if ((canvas as any)._hxwBound) return
+  ; (canvas as any)._hxwBound = true
+  const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v))
+  const Z_MAX = 2.4
+  const getMin = () => Math.max((wrap.clientWidth / (st.width || 1)), (wrap.clientHeight / (st.height || 1)))
+  const enforceBounds = () => {
+    const m = 120 // margin for edge breathing room
+    const vw = wrap.clientWidth
+    const vh = wrap.clientHeight
+    const W = (st.width || 0) * st.scale
+    const H = (st.height || 0) * st.scale
+    const minX = Math.min(m, vw - W - m)
+    const maxX = m
+    const minY = Math.min(m, vh - H - m)
+    const maxY = m
+    if (!isFinite(minX) || !isFinite(minY)) return
+    st.offsetX = Math.max(minX, Math.min(maxX, st.offsetX))
+    st.offsetY = Math.max(minY, Math.min(maxY, st.offsetY))
+  }
+  let draggingStage = false, sx = 0, sy = 0, sox = 0, soy = 0, activePid: number | null = null
+  let widgetDragging = false
+  const DRAG_TOL = 4
+  wrap.addEventListener('pointerdown', (e) => {
+    // Do not start background panning when grabbing a widget in edit mode
+    const isEdit = canvas.getAttribute('data-edit') === '1'
+    const target = e.target as HTMLElement
+    if (isEdit && target && target.closest('.hxw-widget')) return
+    activePid = e.pointerId
+    draggingStage = false
+    sx = e.clientX; sy = e.clientY; sox = st.offsetX; soy = st.offsetY
+  })
+  window.addEventListener('pointerup', (e) => { if (activePid === null || e.pointerId === activePid) { draggingStage = false; activePid = null; sx = 0; sy = 0 } })
+  window.addEventListener('pointermove', (e) => {
+    if (widgetDragging) return
+    if (activePid === null || e.pointerId !== activePid) return
+    if ((e.buttons === 0) && !draggingStage) return
+    const dx = e.clientX - sx, dy = e.clientY - sy
+    if (!draggingStage && Math.hypot(dx, dy) > DRAG_TOL) draggingStage = true
+    if (!draggingStage) return
+    st.offsetX = sox + dx; st.offsetY = soy + dy; enforceBounds(); hxwApplyTransform(wrap, canvas, st)
+  })
+  wrap.addEventListener('wheel', (e) => {
+    if (widgetDragging) return
+    if (e.ctrlKey) {
+      e.preventDefault()
+      const prev = st.scale
+      const ds = Math.exp(-e.deltaY * 0.0022)
+      st.scale = clamp(prev * ds, getMin(), Z_MAX)
+      enforceBounds(); hxwApplyTransform(wrap, canvas, st)
+    } else {
+      e.preventDefault()
+      st.offsetX -= e.deltaX
+      st.offsetY -= e.deltaY
+      enforceBounds(); hxwApplyTransform(wrap, canvas, st)
+    }
+  }, { passive: false })
+  // pinch zoom
+  const pts = new Map<number, { x: number; y: number }>()
+  const dist = () => { const a = Array.from(pts.values()); if (a.length < 2) return 0; const dx = a[0].x - a[1].x, dy = a[0].y - a[1].y; return Math.hypot(dx, dy) }
+  let startDist = 0, startScale = st.scale
+  wrap.addEventListener('pointerdown', (e) => { pts.set(e.pointerId, { x: e.clientX, y: e.clientY }) })
+  wrap.addEventListener('pointermove', (e) => {
+    if (!pts.has(e.pointerId)) return
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY })
+    if (pts.size === 2) {
+      const d = dist()
+      if (startDist === 0) { startDist = d; startScale = st.scale }
+      if (d > 0 && startDist > 0) {
+        const s = Math.pow(d / startDist, 1.25)
+        st.scale = clamp(startScale * s, getMin(), Z_MAX)
+        enforceBounds(); hxwApplyTransform(wrap, canvas, st)
+      }
+    }
+  })
+  window.addEventListener('pointerup', (e) => { pts.delete(e.pointerId); if (pts.size < 2) startDist = 0 })
+
+  // Edit mode drag of widgets with ghost preview
+  let editOn = false
+  const setEdit = (on: boolean) => {
+    editOn = on
+    canvas.setAttribute('data-edit', on ? '1' : '0')
+    const btn = root.querySelector('#wgEditToggle') as HTMLElement | null
+    if (btn) btn.textContent = on ? '完了' : '編集'
+    try {
+      const pid = canvas.getAttribute('data-pid') || '0'
+      hxwPlaceWidgets(root, pid, st)
+      hxwApplyTransform(wrap, canvas, st)
+    } catch {}
+    // toggle edit-only elements inside hex widgets
+    try { canvas.querySelectorAll('.edit-only').forEach((el) => (el as HTMLElement).classList.toggle('hidden', !on)) } catch {}
+  }
+  ; (canvas as any)._setEdit = setEdit
+
+  const stepX = () => Math.round((st.tile || 200) * 0.75)
+  const stepY = () => Math.round((st.tile || 200) * 0.866)
+
+  const toCanvasXY = (clientX: number, clientY: number): { x: number; y: number } => {
+    const rect = wrap.getBoundingClientRect()
+    const x = (clientX - rect.left - st.offsetX) / st.scale
+    const y = (clientY - rect.top - st.offsetY) / st.scale
+    return { x, y }
+  }
+  const toCell = (cx: number, cy: number): { q: number; r: number } => {
+    const sx = stepX(), sy = stepY()
+    const q = Math.round(cx / sx)
+    const r = Math.round(cy / sy - (q % 2 ? 0.5 : 0))
+    return { q, r }
+  }
+  const canPlace = (cells: Array<{ q: number; r: number }>, ignore: Set<string>): boolean => {
+    const inBounds = (q: number, r: number) => q >= 0 && r >= 0 && q < ((wrap as any)._hxwCols || 0) && r < ((wrap as any)._hxwRows || 0)
+    for (const c of cells) {
+      if (!inBounds(c.q, c.r)) return false
+      const k = `${c.q},${c.r}`
+      if (!ignore.has(k) && (wrap as any)._hxwOcc?.has(k)) return false
+    }
+    return true
+  }
+  const ensureGhost = (): HTMLElement => {
+    let g = document.getElementById('hxwGhost') as HTMLElement | null
+    if (g) return g
+    g = document.createElement('div')
+    g.id = 'hxwGhost'
+    g.className = 'hxw-ghost'
+    g.style.position = 'absolute'
+    g.style.left = '0px'
+    g.style.top = '0px'
+    g.style.pointerEvents = 'none'
+    canvas.appendChild(g)
+    return g
+  }
+  const drawGhost = (g: HTMLElement, cells: Array<{ x: number; y: number }>, fill = 'rgba(251,191,36,0.28)', stroke = 'rgba(251,191,36,0.85)') => {
+    g.innerHTML = ''
+    const W = st.tile, H = Math.round((st.tile) * 0.866)
+    for (const c of cells) {
+      const hex = document.createElement('div')
+      hex.className = 'hxw-hex'
+      hex.style.left = `${c.x}px`
+      hex.style.top = `${c.y}px`
+      hex.style.width = `${W}px`
+      hex.style.height = `${H}px`
+      const clip = document.createElement('div')
+      clip.className = 'hxw-clip'
+      clip.style.background = fill
+      clip.style.border = `2px dashed ${stroke}`
+      hex.appendChild(clip)
+      g.appendChild(hex)
+    }
+    g.style.display = 'block'
+  }
+  const hideGhost = () => { const g = document.getElementById('hxwGhost') as HTMLElement | null; if (g) g.style.display = 'none' }
+
+  let draggingWid: HTMLElement | null = null
+  let dragId = ''
+  let startCells = new Set<string>()
+  canvas.addEventListener('pointerdown', (e) => {
+    const el = (e.target as HTMLElement).closest('.hxw-widget') as HTMLElement | null
+    if (!el || !editOn) return
+    // Avoid starting drag from interactive controls
+    const t = e.target as HTMLElement
+    if (t.closest('input, textarea, select, button, a, [contenteditable], .lnk-form, .cal-form')) return
+    e.preventDefault(); e.stopPropagation()
+    draggingWid = el
+    dragId = el.getAttribute('data-widget') || ''
+    widgetDragging = true
+    try { (el as HTMLElement).style.zIndex = '4'; (el as HTMLElement).style.cursor = 'grabbing' } catch {}
+    // remember current occupied cells for self-ignore
+    startCells = new Set<string>()
+    Array.from(el.querySelectorAll('[data-hxw-cell]')).forEach((n) => {
+      startCells.add((n as HTMLElement).getAttribute('data-kr') || '')
+    })
+    try { (e as PointerEvent).pointerId && el.setPointerCapture((e as PointerEvent).pointerId) } catch {}
+  })
+  canvas.addEventListener('pointermove', (e) => {
+    if (!draggingWid || !editOn) return
+    const { x, y } = toCanvasXY(e.clientX, e.clientY)
+    const { q, r } = toCell(x, y)
+    const shape = hxwShapeFor(draggingWid.getAttribute('data-type') || 'mock')
+    const sx = stepX(), sy = stepY()
+    const anc = oddqToAxial(q, r)
+    const relCells = shape.map(([ax, az]) => axialToOddq(anc.x + ax, anc.z + az))
+    const ignore = new Set<string>(startCells)
+    const ok = canPlace(relCells, ignore)
+    const g = ensureGhost()
+    const pxCells = relCells.map(c => ({ x: c.q * sx, y: Math.round((c.r + (c.q % 2 ? 0.5 : 0)) * sy) }))
+    const fill = ok ? 'rgba(251,191,36,0.28)' : 'rgba(244,63,94,0.28)'
+    const stroke = ok ? 'rgba(251,191,36,0.85)' : 'rgba(244,63,94,0.85)'
+    drawGhost(g, pxCells, fill, stroke)
+  })
+  canvas.addEventListener('pointerup', (e) => {
+    if (!draggingWid || !editOn) return
+    const el = draggingWid
+    draggingWid = null
+    widgetDragging = false
+    try { (el as HTMLElement).style.zIndex = ''; (el as HTMLElement).style.cursor = '' } catch {}
+    const { x, y } = toCanvasXY(e.clientX, e.clientY)
+    const { q, r } = toCell(x, y)
+    const type = el.getAttribute('data-type') || 'mock'
+    const shape = hxwShapeFor(type)
+    const sx = stepX(), sy = stepY()
+    const anc = oddqToAxial(q, r)
+    const relCells = shape.map(([ax, az]) => axialToOddq(anc.x + ax, anc.z + az))
+    const ignore = new Set<string>(startCells)
+    if (!canPlace(relCells, ignore)) { hideGhost(); return }
+    // update meta
+    const pid = (canvas.getAttribute('data-pid') || '0')
+    const meta = hxwGetMeta(pid)
+    meta[dragId] = { type, q, r }
+    hxwSetMeta(pid, meta)
+    // rebuild occupancy and reposition element
+    hxwPlaceWidgets(root, pid, st)
+    try { refreshDynamicWidgets(root, pid) } catch {}
+    hideGhost()
+  })
+  window.addEventListener('resize', () => hxwApplyTransform(wrap, canvas, st))
+
+  // Delegated clicks for widgets inside hex field (links/calendar forms)
+  canvas.addEventListener('click', (e) => {
+    const pid = canvas.getAttribute('data-pid') || '0'
+    const pickW = (el: HTMLElement | null): HTMLElement | null => (el?.closest('.widget') as HTMLElement | null)
+    // Links add
+    const add = (e.target as HTMLElement).closest('.lnk-add') as HTMLElement | null
+    if (add) {
+      const w = pickW(add); if (!w) return
+      const form = w.querySelector('.lnk-form') as HTMLElement | null
+      if (form) {
+        form.classList.toggle('hidden')
+        if (!form.classList.contains('hidden')) {
+          const t = form.querySelector('.lnk-title') as HTMLInputElement | null
+          const u = form.querySelector('.lnk-url') as HTMLInputElement | null
+          const err = form.querySelector('.lnk-error') as HTMLElement | null
+          if (t) t.value = ''
+          if (u) u.value = ''
+          if (err) { err.textContent = ''; err.classList.add('hidden') }
+          u?.focus()
+        }
+      }
+      return
+    }
+    // Links save
+    const save = (e.target as HTMLElement).closest('.lnk-save') as HTMLElement | null
+    if (save) {
+      const w = pickW(save); if (!w) return
+      const id = w.getAttribute('data-widget') || ''
+      const form = w.querySelector('.lnk-form') as HTMLElement | null
+      const titleEl = form?.querySelector('.lnk-title') as HTMLInputElement | null
+      const urlEl = form?.querySelector('.lnk-url') as HTMLInputElement | null
+      const err = form?.querySelector('.lnk-error') as HTMLElement | null
+      const title = (titleEl?.value || '').trim()
+      let url = (urlEl?.value || '').trim()
+      if (url && !/^https?:\/\//i.test(url)) url = `https://${url}`
+      if (url) {
+        try { new URL(url) } catch { if (err) { err.textContent = 'URLが正しくありません'; err.classList.remove('hidden') }; return }
+      }
+      if (!url) { mdSetLinks(pid, id, []); try { refreshDynamicWidgets(root, pid) } catch {}; return }
+      mdSetLinks(pid, id, [{ title, url }])
+      try { refreshDynamicWidgets(root, pid) } catch {}
+      return
+    }
+    // Links cancel
+    const cancel = (e.target as HTMLElement).closest('.lnk-cancel') as HTMLElement | null
+    if (cancel) { const w = pickW(cancel); if (!w) return; const form = w.querySelector('.lnk-form') as HTMLElement | null; if (form) form.classList.add('hidden'); return }
+    // Links delete
+    const del = (e.target as HTMLElement).closest('.lnk-del') as HTMLElement | null
+    if (del) { const w = pickW(del); if (!w) return; const id = w.getAttribute('data-widget') || ''; mdSetLinks(pid, id, []); try { refreshDynamicWidgets(root, pid) } catch {}; return }
+
+    // Calendar add
+    const calAdd = (e.target as HTMLElement).closest('.cal-add') as HTMLElement | null
+    if (calAdd) {
+      const w = pickW(calAdd); if (!w) return
+      const form = w.querySelector('.cal-form') as HTMLElement | null
+      if (form) {
+        form.classList.toggle('hidden')
+        if (!form.classList.contains('hidden')) {
+          const urlEl = form.querySelector('.cal-url') as HTMLInputElement | null
+          const err = form.querySelector('.cal-error') as HTMLElement | null
+          if (urlEl) urlEl.value = calGet(pid, w.getAttribute('data-widget') || '')
+          if (err) { err.textContent = ''; err.classList.add('hidden') }
+          urlEl?.focus()
+        }
+      }
+      return
+    }
+    // Calendar save
+    const calSave = (e.target as HTMLElement).closest('.cal-save') as HTMLElement | null
+    if (calSave) {
+      const w = pickW(calSave); if (!w) return
+      const id = w.getAttribute('data-widget') || ''
+      const form = w.querySelector('.cal-form') as HTMLElement | null
+      const urlEl = form?.querySelector('.cal-url') as HTMLInputElement | null
+      const err = form?.querySelector('.cal-error') as HTMLElement | null
+      let url = (urlEl?.value || '').trim()
+      if (url && !/^https?:\/\//i.test(url)) url = `https://${url}`
+      if (url) { try { new URL(url) } catch { if (err) { err.textContent = 'URLが正しくありません'; err.classList.remove('hidden') }; return } }
+      if (!url) { calSet(pid, id, ''); try { refreshDynamicWidgets(root, pid) } catch {}; return }
+      calSet(pid, id, url)
+      try { refreshDynamicWidgets(root, pid) } catch {}
+      return
+    }
+    const calCancel = (e.target as HTMLElement).closest('.cal-cancel') as HTMLElement | null
+    if (calCancel) { const w = pickW(calCancel); if (!w) return; const form = w.querySelector('.cal-form') as HTMLElement | null; if (form) form.classList.add('hidden'); return }
+  })
+}
+
+function hxwPlaceWidgets(root: HTMLElement, pid: string, st: HexWLayout): void {
+  const wrap = root.querySelector('#hxwWrap') as HTMLElement | null
+  const canvas = root.querySelector('#hxwCanvas') as HTMLElement | null
+  if (!wrap || !canvas) return
+  // Failsafe: ensure background cells exist
+  const bgCount = canvas.querySelectorAll('.hxw-hex[data-kind="bg"]').length
+  if (bgCount === 0) {
+    const W = st.tile
+    const H = Math.round(W * 0.866)
+    const stepX = () => Math.round(W * 0.75)
+    const stepY = () => H
+    const COLS = (wrap as any)._hxwCols || 20
+    const ROWS = (wrap as any)._hxwRows || 14
+    for (let q = 0; q < COLS; q++) {
+      for (let r = 0; r < ROWS; r++) {
+        const x = q * stepX()
+        const y = Math.round((r + (q % 2 ? 0.5 : 0)) * stepY())
+        const el = document.createElement('div')
+        el.className = 'hxw-hex'
+        el.setAttribute('data-kind', 'bg')
+        el.setAttribute('data-q', String(q))
+        el.setAttribute('data-r', String(r))
+        el.style.left = `${x}px`
+        el.style.top = `${y}px`
+        el.style.width = `${W}px`
+        el.style.height = `${H}px`
+        const clip = document.createElement('div')
+        clip.className = 'hxw-clip'
+        el.appendChild(clip)
+        canvas.appendChild(el)
+      }
+    }
+  }
+  const meta = hxwGetMeta(pid)
+  const sx = Math.round((st.tile) * 0.75)
+  const sy = Math.round((st.tile) * 0.866)
+  const occ = new Set<string>()
+  ;(wrap as any)._hxwOcc = occ
+  const existing = new Map<string, HTMLElement>()
+  Array.from(canvas.querySelectorAll('.hxw-widget[data-widget]')).forEach((el) => {
+    existing.set((el as HTMLElement).getAttribute('data-widget') || '', el as HTMLElement)
+  })
+  const upsertOne = (id: string, type: string, q: number, r: number) => {
+    const relAx = hxwShapeFor(type)
+    const anc = oddqToAxial(q, r)
+    const cells = relAx.map(([ax, az]) => axialToOddq(anc.x + ax, anc.z + az))
+    cells.forEach(c => occ.add(`${c.q},${c.r}`))
+    const tileW = st.tile, tileH = Math.round(st.tile * 0.866)
+    const pxCells = cells.map(c => ({ x: c.q * sx, y: Math.round((c.r + (c.q % 2 ? 0.5 : 0)) * sy) }))
+    const minX = Math.min(...pxCells.map(c => c.x))
+    const minY = Math.min(...pxCells.map(c => c.y))
+    const maxX = Math.max(...pxCells.map(c => c.x))
+    const maxY = Math.max(...pxCells.map(c => c.y))
+    const boxW = (maxX - minX) + tileW
+    const boxH = (maxY - minY) + tileH
+    let host = existing.get(id)
+    if (!host) {
+      host = document.createElement('div')
+      host.className = 'hxw-widget'
+      host.setAttribute('data-widget', id)
+      host.setAttribute('data-type', type)
+      host.setAttribute('data-hex-native', '1')
+      canvas.appendChild(host)
+      // ensure a hidden body exists so that downstream clipping/background setup works
+      const bodyInit = document.createElement('div')
+      bodyInit.className = 'hxw-body'
+      bodyInit.style.display = 'none'
+      bodyInit.style.left = '0px'
+      bodyInit.style.top = '0px'
+      bodyInit.style.width = `${boxW}px`
+      bodyInit.style.height = `${boxH}px`
+      // mount widget skeleton markup so hydrators can find expected nodes
+      const inner = widgetShell(id, widgetTitle(type), buildWidgetBody(type))
+      bodyInit.innerHTML = inner
+      host.appendChild(bodyInit)
+    } else {
+      existing.delete(id)
+    }
+    host!.style.left = `${minX}px`
+    host!.style.top = `${minY}px`
+    host!.style.width = `${boxW}px`
+    host!.style.height = `${boxH}px`
+    // prepare empty background layer; actual fill and clipping applied after clipPath is ready
+    Array.from(host!.querySelectorAll('.hxw-bg')).forEach(n => n.remove())
+    const bg = document.createElement('div')
+    bg.className = 'hxw-bg'
+    host!.appendChild(bg)
+    relAx.forEach(([ax, az]) => {
+      const pos = axialToOddq(anc.x + ax, anc.z + az)
+      const cq = pos.q, cr = pos.r
+      const x = cq * sx
+      const y = Math.round((cr + (cq % 2 ? 0.5 : 0)) * sy)
+      const hex = document.createElement('div')
+      hex.className = 'hxw-hex hxw-filled'
+      hex.style.left = `${x - minX}px`
+      hex.style.top = `${y - minY}px`
+      hex.style.width = `${tileW}px`
+      hex.style.height = `${tileH}px`
+      hex.setAttribute('data-hxw-cell', '1')
+      hex.setAttribute('data-kr', `${cq},${cr}`)
+      // Keep as hidden markers so drag logic can ignore self-occupancy
+      hex.style.display = 'none'
+      host!.appendChild(hex)
+    })
+
+    // Apply clipping to the union of hex cells via global SVG defs
+    const body = host!.querySelector('.hxw-body') as HTMLElement | null
+    if (body) {
+      const cid = `hxwcp-${(pid || '').replace(/[^a-zA-Z0-9_-]/g, '')}-${(id || '').replace(/[^a-zA-Z0-9_-]/g, '')}`
+      const defs = hxwEnsureDefs()
+      let clip = defs.querySelector(`#${cid}`) as SVGClipPathElement | null
+      if (!clip) {
+        clip = document.createElementNS('http://www.w3.org/2000/svg', 'clipPath') as any
+        clip.setAttribute('id', cid)
+        clip.setAttribute('clipPathUnits', 'objectBoundingBox')
+        defs.appendChild(clip)
+      }
+      // rebuild polygons normalized to 0..1
+      Array.from(clip.childNodes).forEach(n => clip!.removeChild(n))
+      const norm = (vx: number, vy: number) => `${(vx / boxW).toFixed(6)},${(vy / boxH).toFixed(6)}`
+      relAx.forEach(([ax, az]) => {
+        const pos = axialToOddq(anc.x + ax, anc.z + az)
+        const cq = pos.q, cr = pos.r
+        const px = cq * sx - minX
+        const py = Math.round((cr + (cq % 2 ? 0.5 : 0)) * sy) - minY
+        const pts = [
+          norm(px + tileW * 0.25, py + 0),
+          norm(px + tileW * 0.75, py + 0),
+          norm(px + tileW * 1.00, py + tileH * 0.5),
+          norm(px + tileW * 0.75, py + tileH * 1.0),
+          norm(px + tileW * 0.25, py + tileH * 1.0),
+          norm(px + tileW * 0.00, py + tileH * 0.5),
+        ].join(' ')
+        const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polygon')
+        poly.setAttribute('points', pts)
+        clip!.appendChild(poly)
+      })
+      // Do not clip content; apply clipping only to the background layer so content is fully readable
+      body.style.overflow = 'visible'
+      // Build/update flat background layer clipped to the same shape (no seams)
+      const themeBg = (document.documentElement.getAttribute('data-theme') || 'dark')
+      const lightBg = themeBg !== 'dark'
+      // colorful palette (more variety)
+      const palette: Array<[number,number,number]> = [
+        [59,130,246],   // blue
+        [16,185,129],   // emerald
+        [234,179,8],    // amber
+        [168,85,247],   // purple
+        [244,63,94],    // rose
+        [239,68,68],    // red
+        [99,102,241],   // indigo
+        [20,184,166],   // teal
+        [251,146,60],   // orange
+        [236,72,153],   // fuchsia
+        [34,197,94],    // green
+        [14,165,233],   // sky
+        [217,70,239],   // violet
+        [132,204,22],   // lime
+        [6,182,212],    // cyan
+        [245,158,11],   // amber deep
+        [139,92,246],   // violet light
+        [16,185,129],   // emerald (dupe for more spread)
+      ]
+      const hsh = (s: string) => { let h = 0; for (let i=0;i<s.length;i++){ h = ((h<<5)-h) + s.charCodeAt(i); h|=0 } return Math.abs(h) }
+      const idx = hsh(id + ':' + type) % palette.length
+      const base = palette[idx]
+      const fillFlat = `rgba(${base[0]},${base[1]},${base[2]}, ${lightBg ? 0.30 : 0.34})`
+      host!.style.setProperty('--hxw-fill', fillFlat)
+      let bgFlat = host!.querySelector('.hxw-bg') as HTMLElement | null
+      if (!bgFlat) { bgFlat = document.createElement('div'); bgFlat.className = 'hxw-bg'; host!.insertBefore(bgFlat, body) }
+      bgFlat.style.left = '0px'
+      bgFlat.style.top = '0px'
+      bgFlat.style.width = `${boxW}px`
+      bgFlat.style.height = `${boxH}px`
+      bgFlat.style.background = fillFlat
+      ;(bgFlat.style as any).clipPath = `url(#${cid})`
+      ;(bgFlat.style as any).webkitClipPath = `url(#${cid})`
+    }
+
+    // Build per-cell slots container for hex-packed layout (above bg, below body)
+    let cellsWrap = host!.querySelector('.hxw-cells') as HTMLElement | null
+    if (!cellsWrap) { cellsWrap = document.createElement('div'); cellsWrap.className = 'hxw-cells'; host!.appendChild(cellsWrap) }
+    cellsWrap.innerHTML = ''
+    relAx.forEach(([ax, az]) => {
+      const pos = axialToOddq(anc.x + ax, anc.z + az)
+      const cq = pos.q, cr = pos.r
+      const x = cq * sx
+      const y = Math.round((cr + (cq % 2 ? 0.5 : 0)) * sy)
+      const slot = document.createElement('div')
+      slot.className = 'hxw-slot'
+      slot.style.left = `${x - minX}px`
+      slot.style.top = `${y - minY}px`
+      slot.style.width = `${tileW}px`
+      slot.style.height = `${tileH}px`
+      slot.setAttribute('data-slot', `${cq},${cr}`)
+      const clip = document.createElement('div')
+      clip.className = 'hxw-clip'
+      const inner = document.createElement('div')
+      inner.className = 'slot-inner'
+      clip.appendChild(inner)
+      slot.appendChild(clip)
+      cellsWrap!.appendChild(slot)
+    })
+
+    // Draw outer outline only (no internal edges) using neighbor test
+    try {
+      const present = new Set<string>()
+      cells.forEach(c => present.add(`${c.q},${c.r}`))
+      const polyPts = (px: number, py: number) => ([
+        [px + tileW * 0.25, py + 0],
+        [px + tileW * 0.75, py + 0],
+        [px + tileW * 1.00, py + tileH * 0.5],
+        [px + tileW * 0.75, py + tileH * 1.0],
+        [px + tileW * 0.25, py + tileH * 1.0],
+        [px + tileW * 0.00, py + tileH * 0.5],
+      ])
+      const neighbor = (q: number, r: number, dir: number): { q: number; r: number } => {
+        const odd = (q & 1) === 1
+        switch (dir) {
+          case 0: return { q, r: r - 1 } // N
+          case 1: return odd ? { q: q + 1, r } : { q: q + 1, r: r - 1 } // NE
+          case 2: return odd ? { q: q + 1, r: r + 1 } : { q: q + 1, r } // SE
+          case 3: return { q, r: r + 1 } // S
+          case 4: return odd ? { q: q - 1, r: r + 1 } : { q: q - 1, r } // SW
+          case 5: return odd ? { q: q - 1, r } : { q: q - 1, r: r - 1 } // NW
+          default: return { q, r }
+        }
+      }
+      const segs: string[] = []
+      cells.forEach(c => {
+        const px = c.q * sx - minX
+        const py = Math.round((c.r + (c.q % 2 ? 0.5 : 0)) * sy) - minY
+        const P = polyPts(px, py)
+        for (let i = 0; i < 6; i++) {
+          const nb = neighbor(c.q, c.r, i)
+          if (present.has(`${nb.q},${nb.r}`)) continue // internal edge, skip
+          const A = P[i], B = P[(i + 1) % 6]
+          segs.push(`M ${Math.round(A[0])} ${Math.round(A[1])} L ${Math.round(B[0])} ${Math.round(B[1])}`)
+        }
+      })
+      let outline = host!.querySelector('svg.hxw-outline') as SVGSVGElement | null
+      if (!outline) {
+        outline = document.createElementNS('http://www.w3.org/2000/svg', 'svg') as SVGSVGElement
+        outline.classList.add('hxw-outline')
+        outline.style.position = 'absolute'; outline.style.left = '0'; outline.style.top = '0'
+        outline.style.width = '100%'; outline.style.height = '100%'; outline.style.pointerEvents = 'none'
+        host!.appendChild(outline)
+      }
+      outline.setAttribute('viewBox', `0 0 ${boxW} ${boxH}`)
+      outline.setAttribute('width', String(boxW))
+      outline.setAttribute('height', String(boxH))
+      outline.innerHTML = ''
+      const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+      path.setAttribute('d', segs.join(' '))
+      const col = fillFlat
+      path.setAttribute('fill', 'none')
+      path.setAttribute('stroke', col)
+      path.setAttribute('stroke-width', '1.2')
+      path.setAttribute('stroke-linejoin', 'round')
+      path.setAttribute('stroke-linecap', 'round')
+      outline.appendChild(path)
+    } catch {}
+  }
+  Object.entries(meta).forEach(([id, m]) => upsertOne(id, m.type, m.q, m.r))
+  existing.forEach((el) => el.remove())
+}
+
+export function renderHexWidgets(root: HTMLElement, pid: string): void {
+  const wrap = root.querySelector('#hxwWrap') as HTMLElement | null
+  const canvas = root.querySelector('#hxwCanvas') as HTMLElement | null
+  if (!wrap || !canvas) return
+  canvas.setAttribute('data-pid', pid)
+  // state
+  const prev = (wrap as any)._hxw as HexWLayout | undefined
+  const st: HexWLayout = prev || { scale: 1, tile: 200, width: 0, height: 0, offsetX: 120, offsetY: 80 }
+  const W = st.tile
+  const H = Math.round(W * 0.866)
+  const stepX = () => Math.round(W * 0.75)
+  const stepY = () => H
+  const COLS = 20, ROWS = 14
+  const width = stepX() * (COLS - 1) + W
+  const height = stepY() * (ROWS + 0.5)
+  st.width = width; st.height = height
+  canvas.style.width = `${width}px`
+  canvas.style.height = `${height}px`
+  ; (wrap as any)._hxw = st
+  ; (wrap as any)._hxwCols = COLS
+  ; (wrap as any)._hxwRows = ROWS
+
+  // build background nodes
+  const nodes: Array<{ q: number; r: number; x: number; y: number }> = []
+  canvas.innerHTML = ''
+  for (let q = 0; q < COLS; q++) {
+    for (let r = 0; r < ROWS; r++) {
+      const x = q * stepX()
+      const y = Math.round((r + (q % 2 ? 0.5 : 0)) * stepY())
+      nodes.push({ q, r, x, y })
+      const el = document.createElement('div')
+      el.className = 'hxw-hex'
+      el.setAttribute('data-kind', 'bg')
+      el.setAttribute('data-q', String(q))
+      el.setAttribute('data-r', String(r))
+      el.style.left = `${x}px`
+      el.style.top = `${y}px`
+      el.style.width = `${W}px`
+      el.style.height = `${H}px`
+      const clip = document.createElement('div')
+      clip.className = 'hxw-clip'
+      el.appendChild(clip)
+      canvas.appendChild(el)
+    }
+  }
+  ; (wrap as any)._hxw.nodes = nodes
+
+  // seed defaults if empty
+  const meta = hxwGetMeta(pid)
+  if (Object.keys(meta).length === 0) {
+    const q0 = Math.floor(COLS / 2)
+    const r0 = Math.floor(ROWS / 2)
+    meta['readme'] = { type: 'readme', q: q0 - 2, r: r0 - 1 }
+    meta['contrib'] = { type: 'contrib', q: q0 + 2, r: r0 - 1 }
+    meta['committers'] = { type: 'committers', q: q0, r: r0 + 2 }
+    hxwSetMeta(pid, meta)
+  }
+
+  // place widgets
+  hxwPlaceWidgets(root, pid, st)
+  // bind interactions and minimap
+  hxwBindInteractions(root, wrap, canvas, st)
+  // center initial view
+  try {
+    const vw = wrap.clientWidth, vh = wrap.clientHeight
+    const Wv = (st.width || 0) * st.scale
+    const Hv = (st.height || 0) * st.scale
+    st.offsetX = Math.round((vw - Wv) / 2)
+    st.offsetY = Math.round((vh - Hv) / 2)
+  } catch {}
+  hxwApplyTransform(wrap, canvas, st)
+  // ensure initial contents hydrate now that skeletons exist
+  try { refreshDynamicWidgets(root, pid) } catch {}
+  // initial hydration for GitHub-derived widgets if needed
+  try { hxwRehydrate(root, pid) } catch {}
+}
+
+// Find first-fit anchor near center for given widget type and add it
+function hxwAddWidget(root: HTMLElement, pid: string, type: string): void {
+  const wrap = root.querySelector('#hxwWrap') as HTMLElement | null
+  const canvas = root.querySelector('#hxwCanvas') as HTMLElement | null
+  if (!wrap || !canvas) return
+  const st: HexWLayout = (wrap as any)._hxw
+  const COLS: number = (wrap as any)._hxwCols || 20
+  const ROWS: number = (wrap as any)._hxwRows || 14
+  const occ: Set<string> = (wrap as any)._hxwOcc || new Set<string>()
+  const centerQ = Math.floor(COLS / 2)
+  const centerR = Math.floor(ROWS / 2)
+  const meta = hxwGetMeta(pid)
+  const shape = hxwShapeFor(type)
+  const cand: Array<{q:number;r:number}> = []
+  const maxRing = Math.max(COLS, ROWS)
+  for (let d = 0; d < maxRing; d++) {
+    for (let dq = -d; dq <= d; dq++) {
+      for (let dr = -d; dr <= d; dr++) {
+        const q = centerQ + dq
+        const r = centerR + dr
+        if (q < 0 || r < 0 || q >= COLS || r >= ROWS) continue
+        cand.push({ q, r })
+      }
+    }
+    if (cand.length) break
+  }
+  const canPlaceAt = (q: number, r: number) => {
+    const anc = oddqToAxial(q, r)
+    for (const [ax, az] of shape) {
+      const pos = axialToOddq(anc.x + ax, anc.z + az)
+      if (pos.q < 0 || pos.r < 0 || pos.q >= COLS || pos.r >= ROWS) return false
+      if (occ.has(`${pos.q},${pos.r}`)) return false
+    }
+    return true
+  }
+  let placed = false
+  // try center first, then expand rings
+  outer: for (let d = 0; d < maxRing && !placed; d++) {
+    for (let dq = -d; dq <= d; dq++) {
+      for (let dr = -d; dr <= d; dr++) {
+        const q = centerQ + dq
+        const r = centerR + dr
+        if (q < 0 || r < 0 || q >= COLS || r >= ROWS) continue
+        if (canPlaceAt(q, r)) {
+          const id = `w-${type}-${Date.now()}`
+          meta[id] = { type, q, r }
+          hxwSetMeta(pid, meta)
+          hxwPlaceWidgets(root, pid, st)
+          try { refreshDynamicWidgets(root, pid) } catch {}
+          try { hxwRehydrate(root, pid) } catch {}
+          placed = true
+          break outer
+        }
+      }
+    }
+  }
+  if (!placed) alert('配置できる空きスペースが見つかりませんでした')
+}
+
+async function hxwRehydrate(root: HTMLElement, pid: string): Promise<void> {
+  const full = (root as HTMLElement).getAttribute('data-repo-full') || ((document.querySelector('[data-repo-full]') as HTMLElement | null)?.getAttribute('data-repo-full') || '')
+  // README（常に再適用して欠落を防ぐ）
+  if (full) {
+    try {
+      const token = localStorage.getItem('apiToken')
+      const res = await fetch(`/api/github/readme?full_name=${encodeURIComponent(full)}`, { headers: token ? { Authorization: `Bearer ${token}` } : undefined })
+      const text = res.ok ? await res.text() : 'README not found'
+      hydrateReadme(root, text)
+    } catch {}
+  }
+  // Contributions（常に再描画）
+  try { if (full) hydrateContribHeatmap(root, full) } catch {}
+  // Committers（まずcommits、だめならcontributors）
+  if (full) {
+    try {
+      const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString()
+      const commits = await apiFetch<any[]>(`/github/commits?full_name=${encodeURIComponent(full)}&since=${encodeURIComponent(since)}&per_page=100`)
+      hydrateCommittersFromCommits(root, commits)
+    } catch {
+      try {
+        const contr = await apiFetch<any[]>(`/github/contributors?full_name=${encodeURIComponent(full)}`)
+        hydrateCommittersFromContributors(root, contr)
+      } catch {}
+    }
+  }
 }

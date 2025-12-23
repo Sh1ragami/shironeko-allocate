@@ -525,6 +525,55 @@ body[data-lock]:not([data-lock="0"]) .hx-wrap { pointer-events: none; }
 :root[data-theme="warm"] .hx-mini, :root[data-theme="sakura"] .hx-mini { background: rgba(255,255,255,.45); }
 .hx-mini canvas { width: 120px; height: 120px; border-radius: 50%; }
 
+/* ---- Honeycomb Widgets (Detail) ---- */
+.hxw-wrap { position: absolute; inset: 0; overflow: hidden; z-index: 0; }
+.hxw-canvas { position: absolute; left: 0; top: 0; transform-origin: 0 0; z-index: 1; }
+.hxw-wrap, .hxw-canvas, .hxw-hex { user-select: none; -webkit-user-select: none; touch-action: none; }
+/* Lock interaction behind modal overlays */
+body[data-lock]:not([data-lock="0"]) .hxw-wrap { pointer-events: none; }
+.hxw-hex { position: absolute; z-index: 0; }
+.hxw-clip { width: 100%; height: 100%; clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%); background: var(--gh-canvas-subtle); border: 1px solid var(--gh-border); border-radius: 8px; overflow: hidden; }
+.hxw-widget .hxw-clip { border: none !important; } /* 内部の区切り線は非表示（外周は別SVGで描画） */
+.hxw-bg { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
+.hxw-ghost .hxw-clip { border: 2px dashed rgba(251,191,36,0.9); background: rgba(251,191,36,0.08); }
+.hxw-widget { position: absolute; z-index: 2; }
+.hxw-ghost { position: absolute; z-index: 3; }
+.hxw-body { position: absolute; pointer-events: auto; z-index: 2; background: transparent; }
+.hxw-body > .widget { position: absolute; inset: 0; width: 100%; height: 100%; }
+.hxw-cells { position: absolute; inset: 0; z-index: 2; pointer-events: auto; }
+.hxw-slot { position: absolute; }
+.hxw-slot .hxw-clip { background: transparent; border: none; }
+.hxw-slot .slot-inner { position: absolute; inset: 0; display: grid; place-items: center; padding: 6px; text-align: center; }
+.hxw-slot .slot-inner img { pointer-events: auto; }
+.hxw-slot .slot-inner a, .hxw-slot .slot-inner input, .hxw-slot .slot-inner textarea, .hxw-slot .slot-inner button { pointer-events: auto; }
+
+/* Removed the global infinite overlay to avoid covering UI */
+.hxw-mini { position: fixed; right: 14px; top: 16px; width: 140px; height: 140px; border-radius: 50%; background: rgba(0,0,0,.32); backdrop-filter: blur(4px) saturate(120%); border: 1px solid var(--gh-border); display: grid; place-items: center; z-index: 11; }
+:root[data-theme="warm"] .hxw-mini, :root[data-theme="sakura"] .hxw-mini { background: rgba(255,255,255,.45); }
+.hxw-mini canvas { width: 120px; height: 120px; border-radius: 50%; }
+
+/* Remove rectangular look for widgets placed in hex field */
+.hxw-body .widget { background: transparent !important; box-shadow: none !important; border: none !important; border-radius: 0 !important; }
+.hxw-body .gh-card { box-shadow: none !important; }
+.hxw-body .wg-content { background: transparent !important; box-shadow: none !important; }
+.hxw-body .md-widget,
+.hxw-body .links-body,
+.hxw-body .cal-body,
+.hxw-body .flow-body,
+.hxw-body .todo-body,
+.hxw-body .tasksum-body { background: transparent; }
+.hxw-body .links-body, .hxw-body .cal-body, .hxw-body .flow-body, .hxw-body .md-widget { background: var(--hxw-fill, transparent); }
+.hxw-body .rounded, .hxw-body .rounded-md, .hxw-body .rounded-lg, .hxw-body .rounded-xl { border-radius: 0 !important; }
+
+/* Contrast for empty vs filled hexes */
+.hxw-hex .hxw-clip { background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.18); }
+:root[data-theme="warm"] .hxw-hex .hxw-clip, :root[data-theme="sakura"] .hxw-hex .hxw-clip { background: rgba(0,0,0,0.04); border-color: rgba(0,0,0,0.15); }
+.hxw-filled .hxw-clip { background: rgba(59,130,246,0.22); border-color: rgba(59,130,246,0.50); }
+:root[data-theme="warm"] .hxw-filled .hxw-clip, :root[data-theme="sakura"] .hxw-filled .hxw-clip { background: rgba(0,102,204,0.16); border-color: rgba(0,102,204,0.38); }
+
+/* Add button on empty hex (hover) */
+/* (hover add button reverted) */
+
 /* Group quickbar (overlapped, enlarging active/hover) */
 .group-quick .gq-icon {
   width: 36px;
