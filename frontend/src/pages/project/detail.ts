@@ -585,6 +585,19 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
   applyCoreTabs(container, String(project.id))
   // Build hex-grid widget field for Summary
   try { renderHexWidgets(container, String(project.id)) } catch { }
+  // Ensure essential widgets (tabbar, invite, account) exist at least once
+  try {
+    const pid = String(project.id)
+    const meta = hxwGetMeta(pid)
+    const hasType = (t: string) => Object.values(meta || {}).some((m: any) => (m?.type === t))
+    let seeded = false
+    if (!hasType('tabnew')) { try { hxwAddWidget(container, pid, 'tabnew') } catch {}; seeded = true }
+    if (!hasType('invite')) { try { hxwAddWidget(container, pid, 'invite') } catch {}; seeded = true }
+    if (!hasType('account')) { try { hxwAddWidget(container, pid, 'account') } catch {}; seeded = true }
+    if (seeded) {
+      // nothing to bind globally; tab switching is handled by widgets and top-left buttons
+    }
+  } catch { }
   // Apply saved view mode (2D/3D)
   try {
     const wrap = container.querySelector('#hxwWrap') as HTMLElement | null
@@ -612,6 +625,48 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
     })
   })
 
+  // Global edit toggle (applies to current visible panel)
+  const edt = container.querySelector('#wgEditToggle') as HTMLElement | null
+  const applyEditTo = (on: boolean, name: string) => {
+    const panel = container.querySelector(`section[data-tab="${name}"]`) as HTMLElement | null
+    const grid = panel?.querySelector('#widgetGrid') as HTMLElement | null
+    const hx = container.querySelector('#hxwCanvas') as HTMLElement | null
+    if (name === 'summary') {
+      if (hx && (hx as any)._setEdit) (hx as any)._setEdit(on)
+      try { localStorage.setItem(`wg-edit-${project.id}`, on ? '1' : '0') } catch {}
+    } else {
+      if (grid && (grid as any)._setEdit) {
+        const scoped = grid.getAttribute('data-pid') || ''
+        (grid as any)._setEdit(on)
+        try { if (scoped) localStorage.setItem(`wg-edit-${scoped}`, on ? '1' : '0') } catch {}
+      }
+    }
+  }
+  edt?.addEventListener('click', () => {
+    const active = container.querySelector('section[data-tab]:not(.hidden)') as HTMLElement | null
+    const name = active?.getAttribute('data-tab') || 'summary'
+    // Determine current state
+    let cur = false
+    if (name === 'summary') {
+      const hx = container.querySelector('#hxwCanvas') as HTMLElement | null
+      cur = (hx?.getAttribute('data-edit') === '1')
+    } else {
+      const grid = active?.querySelector('#widgetGrid') as HTMLElement | null
+      cur = (grid?.getAttribute('data-edit') === '1')
+    }
+    const next = !cur
+    applyEditTo(next, name)
+    // Also try to mirror to the other area if both exist
+    if (name !== 'summary') applyEditTo(next, 'summary')
+  })
+
+  // Initialize edit label according to saved summary state
+  try {
+    const hx = container.querySelector('#hxwCanvas') as HTMLElement | null
+    const saved = localStorage.getItem(`wg-edit-${project.id}`) === '1'
+    if (hx && (hx as any)._setEdit) (hx as any)._setEdit(saved)
+  } catch {}
+
   // DnD (Summary widgets)
   enableDragAndDrop(container)
 
@@ -627,6 +682,23 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
   try { enableTabDnD(container, String(project.id)) } catch { }
   // Enable tab drag & drop reordering for custom tabs
   try { enableTabDnD(container, String(project.id)) } catch { }
+
+  // Global top-left quick tab switch (always accessible)
+  const showTab = (name: string) => {
+    container.querySelectorAll('section[data-tab]')
+      .forEach((sec) => (sec as HTMLElement).classList.toggle('hidden', sec.getAttribute('data-tab') !== name))
+    if (name === 'board') renderKanban(container, String(project.id))
+    // Apply saved edit state for the activated tab's widget grid (if any)
+    const panel = container.querySelector(`section[data-tab="${name}"]`) as HTMLElement | null
+    const grid = panel?.querySelector('#widgetGrid') as HTMLElement | null
+    if (grid && (grid as any)._setEdit) {
+      const scoped = grid.getAttribute('data-pid') || ''
+      const on = localStorage.getItem(`wg-edit-${scoped}`) === '1'
+        ; (grid as any)._setEdit(on)
+    }
+  }
+  container.querySelector('#topGoSummary')?.addEventListener('click', () => showTab('summary'))
+  container.querySelector('#topGoBoard')?.addEventListener('click', () => showTab('board'))
 
   // Activate the leftmost visible tab (excluding the "+ 新規タブ")
   try {
@@ -2642,6 +2714,9 @@ function openWidgetPickerModal(root: HTMLElement, pid: string, onPick?: (type: s
             ${widgetCard('markdown', 'Markdownブロック')}
             ${widgetCard('tasksum', 'タスクサマリー')}
             ${widgetCard('links', 'クイックリンク')}
+            ${widgetCard('tabnew', '新規タブ')}
+            ${widgetCard('invite', 'メンバー追加')}
+            ${widgetCard('account', 'ユーザー設定')}
             
             ${widgetCard('clock', 'アナログ時計')}
             ${widgetCard('clock-digital', 'デジタル時計')}
@@ -2669,7 +2744,7 @@ function openWidgetPickerModal(root: HTMLElement, pid: string, onPick?: (type: s
   const getCat = (t: string): string => {
     if (['readme', 'contrib', 'committers'].includes(t)) return 'github'
     if (['markdown'].includes(t)) return 'text'
-    if (['tasksum', 'links', 'clock', 'clock-digital', 'spacer'].includes(t)) return 'manage'
+    if (['tasksum', 'links', 'clock', 'clock-digital', 'spacer', 'tabnew', 'invite', 'account'].includes(t)) return 'manage'
     return 'other'
   }
   const applyCat = (cat: string) => {
@@ -2703,6 +2778,18 @@ function widgetCard(type: string, title: string): string {
 function widgetThumb(type: string): string {
   // All class names are explicit to be kept by Tailwind JIT
   if (type === 'spacer') return `<div class=\"w-20 h-20 bg-neutral-900/60 ring-2 ring-neutral-600 rounded grid place-items-center\"><span class=\"text-xs text-gray-400\">1セル</span></div>`
+  if (type === 'tabnew') {
+    return `<div class=\"w-20 h-20 bg-neutral-900/60 ring-2 ring-neutral-600 rounded grid place-items-center text-center\">\n      <div>\n        <div class=\"text-[11px] text-gray-300 mb-0.5\">新規タブ</div>\n        <div class=\"w-7 h-7 rounded-full bg-emerald-600 text-white grid place-items-center text-lg\">＋</div>\n      </div>\n    </div>`
+  }
+  if (type === 'tabbar') {
+    return `<div class=\"w-full h-24 bg-neutral-900/60 ring-2 ring-neutral-600 rounded p-2 text-[11px] text-gray-300\">\n      <div class=\"space-y-1\">\n        <div class=\"rounded bg-neutral-800/70 px-2 py-1\">概要</div>\n        <div class=\"rounded bg-neutral-800/50 px-2 py-1\">カンバンボード</div>\n        <div class=\"rounded bg-neutral-800/40 px-2 py-1\">＋ 新規タブ</div>\n      </div>\n    </div>`
+  }
+  if (type === 'invite') {
+    return `<div class=\"w-full h-20 bg-neutral-900/60 ring-2 ring-neutral-600 rounded grid place-items-center\"><div class=\"text-xs text-gray-300\">メンバーを追加</div></div>`
+  }
+  if (type === 'account') {
+    return `<div class=\"w-full h-20 bg-neutral-900/60 ring-2 ring-neutral-600 rounded grid place-items-center\"><div class=\"text-xs text-gray-300\">ユーザー設定</div></div>`
+  }
   if (type === 'contrib') {
     const palette = ['bg-neutral-800', 'bg-emerald-900', 'bg-emerald-800', 'bg-emerald-700', 'bg-emerald-600']
     const cells = Array.from({ length: 210 }).map((_, i) => {
@@ -3151,6 +3238,144 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
     const m = (metaHex as any)[id] || (metaGrid as any)[id] || {}
     const w = root.querySelector(`[data-widget="${id}"]`) as HTMLElement | null
     if (!w) return
+    if (m.type === 'tabnew') {
+      const slotsWrap = w.querySelector('.hxw-cells') as HTMLElement | null
+      const tnKey = (p: string, wid: string) => `pj-tabnew-${p}-${wid}`
+      const tnGet = (): { id: string; title?: string } | null => { try { return JSON.parse(localStorage.getItem(tnKey(pid, id)) || 'null') } catch { return null } }
+      const tnSet = (v: { id: string; title?: string }) => { try { localStorage.setItem(tnKey(pid, id), JSON.stringify(v)) } catch {} }
+      const tnClear = () => { try { localStorage.removeItem(tnKey(pid, id)) } catch {} }
+      const renderCell = (host: HTMLElement) => {
+        const assoc = tnGet()
+        if (assoc) {
+          const btnDom = root.querySelector(`#tabBar .tab-btn[data-tab="${assoc.id}"]`) as HTMLElement | null
+          const panelDom = root.querySelector(`section[data-tab="${assoc.id}"]`) as HTMLElement | null
+          if (!btnDom || !panelDom) tnClear()
+        }
+        const st = tnGet()
+        if (st && st.id) {
+          const title = st.title || 'タブへ移動'
+          host.innerHTML = `<div class="w-full h-full grid place-items-center text-center">
+            <div>
+              <div class="text-[11px] text-gray-300 mb-0.5">${title}</div>
+              <button class="tn-go rounded bg-neutral-800/70 ring-2 ring-neutral-600 hover:bg-neutral-800 text-gray-100 px-3 py-1 text-sm">移動</button>
+            </div>
+          </div>`
+          const go = host.querySelector('.tn-go') as HTMLElement | null
+          go?.addEventListener('click', () => {
+            root.querySelectorAll('section[data-tab]')
+              .forEach((sec) => (sec as HTMLElement).classList.toggle('hidden', sec.getAttribute('data-tab') !== st.id))
+          })
+          return
+        }
+        host.innerHTML = `<div class="w-full h-full grid place-items-center text-center">
+          <div>
+            <div class="text-[11px] text-gray-300 mb-0.5">新規タブ</div>
+            <button class="tn-add rounded-full bg-emerald-600 hover:bg-emerald-500 text-white w-8 h-8 leading-none text-xl">＋</button>
+          </div>
+        </div>`
+        const btn = host.querySelector('.tn-add') as HTMLElement | null
+        btn?.addEventListener('click', () => {
+          openTabPickerModal(root, { onSelect: (type: TabTemplate) => {
+            const newId = `custom-${Date.now()}`
+            const title = tabTitle(type)
+            addCustomTab(root, pid, type, true, newId, title)
+            tnSet({ id: newId, title })
+            renderCell(host)
+            root.querySelectorAll('section[data-tab]')
+              .forEach((sec) => (sec as HTMLElement).classList.toggle('hidden', sec.getAttribute('data-tab') !== newId))
+          } } as any)
+        })
+      }
+      if (slotsWrap) {
+        const inner = slotsWrap.querySelector('.hxw-slot .slot-inner') as HTMLElement | null
+        if (inner) renderCell(inner)
+      } else {
+        const body = w.querySelector('.wg-content') as HTMLElement | null
+        if (body) renderCell(body)
+      }
+      return
+    }
+    if (m.type === 'account') {
+      const slotsWrap = w.querySelector('.hxw-cells') as HTMLElement | null
+      const renderCell = (host: HTMLElement) => {
+        host.innerHTML = `<div class="w-full h-full grid place-items-center text-center">
+          <div>
+            <div class="text-[11px] text-gray-300 mb-0.5">ユーザー設定</div>
+            <button class="ac-open rounded bg-neutral-800/70 ring-2 ring-neutral-600 hover:bg-neutral-800 text-gray-100 px-3 py-1 text-sm">開く</button>
+          </div>
+        </div>`
+        const btn = host.querySelector('.ac-open') as HTMLElement | null
+        btn?.addEventListener('click', () => openAccountModal(root))
+      }
+      if (slotsWrap) {
+        const inner = slotsWrap.querySelector('.hxw-slot .slot-inner') as HTMLElement | null
+        if (inner) renderCell(inner)
+      } else {
+        const body = w.querySelector('.wg-content') as HTMLElement | null
+        if (body) renderCell(body)
+      }
+      return
+    }
+    if (m.type === 'invite') {
+      const slotsWrap = w.querySelector('.hxw-cells') as HTMLElement | null
+      const ivKey = (p: string, wid: string) => `pj-invite-${p}-${wid}`
+      const ivGet = (): { login: string; avatar_url?: string } | null => { try { return JSON.parse(localStorage.getItem(ivKey(pid, id)) || 'null') } catch { return null } }
+      const ivSet = (v: { login: string; avatar_url?: string }) => { try { localStorage.setItem(ivKey(pid, id), JSON.stringify(v)) } catch {} }
+      const openPicker = () => {
+        document.getElementById('ivPicker')?.remove()
+        const overlay = document.createElement('div')
+        overlay.id = 'ivPicker'
+        overlay.className = 'fixed inset-0 z-[90] bg-black/50 grid place-items-center'
+        overlay.innerHTML = `<div class=\"w-[min(420px,92vw)] rounded-lg bg-neutral-900 ring-2 ring-neutral-600 p-3 text-gray-100\">\n          <div class=\"text-sm mb-2\">メンバーを選択</div>\n          <input id=\"iv-q\" class=\"w-full rounded bg-neutral-800/60 ring-2 ring-neutral-600 px-2 py-1 text-gray-100\" placeholder=\"検索\" />\n          <div id=\"iv-list\" class=\"mt-2 max-h-64 overflow-auto divide-y divide-neutral-700\"></div>\n        </div>`
+        document.body.appendChild(overlay)
+        const listEl = overlay.querySelector('#iv-list') as HTMLElement
+        const input = overlay.querySelector('#iv-q') as HTMLInputElement
+        const renderItems = (arr: Array<{ login: string; avatar_url?: string }>) => {
+          listEl.innerHTML = arr.map(u => `<button data-login=\"${u.login}\" data-avatar=\"${u.avatar_url || ''}\" class=\"w-full text-left flex items-center gap-2 px-2 py-1 hover:bg-neutral-800/60\">\n            <img src=\"${u.avatar_url || `https://avatars.githubusercontent.com/${u.login}?s=64`}\" class=\"w-5 h-5 rounded-full\"/>\n            <span>${u.login}</span>\n          </button>`).join('')
+          listEl.querySelectorAll('[data-login]')?.forEach((el) => {
+            el.addEventListener('click', async () => {
+              const login = (el as HTMLElement).getAttribute('data-login') || ''
+              const avatar = (el as HTMLElement).getAttribute('data-avatar') || ''
+              try {
+                await apiFetch(`/projects/${pid}/collaborators`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ login, permission: 'push' }) })
+                ivSet({ login, avatar_url: avatar })
+                overlay.remove()
+                try { refreshDynamicWidgets(root, pid) } catch {}
+              } catch { alert('招待に失敗しました') }
+            })
+          })
+        }
+        let t: any
+        input.addEventListener('input', async () => {
+          const q = input.value.trim()
+          clearTimeout(t)
+          if (!q) { listEl.innerHTML = ''; return }
+          t = setTimeout(async () => {
+            try { const res = await apiFetch<any>(`/github/search/users?query=${encodeURIComponent(q)}`); renderItems(res.items || []) } catch { listEl.innerHTML = '<div class=\"px-2 py-2 text-gray-400\">読み込みに失敗しました</div>' }
+          }, 250)
+        })
+        input.focus()
+      }
+      const renderCell = (host: HTMLElement) => {
+        const st = ivGet()
+        if (st && st.login) {
+          const avatar = st.avatar_url || `https://avatars.githubusercontent.com/${st.login}?s=96`
+          host.innerHTML = `<div class=\"w-full h-full grid place-items-center text-center\">\n            <div class=\"grid place-items-center\">\n              <img src=\"${avatar}\" class=\"w-10 h-10 rounded-full ring-2 ring-neutral-600 object-cover\"/>\n              <div class=\"mt-1 text-[12px] text-gray-200 truncate max-w-[90px]\">${st.login}</div>\n            </div>\n          </div>`
+          return
+        }
+        host.innerHTML = `<div class=\"w-full h-full grid place-items-center text-center\">\n          <div>\n            <div class=\"text-[11px] text-gray-300 mb-0.5\">メンバー追加</div>\n            <button class=\"iv-add rounded-full bg-emerald-600 hover:bg-emerald-500 text-white w-8 h-8 leading-none text-xl\">＋</button>\n          </div>\n        </div>`
+        const btn = host.querySelector('.iv-add') as HTMLElement | null
+        btn?.addEventListener('click', openPicker)
+      }
+      if (slotsWrap) {
+        const inner = slotsWrap.querySelector('.hxw-slot .slot-inner') as HTMLElement | null
+        if (inner) renderCell(inner)
+      } else {
+        const body = w.querySelector('.wg-content') as HTMLElement | null
+        if (body) renderCell(body)
+      }
+      return
+    }
     if (m.type === 'flow') {
       const box = w.querySelector('.flow-body') as HTMLElement | null
       const canvas = w.querySelector('.flow-canvas') as HTMLElement | null
@@ -3919,6 +4144,10 @@ function widgetTitle(type: string): string {
     case 'calendar': return 'カレンダー'
     case 'clock': return '時計'
     case 'spacer': return 'スペーサー'
+    case 'tabnew': return '新規タブ'
+    case 'tabbar': return 'タブ切替'
+    case 'invite': return 'メンバー追加'
+    case 'account': return 'ユーザー設定'
     default: return 'Widget'
   }
 }
@@ -3932,6 +4161,10 @@ function buildWidgetBody(type: string): string {
     case 'tasksum': return `<div class=\"tasksum-body h-full text-sm text-gray-200\"></div>`
     case 'milestones': return `<ul class=\"text-sm text-gray-200 space-y-2\"><li>企画 <span class=\"text-gray-400\">(完了)</span></li><li>実装 <span class=\"text-gray-400\">(進行中)</span></li><li>リリース <span class=\"text-gray-400\">(未着手)</span></li></ul>`
     case 'spacer': return `<div class=\"h-full\"></div>`
+    case 'tabnew': return `<div class=\"tn-body h-full\"></div>`
+    case 'tabbar': return `<div class=\"h-full\"></div>`
+    case 'invite': return `<div class=\"iv-body h-full\"></div>`
+    case 'account': return `<div class=\"acc-body h-full\"></div>`
     case 'links': return `
       <div class=\"links-body h-full flex flex-col gap-3 text-sm text-gray-200\"></div>
       <div class=\"mt-2 text-xs edit-only\">
@@ -4211,51 +4444,18 @@ function buildWidgetTab(panel: HTMLElement, pid: string, scope: string, defaults
 function detailLayout(ctx: { id: number; name: string; fullName: string; owner: string; repo: string }): string {
   return `
     <div class="min-h-screen gh-canvas text-gray-100">
-      <!-- Main split: left sidebar (tabs/actions) / right content -->
-      <div class="flex">
-        <!-- Left rail: vertical tabs + collaborator add (sticky) -->
-        <aside id="leftRail" class="relative w-56 shrink-0 p-3 border-r border-neutral-600 bg-neutral-900/40 backdrop-blur-sm sticky top-0 h-[100vh] flex flex-col z-[20]">
-          <div class="absolute -right-3 top-4 z-[21]">
-            <button id="railToggleTop" class="rounded-full bg-neutral-900/70 text-gray-200 ring-1 ring-neutral-600 w-7 h-7 grid place-items-center" title="サイドバーを折りたたむ">⮜</button>
+      <div class="relative">
+        <!-- Top-left breadcrumb (keeps repo / projects) -->
+        <div class="fixed left-3 top-3 z-[19] px-3 py-1.5 rounded-md bg-neutral-900/70 ring-1 ring-neutral-600 text-sm">
+          <a href="#/project" class="text-gray-300 hover:text-white truncate max-w-[8rem] align-middle" id="topPathUser" title="${ctx.owner}">${ctx.owner}</a>
+          <span class="text-gray-500">/</span>
+          <span class="text-gray-300" id="topPathRepo" title="${ctx.repo}">${ctx.repo}</span>
+          <div class="mt-1 flex gap-1">
+            <button id="topGoSummary" class="px-2 py-0.5 rounded ring-1 ring-neutral-600 bg-neutral-900/70 text-gray-200 text-xs hover:bg-neutral-800">概要</button>
+            <button id="topGoBoard" class="px-2 py-0.5 rounded ring-1 ring-neutral-600 bg-neutral-900/70 text-gray-200 text-xs hover:bg-neutral-800">ボード</button>
           </div>
-          <div id="railResizer" class="absolute top-0 -right-1 w-2 h-full cursor-col-resize z-[5]"></div>
-          <!-- Repo / Project breadcrumb at top of rail -->
-          <div class="mb-5 pt-1">
-            <div class="flex items-center gap-2 text-sm min-w-0 overflow-hidden">
-              <a href="#/project" class="text-gray-300 hover:text-white truncate max-w-[5rem] flex-none" id="topPathUser" title="${ctx.owner}">${ctx.owner}</a>
-              <span class="text-gray-500 flex-shrink-0">/</span>
-              <span class="text-gray-300 truncate min-w-0 flex-1" id="topPathRepo" title="${ctx.repo}">${ctx.repo}</span>
-            </div>
-          </div>
-
-          <div id="tabBar" class="flex-1 min-h-0 overflow-y-auto flex flex-col gap-1 text-base pr-1">
-            <span class="tab-row group relative flex w-full items-center gap-1.5 rounded-md hover:bg-neutral-600/60 pr-1 -mr-1 min-w-0">
-              <button class="tab-btn flex-1 min-w-0 text-left px-3 py-2 rounded-t-md text-gray-100 text-[15px] truncate" data-tab="summary">概要</button>
-              <button class="tab-menu opacity-0 group-hover:opacity-100 transition-opacity p-0.5 text-gray-300 hover:text-gray-100" data-for="summary" title="メニュー">⋮</button>
-              <button class="tab-lock opacity-0 group-hover:opacity-100 transition-opacity p-0.5 text-gray-300 hover:text-gray-100" data-for="summary" title="ロック切替">${LOCK_SVG}</button>
-            </span>
-            <span class="tab-row group relative flex w-full items-center gap-1.5 rounded-md hover:bg-neutral-600/60 pr-1 -mr-1 min-w-0">
-              <button class="tab-btn flex-1 min-w-0 text-left px-3 py-2 rounded-t-md text-gray-100 text-[15px] truncate" data-tab="board">カンバンボード</button>
-              <button class="tab-menu opacity-0 group-hover:opacity-100 transition-opacity p-0.5 text-gray-300 hover:text-gray-100" data-for="board" title="メニュー">⋮</button>
-              <button class="tab-lock opacity-0 group-hover:opacity-100 transition-opacity p-0.5 text-gray-300 hover:text-gray-100" data-for="board" title="ロック切替">${LOCK_SVG}</button>
-            </span>
-            <span class="tab-row group relative flex w-full items-center gap-1.5 rounded-md hover:bg-neutral-600/60 pr-1 -mr-1 min-w-0">
-              <button class="tab-btn flex-1 min-w-0 text-left px-3 py-2 rounded-md text-gray-100 text-[15px] truncate" data-tab="new">+ 新規タブ</button>
-              <span class="inline-block w-5"></span>
-            </span>
-          </div>
-          <div id="railBottom" class="mt-auto pt-3">
-            <div id="collabAvatars" class="flex items-center gap-2 mb-2"></div>
-            <div class="tab-row group relative flex w-full items-center gap-1.5 rounded-md hover:bg-neutral-600/60 pr-1 -mr-1 mt-2">
-              <button id="addCollabLink" class="tab-btn w-full text-left px-3 py-2 rounded-md text-gray-100 text-[15px]">メンバーを追加</button>
-            </div>
-            <div class="tab-row group relative flex w-full items-center gap-1.5 rounded-md hover:bg-neutral-600/60 pr-1 -mr-1">
-              <button id="accountSettingsLink" class="tab-btn w-full text-left px-3 py-2 rounded-md text-gray-100 text-[15px]">ユーザー設定</button>
-            </div>
-          </div>
-        </aside>
-
-        <!-- Right content -->
+        </div>
+        <!-- Content -->
         <div class="flex-1 min-w-0">
           <main class="p-0">
             <section class="space-y-3" id="tab-summary" data-tab="summary">
@@ -4274,10 +4474,12 @@ function detailLayout(ctx: { id: number; name: string; fullName: string; owner: 
               <button id="hxwView3d" class="fixed bottom-5 right-20 z-[18] rounded-md bg-neutral-900/70 text-gray-200 ring-1 ring-neutral-600 px-2.5 py-1.5 text-sm shadow">
                 3D
               </button>
+              <!-- Edit mode toggle (global: hex/grid) -->
+              <button id="wgEditToggle" class="fixed bottom-5 right-36 z-[18] rounded-md bg-neutral-900/70 text-gray-200 ring-1 ring-neutral-600 px-2.5 py-1.5 text-sm shadow">
+                編集
+              </button>
               <!-- Floating add button (bottom-right) -->
               <button id="hxwFab" class="fixed bottom-5 right-5 z-[18] w-12 h-12 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white text-2xl leading-none grid place-items-center shadow-xl ring-2 ring-emerald-300/40">＋</button>
-              <!-- Reopen rail button (visible only when rail is collapsed) -->
-              <button id="railReopen" class="fixed left-2 top-1/2 -translate-y-1/2 z-[21] w-8 h-8 rounded-full bg-neutral-900/70 text-gray-200 ring-1 ring-neutral-600 grid place-items-center shadow hidden" title="サイドバーを開く">⮞</button>
             </section>
 
             <section class="mt-8 hidden" id="tab-board" data-tab="board">
@@ -4525,41 +4727,44 @@ function openTabContextMenu(root: HTMLElement, pid: string, arg: { kind: 'core' 
 // Create and append a custom tab (blank/kanban/mock). Persist to localStorage.
 function addCustomTab(root: HTMLElement, pid: string, type: TabTemplate, persist = true, preId?: string, preTitle?: string): void {
   const id = preId || `custom-${Date.now()}`
-  const tabBar = root.querySelector('#tabBar') as HTMLElement
-  const newBtn = tabBar.querySelector('[data-tab="new"]') as HTMLElement | null
-  // wrapper to host delete button
-  const wrap = document.createElement('span')
-  wrap.className = 'tab-row group relative flex w-full items-center gap-2 rounded-md hover:bg-neutral-600/60 pr-1 -mr-1'
-  const btn = document.createElement('button')
-  // Use symmetric spacing to keep label centered under the active underline
-  btn.className = 'tab-btn w-full text-left px-3 py-2 rounded-md text-gray-100 text-[15px]'
-  btn.setAttribute('data-tab', id)
-  btn.textContent = preTitle || tabTitle(type)
-  const lock = document.createElement('button')
-  lock.className = 'tab-lock opacity-0 group-hover:opacity-100 transition-opacity p-0.5 text-gray-300 hover:text-gray-100'
-  lock.setAttribute('data-for', id)
-  lock.title = 'ロック切替'
-  // Inline SVG icon
-  lock.innerHTML = LOCK_SVG
-  // menu (three-dots) button
-  const menu = document.createElement('button')
-  menu.className = 'tab-menu opacity-0 group-hover:opacity-100 transition-opacity p-0.5 text-gray-300 hover:text-gray-100'
-  menu.setAttribute('data-for', id)
-  menu.title = 'メニュー'
-  menu.textContent = '⋮'
-  // order: label then lock on right
-  wrap.appendChild(btn)
-  wrap.appendChild(menu)
-  wrap.appendChild(lock)
-  if (newBtn) {
-    const refWrap = (newBtn.closest('span') as HTMLElement | null)
-    if (refWrap && refWrap.parentElement === tabBar) tabBar.insertBefore(wrap, refWrap)
-    else if (newBtn.parentElement === tabBar) tabBar.insertBefore(wrap, newBtn)
-    else tabBar.appendChild(wrap)
-  } else {
-    tabBar.appendChild(wrap)
+  const tabBar = root.querySelector('#tabBar') as HTMLElement | null
+  let btn: HTMLElement | null = null
+  if (tabBar) {
+    const newBtn = tabBar.querySelector('[data-tab="new"]') as HTMLElement | null
+    // wrapper to host delete button
+    const wrap = document.createElement('span')
+    wrap.className = 'tab-row group relative flex w-full items-center gap-2 rounded-md hover:bg-neutral-600/60 pr-1 -mr-1'
+    btn = document.createElement('button')
+    // Use symmetric spacing to keep label centered under the active underline
+    btn.className = 'tab-btn w-full text-left px-3 py-2 rounded-md text-gray-100 text-[15px]'
+    btn.setAttribute('data-tab', id)
+    btn.textContent = preTitle || tabTitle(type)
+    const lock = document.createElement('button')
+    lock.className = 'tab-lock opacity-0 group-hover:opacity-100 transition-opacity p-0.5 text-gray-300 hover:text-gray-100'
+    lock.setAttribute('data-for', id)
+    lock.title = 'ロック切替'
+    // Inline SVG icon
+    lock.innerHTML = LOCK_SVG
+    // menu (three-dots) button
+    const menu = document.createElement('button')
+    menu.className = 'tab-menu opacity-0 group-hover:opacity-100 transition-opacity p-0.5 text-gray-300 hover:text-gray-100'
+    menu.setAttribute('data-for', id)
+    menu.title = 'メニュー'
+    menu.textContent = '⋮'
+    // order: label then lock on right
+    wrap.appendChild(btn)
+    wrap.appendChild(menu)
+    wrap.appendChild(lock)
+    if (newBtn) {
+      const refWrap = (newBtn.closest('span') as HTMLElement | null)
+      if (refWrap && refWrap.parentElement === tabBar) tabBar.insertBefore(wrap, refWrap)
+      else if (newBtn.parentElement === tabBar) tabBar.insertBefore(wrap, newBtn)
+      else tabBar.appendChild(wrap)
+    } else {
+      tabBar.appendChild(wrap)
+    }
+    wrap.setAttribute('draggable', 'true')
   }
-  wrap.setAttribute('draggable', 'true')
 
   const panel = document.createElement('section')
   panel.className = 'mt-8 hidden'
@@ -4595,23 +4800,24 @@ function addCustomTab(root: HTMLElement, pid: string, type: TabTemplate, persist
     root.querySelector('main')?.appendChild(panel)
   }
 
-  btn.addEventListener('click', () => {
-    root.querySelectorAll('section[data-tab]').forEach((sec) => (sec as HTMLElement).classList.toggle('hidden', sec.getAttribute('data-tab') !== id))
-    root.querySelectorAll('#tabBar .tab-btn').forEach((b) => {
-      // Active style: light gray background on full row; no orange borders
-      b.classList.remove('border-emerald-500', 'ring-2', 'ring-neutral-600', 'bg-neutral-800/60', 'border-l-2', 'border-b-2', 'border-orange-500')
-      const active = b === btn
-      const wrap = (b as HTMLElement).closest('.tab-row') as HTMLElement | null
-      if (wrap) wrap.classList.toggle('bg-neutral-500/50', active)
-      b.classList.toggle('text-gray-100', active)
-      b.classList.toggle('text-gray-400', !active)
+  if (btn) {
+    btn.addEventListener('click', () => {
+      root.querySelectorAll('section[data-tab]').forEach((sec) => (sec as HTMLElement).classList.toggle('hidden', sec.getAttribute('data-tab') !== id))
+      root.querySelectorAll('#tabBar .tab-btn').forEach((b) => {
+        b.classList.remove('border-emerald-500', 'ring-2', 'ring-neutral-600', 'bg-neutral-800/60', 'border-l-2', 'border-b-2', 'border-orange-500')
+        const active = b === btn
+        const wrap = (b as HTMLElement).closest('.tab-row') as HTMLElement | null
+        if (wrap) wrap.classList.toggle('bg-neutral-500/50', active)
+        b.classList.toggle('text-gray-100', active)
+        b.classList.toggle('text-gray-400', !active)
+      })
     })
-  })
+  }
 
   // Double-click rename disabled (use context menu instead)
 
   // context menu
-  btn.addEventListener('contextmenu', (e) => { e.preventDefault(); openTabContextMenu(root, pid, { kind: 'custom', id, btn, type }) })
+  if (btn) btn.addEventListener('contextmenu', (e) => { e.preventDefault(); openTabContextMenu(root, pid, { kind: 'custom', id, btn: btn!, type }) })
   // click three-dots to open menu
   menu.addEventListener('click', (e) => { e.stopPropagation(); openTabContextMenu(root, pid, { kind: 'custom', id, btn, type }) })
 
@@ -5352,6 +5558,7 @@ function hxwGetMeta(pid: string): Record<string, { type: string; q: number; r: n
       const t = (m?.type || '')
       if (t === 'flow') return
       if (t === 'calendar') return // calendar widget retired
+      if (t === 'tabbar') return // tab switch widget retired; replaced by tabnew behavior
       meta[id] = m
     })
     if (Object.keys(meta).length !== Object.keys(raw).length) { try { hxwSetMeta(pid, meta) } catch {} }
@@ -5399,6 +5606,10 @@ function hxwShapeFor(type: string): Array<[number, number]> {
     case 'links': return axGrow(4)
     case 'tasksum': return [[0,0],[1,0],[0,1],[1,1]] as any
     case 'calendar': return axGrow(12)
+    case 'tabnew': return [[0, 0]] as any
+    case 'tabbar': return axGrow(7)
+    case 'invite': return [[0, 0]] as any
+    case 'account': return [[0, 0]] as any
     default: return axGrow(6)
   }
 }
@@ -5807,10 +6018,23 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
     const anc = oddqToAxial(q, r)
     const relCells = shape.map(([ax, az]) => axialToOddq(anc.x + ax, anc.z + az))
     const ignore = new Set<string>(startCells)
-    if (!canPlace(relCells, ignore)) { hideGhost(); return }
-    // update meta
+    // If dropped outside field mask, delete the widget
+    const mask: Set<string> = (wrap as any)._hxwMask || new Set<string>()
+    const inBounds = (cq: number, cr: number) => mask.size ? mask.has(`${cq},${cr}`) : (cq >= 0 && cr >= 0 && cq < ((wrap as any)._hxwCols || 0) && cr < ((wrap as any)._hxwRows || 0))
+    const outside = relCells.some(c => !inBounds(c.q, c.r))
     const pid = (canvas.getAttribute('data-pid') || '0')
     const meta = hxwGetMeta(pid)
+    if (outside) {
+      try { delete meta[dragId] } catch {}
+      try { hxwSetMeta(pid, meta) } catch {}
+      hxwPlaceWidgets(root, pid, st)
+      try { refreshDynamicWidgets(root, pid) } catch {}
+      try { hxwRehydrate(root, pid) } catch { }
+      hideGhost(); didDrag = false; return
+    }
+    // If cannot place due to collisions, cancel (do not delete)
+    if (!canPlace(relCells, ignore)) { hideGhost(); return }
+    // update meta
     meta[dragId] = { type, q, r }
     hxwSetMeta(pid, meta)
     // rebuild occupancy and reposition element
