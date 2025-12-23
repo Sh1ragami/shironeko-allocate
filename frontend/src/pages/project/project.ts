@@ -293,7 +293,7 @@ function renderHoneycomb(root: HTMLElement, projects: Project[]): void {
           sessionStorage.setItem('proj-center-gid', gid)
         } catch {}
         try { prefetchProjectDetail(p.id) } catch {}
-        try { showRouteLoading(title) } catch {}
+        try { showRouteLoading(title, p.color) } catch {}
         window.location.hash = `#/project/detail?id=${p.id}`
       })
       // Hover/touch prefetch for snappier transition

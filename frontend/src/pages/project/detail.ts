@@ -264,6 +264,7 @@ type Project = {
   description?: string
   link_repo?: string
   github_meta?: { full_name?: string; html_url?: string; language?: string; private?: boolean } | null
+  color?: 'blue' | 'red' | 'green' | 'black' | 'white' | 'purple' | 'orange' | 'yellow' | 'gray'
 }
 
 /* Removed: browser-like project tabs bar and picker
@@ -549,6 +550,7 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
         // ignore
       }
     } catch (e) {
+      try { hideRouteLoading() } catch {}
       if (e instanceof ApiError && e.status === 404) {
         renderNotFound(container)
       } else {
@@ -564,7 +566,11 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
 
   // Render the full layout once with all available data
   container.innerHTML = detailLayout({ id: project.id, name: project.name, fullName, owner, repo: repoName })
+  // expose project color for honeycomb widget field tone alignment
+  try { (container as HTMLElement).setAttribute('data-pj-color', (project.color || 'blue') as string) } catch {}
   if (fullName) (container as HTMLElement).setAttribute('data-repo-full', fullName)
+  // Hide route-loading once base layout is mounted; hydration continues in background
+  try { hideRouteLoading() } catch {}
 
   // Store user data if fetched
   if (me) {
@@ -5913,31 +5919,23 @@ function hxwPlaceWidgets(root: HTMLElement, pid: string, st: HexWLayout): void {
       // Build/update flat background layer clipped to the same shape (no seams)
       const themeBg = (document.documentElement.getAttribute('data-theme') || 'dark')
       const lightBg = themeBg !== 'dark'
-      // colorful palette (more variety)
+      // Colorful palette using the same taste as project list
       const palette: Array<[number,number,number]> = [
         [59,130,246],   // blue
         [16,185,129],   // emerald
-        [234,179,8],    // amber
-        [168,85,247],   // purple
-        [244,63,94],    // rose
         [239,68,68],    // red
-        [99,102,241],   // indigo
-        [20,184,166],   // teal
+        [168,85,247],   // purple
         [251,146,60],   // orange
-        [236,72,153],   // fuchsia
-        [34,197,94],    // green
+        [234,179,8],    // yellow/amber
+        [99,102,241],   // indigo (close to list tone)
+        [20,184,166],   // teal
         [14,165,233],   // sky
-        [217,70,239],   // violet
-        [132,204,22],   // lime
-        [6,182,212],    // cyan
-        [245,158,11],   // amber deep
-        [139,92,246],   // violet light
-        [16,185,129],   // emerald (dupe for more spread)
       ]
+      // Stable per-widget color pick to increase variety
       const hsh = (s: string) => { let h = 0; for (let i=0;i<s.length;i++){ h = ((h<<5)-h) + s.charCodeAt(i); h|=0 } return Math.abs(h) }
       const idx = hsh(id + ':' + type) % palette.length
       const base = palette[idx]
-      const fillFlat = `rgba(${base[0]},${base[1]},${base[2]}, ${lightBg ? 0.30 : 0.34})`
+      const fillFlat = `rgba(${base[0]},${base[1]},${base[2]}, ${lightBg ? 0.42 : 0.38})`
       host!.style.setProperty('--hxw-fill', fillFlat)
       // annotate each cell with base rgb so minimap can color-match
       try { Array.from(host!.querySelectorAll('.hxw-hex.hxw-filled')).forEach((n) => (n as HTMLElement).setAttribute('data-rgb', `${base[0]},${base[1]},${base[2]}`)) } catch {}

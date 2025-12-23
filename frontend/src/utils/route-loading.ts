@@ -1,7 +1,7 @@
 const MIN_MS = 2000
 let startedAt = 0
 
-export function showRouteLoading(projectName?: string): void {
+export function showRouteLoading(projectName?: string, projectColor?: 'blue' | 'red' | 'green' | 'black' | 'white' | 'purple' | 'orange' | 'yellow' | 'gray'): void {
   if (document.getElementById('routeLoading')) return
   const overlay = document.createElement('div')
   overlay.id = 'routeLoading'
@@ -24,7 +24,7 @@ export function showRouteLoading(projectName?: string): void {
   // Set bar duration CSS variable
   (overlay.firstElementChild as HTMLElement | null)?.style.setProperty('--rl-dur', `${MIN_MS}ms`)
   // Build honeycomb burst
-  try { buildHexBurst(overlay) } catch {}
+  try { buildHexBurst(overlay, projectColor) } catch {}
 }
 
 export function hideRouteLoading(): void {
@@ -41,7 +41,7 @@ export function hideRouteLoading(): void {
   else finish()
 }
 
-function buildHexBurst(overlay: HTMLElement): void {
+function buildHexBurst(overlay: HTMLElement, projectColor?: 'blue' | 'red' | 'green' | 'black' | 'white' | 'purple' | 'orange' | 'yellow' | 'gray'): void {
   const host = overlay.querySelector('#rlBurst') as HTMLElement | null
   if (!host) return
   const W = window.innerWidth, H = window.innerHeight
@@ -49,33 +49,44 @@ function buildHexBurst(overlay: HTMLElement): void {
   const HEX_W = 124, HEX_H = Math.round(HEX_W * 0.866)
   const stepX = Math.round(HEX_W * 0.75)
 
-  // プロジェクト一覧のトーンに合わせた色（dark=低いトーンのrgba、light=やや明るめ）
+  // トーンをプロジェクト一覧に合わせる（可能ならプロジェクト色、なければニュートラル）
   const theme = document.documentElement.getAttribute('data-theme') || 'dark'
   const isLight = theme === 'warm' || theme === 'sakura'
-  // 少し明るめ（darkでも落ち着いた彩度で、alphaを上げる）
-  const colorsFill = isLight ? [
-    'rgba(59,130,246,.70)',  // blue-500
-    'rgba(46,160,67,.70)',   // emerald-ish
-    'rgba(239,68,68,.70)',   // red-500
-    'rgba(168,85,247,.70)',  // purple-500
-    'rgba(249,115,22,.70)',  // orange-500
-    'rgba(234,179,8,.70)',   // amber-500
-    'rgba(14,165,233,.70)',  // sky-500
-    'rgba(20,184,166,.70)',  // teal-500
-    'rgba(99,102,241,.70)',  // indigo-500
-    'rgba(244,63,94,.70)',   // rose-500
-  ] : [
-    'rgba(59,130,246,.60)',  // blue-500
-    'rgba(46,160,67,.60)',   // emerald-ish
-    'rgba(239,68,68,.60)',   // red-500
-    'rgba(168,85,247,.60)',  // purple-500
-    'rgba(249,115,22,.60)',  // orange-500
-    'rgba(234,179,8,.60)',   // amber-500
-    'rgba(14,165,233,.60)',  // sky-500
-    'rgba(20,184,166,.60)',  // teal-500
-    'rgba(99,102,241,.60)',  // indigo-500
-    'rgba(244,63,94,.60)',   // rose-500
+  const COLOR_MAP: Record<string, [number, number, number]> = {
+    blue: [59,130,246],
+    green: [16,185,129],
+    red: [239,68,68],
+    purple: [168,85,247],
+    orange: [251,146,60],
+    yellow: [234,179,8],
+    gray: [156,163,175],
+    black: [17,24,39],
+    white: [255,255,255],
+  }
+  const rgba = (rgb: [number,number,number], a: number) => `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${a})`
+  // Build a colorful palette; if projectColor exists, rotate palette to start from it
+  // Build multi-color palette (variety), rotated to start near project color
+  const alpha = isLight ? 0.42 : 0.38 // align with detail
+  const basePalette: Array<[number,number,number]> = [
+    COLOR_MAP.blue,
+    COLOR_MAP.green,
+    COLOR_MAP.red,
+    COLOR_MAP.purple,
+    COLOR_MAP.orange,
+    COLOR_MAP.yellow,
+    [14,165,233],   // sky
+    [20,184,166],   // teal
+    [99,102,241],   // indigo
+    [244,63,94],    // rose
   ]
+  let idx0 = 0
+  if (projectColor && COLOR_MAP[projectColor]) {
+    const base = COLOR_MAP[projectColor]
+    const found = basePalette.findIndex((c) => c[0]===base[0] && c[1]===base[1] && c[2]===base[2])
+    idx0 = found >= 0 ? found : 0
+  }
+  const rotated = basePalette.slice(idx0).concat(basePalette.slice(0, idx0))
+  const colorsFill = rotated.map((rgb) => rgba(rgb, alpha))
   const colorsBorder = colorsFill
 
   const makeHex = (x: number, y: number, delayMs: number, idx: number) => {
