@@ -964,12 +964,8 @@ function barSkeleton(): string {
 }
 
 function readmeSkeleton(): string {
-  // READMEはMarkdownのプレビューと同じ構造にし、Hex内では背景をHexと同化させる
-  return `
-    <div class="md-widget h-full">
-      <div class="md-preview whitespace-pre-wrap text-sm text-gray-200 p-3 h-full overflow-auto">Loading README...</div>
-    </div>
-  `
+  // Minimal body; whole widget acts as a button in view mode
+  return `<div class=\"h-full\"></div>`
 }
 
 function hydrateOverview(root: HTMLElement, repo: any): void {
@@ -1308,46 +1304,11 @@ async function committersPopulate(root: HTMLElement): Promise<void> {
 }
 
 function hydrateReadme(root: HTMLElement, text: string): void {
-  const el = root.querySelector('[data-widget="readme"] .whitespace-pre-wrap') as HTMLElement | null
-  if (!el) return
-  el.innerHTML = mdRenderToHtml(text || 'README not found')
-  // Keep README readable: disable hex-slot splitting
-  /* readability mode */ if (false)
-  // Hex-packed: place snippets into slots
-  try {
-    const w = (el.closest('.hxw-widget') as HTMLElement | null) || (el.closest('[data-widget="readme"]') as HTMLElement | null)
-    const slotsWrap = w?.querySelector('.hxw-cells') as HTMLElement | null
-    if (slotsWrap) {
-      const slots = Array.from(slotsWrap.querySelectorAll('.hxw-slot .slot-inner')) as HTMLElement[]
-      const plain = (el.textContent || '').replace(/\s+/g, ' ').trim()
-      const parts = plain.split(/(?<=[。\.!?])\s+/).filter(Boolean)
-      slots.forEach((s, i) => { s.innerHTML = parts[i] ? `<div class="text-[10px] leading-snug text-gray-100">${escHtml(parts[i]).slice(0,80)}</div>` : '' })
-      ;(el.parentElement as HTMLElement | null)!.style.display = 'none'
-    }
-  } catch {}
-  // Ensure any hex slots are hidden so the regular card remains visible
-  try {
-    const w = (el.closest('.hxw-widget') as HTMLElement | null) || (el.closest('[data-widget="readme"]') as HTMLElement | null)
-    const slotsWrap = w?.querySelector('.hxw-cells') as HTMLElement | null
-    if (slotsWrap) (slotsWrap as HTMLElement).style.display = 'none'
-  } catch {}
-  try {
-    const w = el.closest('.widget') as HTMLElement | null
-    if (w) {
-      const cols = parseInt((w.getAttribute('data-cols') || '8'), 10)
-      const rows = parseInt((w.getAttribute('data-rows') || '2'), 10)
-      const area = Math.max(1, cols * rows)
-      const scale = Math.max(0.9, Math.min(1.4, Math.sqrt(area / 16)))
-      densifyReadme(w, scale)
-    }
-  } catch { }
+  // Cache on container for popup use
+  try { (root as any)._readmeText = text || '' } catch {}
 }
 
-function mdFillSlots(w: HTMLElement, pid: string, id: string, text: string): void {
-  const slotsWrap = w.querySelector('.hxw-cells') as HTMLElement | null
-  // Prefer normal markdown card; hide hex slots if present
-  if (slotsWrap) (slotsWrap as HTMLElement).style.display = 'none'
-}
+function mdFillSlots(_w: HTMLElement, _pid: string, _id: string, _text: string): void { /* no-op for popup mode */ }
 
 // ------- Contributions heatmap (GitHub-like) -------
 type ContribCache = { at: number; start: string; days: Record<string, number> }
@@ -2376,6 +2337,19 @@ function enableDragAndDrop(root: HTMLElement): void {
     })
   }
   grid.addEventListener('click', (e) => {
+    // Whole-widget button behavior for README/Markdown in view mode
+    const widget = (e.target as HTMLElement).closest('.widget') as HTMLElement | null
+    if (widget) {
+      const isEdit = (grid.getAttribute('data-edit') === '1')
+      const t = (widget.getAttribute('data-type') || '').toLowerCase()
+      if (!isEdit && (t === 'readme' || t === 'markdown')) {
+        e.stopPropagation()
+        const id = widget.getAttribute('data-widget') || ''
+        if (t === 'readme') openReadmeModal(root)
+        else openMarkdownModal(root, pid, id)
+        return
+      }
+    }
     // 旧UI（編集/保存/キャンセル）ボタンは廃止済み
     // Links: toggle add form
     const add = (e.target as HTMLElement).closest('.lnk-add') as HTMLElement | null
@@ -2532,18 +2506,7 @@ function enableDragAndDrop(root: HTMLElement): void {
     }
   })
 
-  // Initialize markdown previews from storage and sync to current mode
-  const mdMap = mdGetMap(pid)
-  grid.querySelectorAll('.md-widget').forEach((wrap) => {
-    const w = (wrap as HTMLElement).closest('.widget') as HTMLElement | null
-    const id = w?.getAttribute('data-widget') || ''
-    const preview = (wrap as HTMLElement).querySelector('.md-preview') as HTMLElement | null
-    const txt = mdMap[id] || ''
-    if (preview) preview.innerHTML = mdRenderToHtml(txt || 'ここにMarkdownを書いてください')
-    try { if (w) mdFillSlots(w, pid, id, txt) } catch {}
-  })
-  // Apply visibility (editor vs preview) per edit state
-  try { syncMdWidgets(grid.getAttribute('data-edit') === '1') } catch { }
+  // Markdown: popup modeなので初期描画は不要
 
   // Auto-save markdown on input while in edit mode (with lightweight debounce)
   const mdTimers = new WeakMap<any, number>()
@@ -2786,6 +2749,7 @@ function ensureWidgets(root: HTMLElement, pid: string): void {
       const add = grid.querySelector('#addWidget')
       if (add) grid.insertBefore(card, add)
       else grid.appendChild(card)
+      try { (card as HTMLElement).setAttribute('data-type', m.type) } catch {}
       // Ensure edit-mode overlays match current state
       const on = grid.getAttribute('data-edit') === '1'
       const el = card as HTMLElement
@@ -2923,8 +2887,8 @@ function widgetThumb(type: string): string {
       .join('')
     return `<div class="w-full h-24 flex items-end gap-1 px-2">${bars}</div>`
   }
-  if (type === 'readme') return `<div class="w-full h-24 bg-neutral-900/60 ring-2 ring-neutral-600 rounded p-2 text-xs text-gray-300"># README\n- Getting Started\n- Usage</div>`
-  if (type === 'markdown') return `<div class="w-full h-20 bg-neutral-900/60 ring-2 ring-neutral-600 rounded p-2 text-xs text-gray-400">## Markdown\n- リスト\n- **強調**</div>`
+  if (type === 'readme') return `<div class="w-full h-20 bg-neutral-900/60 ring-2 ring-neutral-600 rounded grid place-items-center"><div class="rd-open text-xs px-2 py-1 rounded bg-neutral-800/70 ring-2 ring-neutral-600 text-gray-100">README を開く</div></div>`
+  if (type === 'markdown') return `<div class="w-full h-20 bg-neutral-900/60 ring-2 ring-neutral-600 rounded grid place-items-center"><div class="md-open text-xs px-2 py-1 rounded bg-neutral-800/70 ring-2 ring-neutral-600 text-gray-100">Markdown を開く</div></div>`
   if (type === 'tasksum') return `<div class="w-full h-20 bg-neutral-900/60 ring-2 ring-neutral-600 rounded p-2 grid grid-cols-3 gap-2 text-[10px] text-gray-300"><div class="rounded bg-neutral-800/60 p-1 text-center">TODO<br/><span class="text-emerald-400">5</span></div><div class="rounded bg-neutral-800/60 p-1 text-center">DOING<br/><span class="text-emerald-400">3</span></div><div class="rounded bg-neutral-800/60 p-1 text-center">DONE<br/><span class="text-emerald-400">8</span></div></div>`
   if (type === 'milestones') return `<div class="w-full h-20 bg-neutral-900/60 ring-2 ring-neutral-600 rounded p-2 text-xs text-gray-400"><div>v1.0 リリース</div><div class="text-gray-500">2025-01-31</div></div>`
   if (type === 'links') return `<div class="w-full h-20 bg-neutral-900/60 ring-2 ring-neutral-600 rounded p-2 text-xs text-gray-400">- PR一覧\n- 仕様書</div>`
@@ -2945,6 +2909,8 @@ function addWidget(root: HTMLElement, pid: string, type: string): void {
   t.innerHTML = html
   const el = t.content.firstElementChild
   if (el) {
+    // expose type for delegated clicks
+    try { (el as HTMLElement).setAttribute('data-type', type) } catch {}
     const add = grid.querySelector('#addWidget')
     if (add) grid.insertBefore(el, add)
     else grid.appendChild(el)
@@ -2964,27 +2930,7 @@ function addWidget(root: HTMLElement, pid: string, type: string): void {
     }
     // Toggle any edit-only bits in this widget to match current edit mode
     ; (el as HTMLElement).querySelectorAll('.edit-only').forEach((n) => (n as HTMLElement).classList.toggle('hidden', !on))
-    // If this is a markdown widget, initialize its view and sync to edit state
-    if (type === 'markdown') {
-      const card = el as HTMLElement
-      const wrap = card.querySelector('.md-widget') as HTMLElement | null
-      const preview = wrap?.querySelector('.md-preview') as HTMLElement | null
-      const ta = wrap?.querySelector('.md-text') as HTMLTextAreaElement | null
-      const idAttr = (card.getAttribute('data-widget') || '')
-      const map = mdGetMap(pid)
-      const txt = map[idAttr] || ''
-      if (preview) preview.innerHTML = mdRenderToHtml(txt || 'ここにMarkdownを書いてください')
-      if (on) {
-        if (ta) ta.value = txt
-        const ed = wrap?.querySelector('.md-editor') as HTMLElement | null
-        ed?.classList.remove('hidden')
-        if (preview) preview.classList.add('hidden')
-      }
-      const editBtn = wrap?.querySelector('.md-edit') as HTMLElement | null
-      if (editBtn) editBtn.classList.add('hidden')
-      const status = wrap?.querySelector('.md-status') as HTMLElement | null
-      if (status) status.textContent = ''
-    }
+    // markdown: popup mode → 初期同期は不要
     // If this is a contributions widget, hydrate from cache/network
     if (type === 'contrib') {
       const host = root as HTMLElement
@@ -3356,6 +3302,108 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
     const m = (metaHex as any)[id] || (metaGrid as any)[id] || {}
     const w = root.querySelector(`[data-widget="${id}"]`) as HTMLElement | null
     if (!w) return
+    if (m.type === 'readme') {
+      try {
+        const gridEl = w.closest('#widgetGrid') as HTMLElement | null
+        const hx = w.closest('#hxwCanvas') as HTMLElement | null
+        const isEdit = (gridEl?.getAttribute('data-edit') === '1') || (hx?.getAttribute('data-edit') === '1')
+        const ensureOverlay = () => {
+          let ovl = w.querySelector('.wg-ovl') as HTMLElement | null
+          if (!ovl) {
+            ovl = document.createElement('button')
+            ovl.className = 'wg-ovl'
+            ovl.style.position = 'absolute'
+            ovl.style.left = '0'; ovl.style.top = '0'; ovl.style.right = '0'; ovl.style.bottom = '0'
+            ovl.style.display = 'grid'; (ovl.style as any).placeItems = 'center'
+            ovl.style.background = 'transparent'
+            ovl.style.zIndex = '9'
+            ovl.style.border = 'none'
+            ovl.style.outline = 'none'
+            ovl.style.transition = 'background-color .12s ease, box-shadow .12s ease, transform .04s ease'
+            ovl.addEventListener('click', (ev) => { ev.stopPropagation(); openReadmeModal(root) })
+            const lab = document.createElement('div')
+            lab.className = 'wg-label'
+            lab.textContent = 'README'
+            lab.style.padding = '2px 6px'
+            lab.style.borderRadius = '8px'
+            lab.style.background = 'rgba(0,0,0,0.35)'
+            lab.style.color = 'var(--gh-contrast)'
+            lab.style.fontSize = '16px'; lab.style.fontWeight = '700'
+            ovl.appendChild(lab)
+            w.appendChild(ovl)
+            // hover/active feedback
+            ovl.addEventListener('mouseenter', () => { if (ovl && !ovl.hasAttribute('disabled')) { ovl.style.background = 'rgba(255,255,255,0.06)'; ovl.style.boxShadow = '' } })
+            ovl.addEventListener('mouseleave', () => { if (ovl) { ovl.style.background = 'transparent'; ovl.style.boxShadow = '' } })
+            ovl.addEventListener('mousedown', () => { if (ovl && !ovl.hasAttribute('disabled')) ovl.style.transform = 'scale(0.995)' })
+            ovl.addEventListener('mouseup', () => { if (ovl) ovl.style.transform = '' })
+          }
+          ovl.toggleAttribute('disabled', !!isEdit)
+          ovl.style.pointerEvents = isEdit ? 'none' : 'auto'
+          w.classList.toggle('cursor-pointer', !isEdit)
+          w.setAttribute('title', !isEdit ? 'クリックでREADMEを開く' : '')
+          // Clip overlay to hex union soホバーの半透明がはみ出さない
+          try {
+            const body2 = w.querySelector('.hxw-body') as HTMLElement | null
+            const cp = body2 && ((body2.style as any).clipPath || (body2.style as any).webkitClipPath)
+            if (cp) { (ovl.style as any).clipPath = cp; (ovl.style as any).webkitClipPath = cp }
+          } catch {}
+        }
+        ensureOverlay()
+        const slotsWrap = w.querySelector('.hxw-cells') as HTMLElement | null
+        if (slotsWrap) { (slotsWrap as HTMLElement).querySelectorAll('.slot-inner').forEach((s) => ((s as HTMLElement).innerHTML = '')) }
+      } catch {}
+      return
+    }
+    if (m.type === 'markdown') {
+      try {
+        const gridEl = w.closest('#widgetGrid') as HTMLElement | null
+        const hx = w.closest('#hxwCanvas') as HTMLElement | null
+        const isEdit = (gridEl?.getAttribute('data-edit') === '1') || (hx?.getAttribute('data-edit') === '1')
+        const ensureOverlay = () => {
+          let ovl = w.querySelector('.wg-ovl') as HTMLElement | null
+          if (!ovl) {
+            ovl = document.createElement('button')
+            ovl.className = 'wg-ovl'
+            ovl.style.position = 'absolute'
+            ovl.style.left = '0'; ovl.style.top = '0'; ovl.style.right = '0'; ovl.style.bottom = '0'
+            ovl.style.display = 'grid'; (ovl.style as any).placeItems = 'center'
+            ovl.style.background = 'transparent'
+            ovl.style.zIndex = '9'
+            ovl.style.border = 'none'
+            ovl.style.outline = 'none'
+            ovl.style.transition = 'background-color .12s ease, box-shadow .12s ease, transform .04s ease'
+            ovl.addEventListener('click', (ev) => { ev.stopPropagation(); const id = w.getAttribute('data-widget') || ''; openMarkdownModal(root, pid, id) })
+            const lab = document.createElement('div')
+            lab.className = 'wg-label'
+            lab.textContent = 'Markdown'
+            lab.style.padding = '2px 6px'
+            lab.style.borderRadius = '8px'
+            lab.style.background = 'rgba(0,0,0,0.35)'
+            lab.style.color = 'var(--gh-contrast)'
+            lab.style.fontSize = '16px'; lab.style.fontWeight = '700'
+            ovl.appendChild(lab)
+            w.appendChild(ovl)
+            ovl.addEventListener('mouseenter', () => { if (ovl && !ovl.hasAttribute('disabled')) { ovl.style.background = 'rgba(255,255,255,0.06)'; ovl.style.boxShadow = '' } })
+            ovl.addEventListener('mouseleave', () => { if (ovl) { ovl.style.background = 'transparent'; ovl.style.boxShadow = '' } })
+            ovl.addEventListener('mousedown', () => { if (ovl && !ovl.hasAttribute('disabled')) ovl.style.transform = 'scale(0.995)' })
+            ovl.addEventListener('mouseup', () => { if (ovl) ovl.style.transform = '' })
+          }
+          ovl.toggleAttribute('disabled', !!isEdit)
+          ovl.style.pointerEvents = isEdit ? 'none' : 'auto'
+          w.classList.toggle('cursor-pointer', !isEdit)
+          w.setAttribute('title', !isEdit ? 'クリックでMarkdownを開く' : '')
+          try {
+            const body2 = w.querySelector('.hxw-body') as HTMLElement | null
+            const cp = body2 && ((body2.style as any).clipPath || (body2.style as any).webkitClipPath)
+            if (cp) { (ovl.style as any).clipPath = cp; (ovl.style as any).webkitClipPath = cp }
+          } catch {}
+        }
+        ensureOverlay()
+        const slotsWrap = w.querySelector('.hxw-cells') as HTMLElement | null
+        if (slotsWrap) { (slotsWrap as HTMLElement).querySelectorAll('.slot-inner').forEach((s) => ((s as HTMLElement).innerHTML = '')) }
+      } catch {}
+      return
+    }
     if (m.type === 'tabnew') {
       const slotsWrap = w.querySelector('.hxw-cells') as HTMLElement | null
       const wsKey = `tabnew:${id}`
@@ -3850,6 +3898,81 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
         if (prev) { try { clearInterval(prev) } catch {} clockTimers.delete(key) }
         try { const w = clockWatchers.get(key); if (w?.ro) w.ro.disconnect(); if (w?.raf) cancelAnimationFrame(w.raf); clockWatchers.delete(key) } catch {}
         const mode: 'digital' | 'analog' = (m.type === 'clock-digital') ? 'digital' : 'analog'
+        // Special layout for "clock-digital": tri-hex faces using per-cell slots
+        if (m.type === 'clock-digital') {
+          const slotsWrap = w.querySelector('.hxw-cells') as HTMLElement | null
+          if (slotsWrap) {
+            const slots = Array.from(slotsWrap.querySelectorAll('.hxw-slot')) as HTMLElement[]
+            if (slots.length >= 3) {
+              // Map slots: left -> hours, right-top -> month/day, right-bottom -> minutes
+              const pos = slots.map((s) => { const r = s.getBoundingClientRect(); const hostR = (w as HTMLElement).getBoundingClientRect(); return { s, x: r.left - hostR.left, y: r.top - hostR.top, w: r.width, h: r.height } })
+              const left = pos.reduce((a, b) => (b.x < a.x ? b : a))
+              const rights = pos.filter(p => p !== left).sort((a, b) => a.y - b.y)
+              const top = rights[0], bottom = rights[1]
+              // Helper to ensure a face container exists and returns its content root
+              const ensureFace = (slot: HTMLElement, name: 'hh'|'md'|'mm'): HTMLElement => {
+                const inner = slot.querySelector('.slot-inner') as HTMLElement
+                let face = inner.querySelector('.dt-face') as HTMLElement | null
+                if (!face) {
+                  inner.innerHTML = '<div class="dt-face w-full h-full grid place-items-center"></div>'
+                  face = inner.querySelector('.dt-face') as HTMLElement
+                  // apply hex-like shape + border and base colors
+                  face.style.clipPath = 'polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%)'
+                  face.style.background = 'white'
+                  face.style.color = 'black'
+                  face.style.boxShadow = '0 0 0 2px #ef4444' // red border
+                }
+                face.setAttribute('data-kind', name)
+                return face
+              }
+              const fcH = ensureFace(left.s, 'hh')
+              const fcM = ensureFace(bottom.s, 'mm')
+              const fcD = ensureFace(top.s, 'md')
+              // Fit text sizes based on slot height
+              const fit = () => {
+                const setFs = (el: HTMLElement, ratio: number) => { const h = el.clientHeight || 1; el.style.fontSize = `${Math.max(12, Math.floor(h * ratio))}px` }
+                setFs(fcH, 0.58); setFs(fcM, 0.58)
+                setFs(fcD, 0.32)
+              }
+              fit()
+              // Build static DOM for date face (two lines)
+              if (!fcD.querySelector('.dt-mon')) {
+                fcD.innerHTML = '<div class="text-center leading-tight"><div class="dt-mon font-semibold"></div><div class="dt-day font-semibold mt-1"></div></div>'
+              }
+              if (!fcH.querySelector('.dt-hh')) fcH.innerHTML = '<div class="dt-hh font-extrabold"></div>'
+              if (!fcM.querySelector('.dt-mm')) fcM.innerHTML = '<div class="dt-mm font-extrabold"></div>'
+              // tick updater
+              const monAbbr = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+              const up = () => {
+                const now = new Date()
+                const hh = String(now.getHours()).padStart(2, '0')
+                const mm = String(now.getMinutes()).padStart(2, '0')
+                const mon = monAbbr[now.getMonth()]
+                const day = String(now.getDate())
+                const hEl = fcH.querySelector('.dt-hh') as HTMLElement | null
+                const mEl = fcM.querySelector('.dt-mm') as HTMLElement | null
+                const moEl = fcD.querySelector('.dt-mon') as HTMLElement | null
+                const daEl = fcD.querySelector('.dt-day') as HTMLElement | null
+                if (hEl) hEl.textContent = hh
+                if (mEl) mEl.textContent = mm
+                if (moEl) moEl.textContent = mon
+                if (daEl) daEl.textContent = day
+              }
+              up()
+              const tid = window.setInterval(up, 1000)
+              clockTimers.set(key, tid as unknown as number)
+              // Observe resize and refit sizes only (avoid DOM rebuild)
+              try {
+                const existed = clockWatchers.get(key)?.ro
+                if (existed) existed.disconnect()
+                const ro = new ResizeObserver(() => { try { fit() } catch {} })
+                ro.observe(w)
+                clockWatchers.set(key, { ro })
+              } catch {}
+              return // handled; skip legacy clock render below
+            }
+          }
+        }
         let doFit: (() => void) | null = null
         const render = () => {
           const rect = box.getBoundingClientRect()
@@ -3891,6 +4014,10 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
               if (d) d.style.fontSize = `${dateFs}px`
             }
             doFit()
+            try {
+              const prevW2 = clockWatchers.get(key) || {}
+              clockWatchers.set(key, { ...prevW2, resize: () => { try { doFit && doFit() } catch {} } })
+            } catch {}
           } else {
             const svgSize = Math.floor(size * 0.96)
             const ticks = [0, 60, 120, 180, 240, 300]
@@ -3912,6 +4039,16 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
                   <circle cx=\"50\" cy=\"50\" r=\"2.8\" fill=\"var(--clk-major)\" />
                 </svg>
               </div>`
+            try {
+              const resizeAnalog = () => {
+                const rect2 = box.getBoundingClientRect(); const sz = Math.max(64, Math.min(rect2.width, rect2.height))
+                const svg = box.querySelector('svg') as SVGElement | null
+                if (svg) { const s = Math.floor(sz * 0.96); svg.setAttribute('width', String(s)); svg.setAttribute('height', String(s)) }
+              }
+              resizeAnalog()
+              const prevW2 = clockWatchers.get(key) || {}
+              clockWatchers.set(key, { ...prevW2, resize: () => { try { resizeAnalog() } catch {} } })
+            } catch {}
           }
         }
         // Defer first render to next frame to avoid 0-size reads during layout
@@ -3929,8 +4066,7 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
             const dt = box.querySelector('.clk-date') as HTMLElement | null
             if (t) { t.textContent = `${hh}:${mm}` }
             if (dt) { dt.textContent = d }
-            // Refit in case of size changes
-            try { doFit && doFit() } catch {}
+            // Avoid re-fitting each tick to prevent flicker; ResizeObserver handles real size changes
           } else {
             const s = now.getSeconds(); const m = now.getMinutes(); const h = now.getHours()%12 + m/60
             const aS = s * 6
@@ -3951,7 +4087,7 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
         try {
           const existed = clockWatchers.get(key)?.ro
           if (existed) existed.disconnect()
-          const ro = new ResizeObserver(() => { try { render() } catch {} })
+          const ro = new ResizeObserver(() => { try { const fn = clockWatchers.get(key)?.resize; fn && fn() } catch {} })
           ro.observe(box)
           const prev = clockWatchers.get(key) || {}
           clockWatchers.set(key, { ...prev, ro })
@@ -4291,7 +4427,7 @@ function clockSet(pid: string, id: string, mode: 'digital' | 'analog'): void {
   try { localStorage.setItem(clockKey(pid, id), mode) } catch { }
 }
 const clockTimers = new Map<string, number>()
-const clockWatchers = new Map<string, { ro?: ResizeObserver; raf?: number }>()
+const clockWatchers = new Map<string, { ro?: ResizeObserver; raf?: number; resize?: () => void }>()
 
 // ---- Flow helpers ----
 type FlowNode = { id: string; kind: 'trigger' | 'action'; type: string; x: number; y: number; label?: string; cfg?: Record<string, any> }
@@ -4313,6 +4449,7 @@ function widgetTitle(type: string): string {
     case 'committers': return 'Top Committers'
     case 'calendar': return 'カレンダー'
     case 'clock': return '時計'
+    case 'clock-digital': return 'デジタル時計'
     case 'spacer': return 'スペーサー'
     case 'tabnew': return '新規タブ'
     case 'tabbar': return 'タブ切替'
@@ -4383,6 +4520,7 @@ function buildWidgetBody(type: string): string {
     case 'progress': return `<div class=\"progress-body\"><div class=\"h-2 bg-neutral-800 rounded\"><div class=\"h-2 bg-emerald-600 rounded w-0\"></div></div><div class=\"text-xs text-gray-400 mt-1\">0%</div></div>`
     case 'team': return `<div class=\"team-body text-sm text-gray-200\"><p class=\"text-gray-400\">読み込み中...</p></div>`
     case 'todo': return `<div class=\"todo-body text-sm text-gray-200\"></div><div class=\"mt-2 text-xs\"><button class=\"todo-add rounded ring-2 ring-neutral-600 px-2 py-0.5 hover:bg-neutral-800\">項目追加</button></div>`
+    case 'clock-digital': return `<div class=\"clock-wrap relative h-full\"><div class=\"clock-body absolute inset-0 grid place-items-center text-gray-100\"></div></div>`
     case 'committers': return barSkeleton()
     default: return `<div class=\"h-40 grid place-items-center text-gray-400\">Mock</div>`
   }
@@ -4390,14 +4528,8 @@ function buildWidgetBody(type: string): string {
 
 // ------- Markdown widget -------
 function markdownWidget(): string {
-  return `
-    <div class="md-widget h-full">
-      <div class="md-preview whitespace-pre-wrap text-sm text-gray-200"></div>
-      <div class="md-editor hidden absolute inset-0 z-10 p-2">
-        <textarea class="md-text w-full h-full resize-none rounded-md bg-neutral-800/60 ring-2 ring-neutral-600 px-3 py-2 text-gray-100 placeholder:text-gray-500" placeholder="ここにMarkdownを書いてください"></textarea>
-      </div>
-    </div>
-  `
+  // Minimal body; whole widget acts as a button in view mode
+  return `<div class=\"h-full\"></div>`
 }
 
 function mdGetMap(pid: string): Record<string, string> {
@@ -4429,6 +4561,58 @@ function mdRenderToHtml(src: string): string {
   // Paragraphs
   s = s.replace(/^(?!<h\d|<ul|<pre|<li|<\/li|<\/ul|<code|<strong|<em|<a)(.+)$/gm, '<p class=\"my-2\">$1</p>')
   return s
+}
+
+// ---- Popups for README / Markdown ----
+function openReadmeModal(root: HTMLElement): void {
+  // Ensure single instance
+  document.getElementById('rdModal')?.remove()
+  const overlay = document.createElement('div')
+  overlay.id = 'rdModal'
+  overlay.className = 'fixed inset-0 z-[86] bg-black/60 backdrop-blur-[1px] grid place-items-center fade-overlay'
+  overlay.innerHTML = `
+    <div class="relative w-[min(980px,95vw)] max-h-[86vh] overflow-hidden rounded-xl bg-neutral-900 ring-2 ring-neutral-600 text-gray-100 pop-modal modal-fixed flex flex-col">
+      <header class="h-11 flex items-center px-4 border-b border-neutral-600"><div class="text-sm font-medium">README</div><button class="ml-auto text-2xl text-neutral-300 hover:text-white" data-close>×</button></header>
+      <section class="flex-1 overflow-auto p-4 text-sm" id="rd-body"><div class="text-gray-400">読み込み中...</div></section>
+    </div>`
+  const close = () => overlay.remove()
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close() })
+  overlay.querySelector('[data-close]')?.addEventListener('click', close)
+  document.body.appendChild(overlay)
+  // Try cached value; otherwise fetch
+  const body = overlay.querySelector('#rd-body') as HTMLElement
+  const cached = (root as any)._readmeText as string | undefined
+  const render = (txt: string) => { body.innerHTML = mdRenderToHtml(txt || 'README not found') }
+  if (cached != null) render(cached)
+  else {
+    const full = (root as HTMLElement).getAttribute('data-repo-full') || ''
+    if (!full) { render('リンクされたリポジトリがありません'); return }
+    const token = localStorage.getItem('apiToken')
+    fetch(`/api/github/readme?full_name=${encodeURIComponent(full)}`, { headers: token ? { Authorization: `Bearer ${token}` } : undefined })
+      .then((r) => r.text())
+      .then((t) => { try { (root as any)._readmeText = t } catch {}; render(t) })
+      .catch(() => render('読み込みに失敗しました'))
+  }
+}
+
+function openMarkdownModal(root: HTMLElement, pid: string, id: string): void {
+  document.getElementById('mdModal')?.remove()
+  const map = mdGetMap(pid)
+  const text = map[id] || ''
+  const overlay = document.createElement('div')
+  overlay.id = 'mdModal'
+  overlay.className = 'fixed inset-0 z-[86] bg-black/60 backdrop-blur-[1px] grid place-items-center fade-overlay'
+  overlay.innerHTML = `
+    <div class="relative w-[min(980px,95vw)] max-h-[86vh] overflow-hidden rounded-xl bg-neutral-900 ring-2 ring-neutral-600 text-gray-100 pop-modal modal-fixed flex flex-col">
+      <header class="h-11 flex items-center px-4 border-b border-neutral-600"><div class="text-sm font-medium">Markdown</div><button class="ml-auto text-2xl text-neutral-300 hover:text-white" data-close>×</button></header>
+      <section class="flex-1 overflow-auto p-4 text-sm" id="md-body"></section>
+    </div>`
+  const close = () => overlay.remove()
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close() })
+  overlay.querySelector('[data-close]')?.addEventListener('click', close)
+  document.body.appendChild(overlay)
+  const body = overlay.querySelector('#md-body') as HTMLElement
+  body.innerHTML = mdRenderToHtml(text || 'ここにMarkdownを書いてください')
 }
 
 // ---------- Fallback dummy detail ----------
@@ -5972,11 +6156,12 @@ function axGrow(count: number): Array<[number, number]> {
 function hxwShapeFor(type: string): Array<[number, number]> {
   switch (type) {
     case 'clock': return axGrow(7)
-    case 'clock-digital': return axGrow(7)
-    case 'readme': return axGrow(19)
+    // Digital clock: compact tri-hex layout (left hour, top-right month/day, bottom-right minute)
+    case 'clock-digital': return [[0,0],[1,0],[1,-1]] as any
+    case 'readme': return [[0, 0]] as any
     case 'contrib': return axGrow(7)
     case 'committers': return axGrow(7)
-    case 'markdown': return axGrow(7)
+    case 'markdown': return [[0, 0]] as any
     case 'spacer': return [[0, 0]] as any
     case 'links': return axGrow(4)
     case 'tasksum': return [[0,0],[1,0],[0,1],[1,1]] as any
@@ -6533,6 +6718,24 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
   canvas.addEventListener('click', (e) => {
     const pid = canvas.getAttribute('data-pid') || '0'
     const pickW = (el: HTMLElement | null): HTMLElement | null => (el?.closest('.widget') as HTMLElement | null)
+    // Whole-widget button in hex: open README/Markdown in view mode
+    try {
+      const edit = canvas.getAttribute('data-edit') === '1'
+      if (!edit) {
+        let host = (e.target as HTMLElement).closest('.hxw-widget') as HTMLElement | null
+        if (!host) {
+          try {
+            const els = (document.elementsFromPoint(e.clientX, e.clientY) as HTMLElement[])
+            for (const el of els) { const h = (el as HTMLElement).closest?.('.hxw-widget') as HTMLElement | null; if (h) { host = h; break } }
+          } catch {}
+        }
+        if (host) {
+          const type = (host.getAttribute('data-type') || '').toLowerCase()
+          if (type === 'readme') { e.stopPropagation(); openReadmeModal(root); return }
+          if (type === 'markdown') { const id = host.getAttribute('data-widget') || ''; e.stopPropagation(); openMarkdownModal(root, pid, id); return }
+        }
+      }
+    } catch {}
     // Links add
     const add = (e.target as HTMLElement).closest('.lnk-add') as HTMLElement | null
     if (add) {
@@ -6614,6 +6817,8 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
     }
     const calCancel = (e.target as HTMLElement).closest('.cal-cancel') as HTMLElement | null
     if (calCancel) { const w = pickW(calCancel); if (!w) return; const form = w.querySelector('.cal-form') as HTMLElement | null; if (form) form.classList.add('hidden'); return }
+    // README / Markdown popup buttons inside hex slots
+    // README/Markdown buttons inside hex slots have direct handlers; no global handling here
   })
   // (single handler above handles contextmenu always)
 }
@@ -6807,18 +7012,17 @@ function hxwPlaceWidgets(root: HTMLElement, pid: string, st: HexWLayout): void {
       slot.appendChild(clip)
       cellsWrap!.appendChild(slot)
     })
-    // For widgets that should not use cell slots (inputs/markdown等)、スロット要素自体を除去して本体を優先
+    // For widgets that should not use cell slots (inputs等)、スロット要素自体を除去して本体を優先
     try {
       const t = (host!.getAttribute('data-type') || '').toLowerCase()
-      // NOTE: Links/Calendar need slots in hex to place the single “＋” button
-      // so we exclude them from the noSlots list.
-      const noSlots = t === 'readme' || t === 'markdown' || t === 'flow'
+      // NOTE: Links/Calendar/README/Markdown are slot-driven (popup buttons)
+      const noSlots = t === 'flow'
       if (noSlots && cellsWrap) { cellsWrap.remove(); cellsWrap = null as any }
     } catch {}
-    // Hide rectangular body for compact slot-driven widgets (invite/account/tabnew/skin)
+    // Hide rectangular body for compact slot-driven widgets (invite/account/tabnew/skin/clock-digital/readme/markdown)
     try {
       const t = (host!.getAttribute('data-type') || '').toLowerCase()
-      if (t === 'invite' || t === 'account' || t === 'tabnew' || t === 'skin') {
+      if (t === 'invite' || t === 'account' || t === 'tabnew' || t === 'skin' || t === 'clock-digital' || t === 'readme' || t === 'markdown') {
         const body2 = host!.querySelector('.hxw-body') as HTMLElement | null
         if (body2) body2.style.display = 'none'
       }
