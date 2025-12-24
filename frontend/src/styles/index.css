@@ -614,6 +614,33 @@ body[data-lock]:not([data-lock="0"]) .hxw-wrap { pointer-events: none; }
 /* Add button on empty hex (hover) */
 /* (hover add button reverted) */
 
+/* ---- Button-like Widgets (invite/tabnew/account/skin) ---- */
+/* Make these feel more like buttons with clear hover affordance when not editing */
+#hxwCanvas[data-edit="0"] .hxw-widget[data-type="invite"],
+#hxwCanvas[data-edit="0"] .hxw-widget[data-type="tabnew"],
+#hxwCanvas[data-edit="0"] .hxw-widget[data-type="account"],
+#hxwCanvas[data-edit="0"] .hxw-widget[data-type="skin"] {
+  cursor: pointer;
+}
+#hxwCanvas[data-edit="0"] .hxw-widget[data-type="invite"] .hxw-outline path,
+#hxwCanvas[data-edit="0"] .hxw-widget[data-type="tabnew"] .hxw-outline path,
+#hxwCanvas[data-edit="0"] .hxw-widget[data-type="account"] .hxw-outline path,
+#hxwCanvas[data-edit="0"] .hxw-widget[data-type="skin"] .hxw-outline path {
+  opacity: 0.95;
+}
+#hxwCanvas[data-edit="0"] .hxw-widget[data-type="invite"]:hover .hxw-bg,
+#hxwCanvas[data-edit="0"] .hxw-widget[data-type="tabnew"]:hover .hxw-bg,
+#hxwCanvas[data-edit="0"] .hxw-widget[data-type="account"]:hover .hxw-bg,
+#hxwCanvas[data-edit="0"] .hxw-widget[data-type="skin"]:hover .hxw-bg {
+  filter: brightness(1.08) saturate(1.06);
+}
+#hxwCanvas[data-edit="0"] .hxw-widget[data-type="invite"]:hover .hxw-outline path,
+#hxwCanvas[data-edit="0"] .hxw-widget[data-type="tabnew"]:hover .hxw-outline path,
+#hxwCanvas[data-edit="0"] .hxw-widget[data-type="account"]:hover .hxw-outline path,
+#hxwCanvas[data-edit="0"] .hxw-widget[data-type="skin"]:hover .hxw-outline path {
+  stroke-width: 1.8;
+}
+
 /* Group quickbar (overlapped, enlarging active/hover) */
 .group-quick .gq-icon {
   width: 36px;

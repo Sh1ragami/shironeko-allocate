@@ -92,6 +92,8 @@ function themeOption(id: 'dark' | 'warm' | 'sakura', title: string, desc: string
   <button type=\"button\" data-theme=\"${id}\" class=\"theme-option relative text-left rounded-lg ring-2 ring-neutral-600 bg-neutral-900/40 hover:ring-emerald-600 transition-colors\">\n    <div class=\"absolute right-2 top-2 text-[10px] px-2 py-0.5 rounded-full bg-emerald-700 text-white opacity-0\" data-check>選択中</div>\n    <div class=\"p-3 ${scopeClass}\" ${scopeClass === 'th-sakura' ? 'data-demo' : ''}>\n      <div class=\"h-5 rounded bg-neutral-900/80 ring-2 ring-neutral-600\"></div>\n      <div class=\"mt-2 flex gap-2\">\n        <div class=\"w-8 rounded bg-neutral-900/50 ring-2 ring-neutral-600 h-20\"></div>\n        <div class=\"flex-1 space-y-2\">\n          <div class=\"gh-card p-2\"><div class=\"h-3 w-1/3 rounded bg-blue-400/30\"></div><div class=\"mt-2 h-2 w-2/3 rounded bg-gray-400/30\"></div></div>\n          <div class=\"gh-card p-2\"><div class=\"h-3 w-1/4 rounded bg-emerald-400/30\"></div><div class=\"mt-2 h-2 w-1/2 rounded bg-gray-400/30\"></div></div>\n        </div>\n      </div>\n    </div>\n    <div class=\"mt-3 px-3 pb-3\">\n      <div class=\"text-[15px] font-medium text-gray-100\">${title}</div>\n      <div class=\"text-[12px] text-gray-400\">${desc}</div>\n    </div>\n  </button>`
 }
 function openAccountModal(root: HTMLElement): void {
+  // Prevent multiple overlays
+  if (document.getElementById('accountOverlay')) return
   const me = (root as any)._me as { name?: string; email?: string; github_id?: number } | undefined
   const avatarUrl = me?.github_id ? `https://avatars.githubusercontent.com/u/${me.github_id}?s=128` : ''
   const overlay = document.createElement('div')
@@ -3427,18 +3429,22 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
           host.innerHTML = `<div class="w-full h-full grid place-items-center text-center">
             <div>
               <div class="text-[11px] text-gray-300 mb-0.5">${title}</div>
-              <button class="tn-go rounded bg-neutral-800/70 ring-2 ring-neutral-600 hover:bg-neutral-800 text-gray-100 px-3 py-1 text-sm">移動</button>
+              <button class="tn-go rounded bg-neutral-800/70 ring-2 ring-neutral-600 text-gray-100 px-3 py-1 text-sm">移動</button>
             </div>
           </div>`
           const go = host.querySelector('.tn-go') as HTMLElement | null
-          go?.addEventListener('click', () => {
+          const goAction = () => {
             const btn = root.querySelector(`#tabBar .tab-btn[data-tab="${st.id}"]`) as HTMLElement | null
             if (btn) (btn as HTMLButtonElement).click()
             else {
               root.querySelectorAll('section[data-tab]')
                 .forEach((sec) => (sec as HTMLElement).classList.toggle('hidden', sec.getAttribute('data-tab') !== st.id))
             }
-          })
+          }
+          go?.addEventListener('click', (e) => { e.stopPropagation(); goAction() })
+          // Whole tile acts as a button; overwrite handler each render
+          host.style.cursor = 'pointer'
+          ;(host as any).onclick = goAction
           // Keep stored title up-to-date
           try { tnSet({ id: st.id, title }) } catch {}
           return
@@ -3446,11 +3452,11 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
         host.innerHTML = `<div class="w-full h-full grid place-items-center text-center">
           <div>
             <div class="text-[11px] text-gray-300 mb-0.5">新規タブ</div>
-            <button class="tn-add rounded-full bg-emerald-600 hover:bg-emerald-500 text-white w-8 h-8 leading-none text-xl">＋</button>
+            <button class="tn-add rounded-full bg-emerald-600 text-white w-8 h-8 leading-none text-xl">＋</button>
           </div>
         </div>`
         const btn = host.querySelector('.tn-add') as HTMLElement | null
-        btn?.addEventListener('click', () => {
+        const openPicker = () => {
           openTabPickerModal(root, { onSelect: (type: TabTemplate) => {
             const newId = `custom-${Date.now()}`
             const title = tabTitle(type)
@@ -3460,7 +3466,10 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
             root.querySelectorAll('section[data-tab]')
               .forEach((sec) => (sec as HTMLElement).classList.toggle('hidden', sec.getAttribute('data-tab') !== newId))
           } } as any)
-        })
+        }
+        btn?.addEventListener('click', (e) => { e.stopPropagation(); openPicker() })
+        host.style.cursor = 'pointer'
+        ;(host as any).onclick = openPicker
       }
       if (slotsWrap) {
         const inner = slotsWrap.querySelector('.hxw-slot .slot-inner') as HTMLElement | null
@@ -3477,11 +3486,14 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
         host.innerHTML = `<div class="w-full h-full grid place-items-center text-center">
           <div>
             <div class="text-[11px] text-gray-300 mb-0.5">ユーザー設定</div>
-            <button class="ac-open rounded bg-neutral-800/70 ring-2 ring-neutral-600 hover:bg-neutral-800 text-gray-100 px-3 py-1 text-sm">開く</button>
+            <button class="ac-open rounded bg-neutral-800/70 ring-2 ring-neutral-600 text-gray-100 px-3 py-1 text-sm">開く</button>
           </div>
         </div>`
         const btn = host.querySelector('.ac-open') as HTMLElement | null
-        btn?.addEventListener('click', () => openAccountModal(root))
+        const openAcc = () => openAccountModal(root)
+        btn?.addEventListener('click', (e) => { e.stopPropagation(); openAcc() })
+        host.style.cursor = 'pointer'
+        ;(host as any).onclick = openAcc
       }
       if (slotsWrap) {
         const inner = slotsWrap.querySelector('.hxw-slot .slot-inner') as HTMLElement | null
@@ -3511,19 +3523,26 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
         if (st && st.theme) {
           const cur = getTheme()
           const label = st.theme === 'warm' ? 'ウォーム' : st.theme === 'sakura' ? 'さくら' : 'ダーク'
-          host.innerHTML = `<button class=\"w-full h-full grid place-items-center text-center group\" title=\"クリックで切替\">\n            <div>\n              <div class=\"text-[11px] text-gray-300 mb-0.5\">着せ替え</div>\n              <div class=\"px-3 py-1 rounded ring-2 ring-neutral-600 bg-neutral-800/70 text-sm text-gray-100 group-hover:bg-neutral-800\">${label}</div>\n              <div class=\"mt-1 text-[10px] text-gray-400\">現在: ${cur === st.theme ? 'ON' : 'OFF'}</div>\n            </div>\n          </button>`
+          const thClass = st.theme === 'warm' ? 'th-warm' : (st.theme === 'sakura' ? 'th-sakura' : 'th-dark')
+          host.innerHTML = `<button class=\"w-full h-full grid place-items-center text-center group\" title=\"クリックで切替\">\n            <div class=\"flex flex-col items-center\">\n              <div class=\"text-[11px] text-gray-300 mb-1\">着せ替え</div>\n              <div class=\"sk-prev ${thClass} rounded-md ring-2 ring-neutral-600 bg-neutral-900/50 p-2 relative overflow-hidden\" data-demo=\"1\" style=\"width:88px;height:46px;\">\n                <div class=\"h-full w-full rounded-sm\" style=\"background-color: var(--gh-canvas-subtle); border:1px solid var(--gh-border);\"></div>\n                <div class=\"absolute left-2 bottom-2 h-2 w-10 rounded-sm\" style=\"background: var(--gh-green); opacity:.9\"></div>\n                <div class=\"absolute right-2 top-2 text-[9px]\" style=\"color: var(--gh-accent);\">Aa</div>\n              </div>\n              <div class=\"mt-1 px-2 py-0.5 rounded bg-neutral-800/60 text-gray-100 text-[11px] group-hover:bg-neutral-800\">${label}・${cur === st.theme ? 'ON' : 'OFF'}</div>\n            </div>\n          </button>`
           const btn = host.querySelector('button') as HTMLButtonElement | null
-          btn?.addEventListener('click', () => {
+          const toggle = () => {
             const now = getTheme()
             const next = now === st.theme ? 'dark' : st.theme
             setTheme(next as ThemeId)
-          })
+          }
+          btn?.addEventListener('click', (e) => { e.stopPropagation(); toggle() })
+          host.style.cursor = 'pointer'
+          ;(host as any).onclick = toggle
           return
         }
         // not configured yet -> show plus to choose
-        host.innerHTML = `<div class=\"w-full h-full grid place-items-center text-center\">\n          <div>\n            <div class=\"text-[11px] text-gray-300 mb-0.5\">着せ替え</div>\n            <button class=\"sk-add rounded-full bg-emerald-600 hover:bg-emerald-500 text-white w-8 h-8 leading-none text-xl\" title=\"テーマを選択\">＋</button>\n          </div>\n        </div>`
+        host.innerHTML = `<div class=\"w-full h-full grid place-items-center text-center\">\n          <div>\n            <div class=\"text-[11px] text-gray-300 mb-0.5\">着せ替え</div>\n            <button class=\"sk-add rounded-full bg-emerald-600 text-white w-8 h-8 leading-none text-xl\" title=\"テーマを選択\">＋</button>\n          </div>\n        </div>`
         const btn = host.querySelector('.sk-add') as HTMLElement | null
-        btn?.addEventListener('click', () => choose())
+        const pick = () => choose()
+        btn?.addEventListener('click', (e) => { e.stopPropagation(); pick() })
+        host.style.cursor = 'pointer'
+        ;(host as any).onclick = pick
       }
       if (slotsWrap) {
         const inner = slotsWrap.querySelector('.hxw-slot .slot-inner') as HTMLElement | null
@@ -3544,8 +3563,13 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
         const overlay = document.createElement('div')
         overlay.id = 'ivPicker'
         overlay.className = 'fixed inset-0 z-[90] bg-black/50 grid place-items-center'
-        overlay.innerHTML = `<div class=\"w-[min(420px,92vw)] rounded-lg bg-neutral-900 ring-2 ring-neutral-600 p-3 text-gray-100\">\n          <div class=\"text-sm mb-2\">メンバーを選択</div>\n          <input id=\"iv-q\" class=\"w-full rounded bg-neutral-800/60 ring-2 ring-neutral-600 px-2 py-1 text-gray-100\" placeholder=\"検索\" />\n          <div id=\"iv-list\" class=\"mt-2 max-h-64 overflow-auto divide-y divide-neutral-700\"></div>\n        </div>`
+        overlay.innerHTML = `<div class=\"relative w-[min(420px,92vw)] rounded-lg bg-neutral-900 ring-2 ring-neutral-600 p-3 text-gray-100\">\n          <button id=\"iv-close\" class=\"absolute right-2 top-2 text-neutral-400 hover:text-white text-xl leading-none\" title=\"閉じる\">×</button>\n          <div class=\"text-sm mb-2\">メンバーを選択</div>\n          <input id=\"iv-q\" class=\"w-full rounded bg-neutral-800/60 ring-2 ring-neutral-600 px-2 py-1 text-gray-100\" placeholder=\"検索\" />\n          <div id=\"iv-list\" class=\"mt-2 max-h-64 overflow-auto divide-y divide-neutral-700\"></div>\n        </div>`
         document.body.appendChild(overlay)
+        const doClose = () => { try { document.removeEventListener('keydown', onKey) } catch {}; overlay.remove() }
+        overlay.addEventListener('click', (ev) => { if (ev.target === overlay) doClose() })
+        overlay.querySelector('#iv-close')?.addEventListener('click', doClose)
+        const onKey = (ev: KeyboardEvent) => { if (ev.key === 'Escape') doClose() }
+        setTimeout(() => document.addEventListener('keydown', onKey), 0)
         const listEl = overlay.querySelector('#iv-list') as HTMLElement
         const input = overlay.querySelector('#iv-q') as HTMLInputElement
         const renderItems = (arr: Array<{ login: string; avatar_url?: string }>) => {
@@ -3557,7 +3581,7 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
               try {
                 await apiFetch(`/projects/${pid}/collaborators`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ login, permission: 'push' }) })
                 ivSet({ login, avatar_url: avatar })
-                overlay.remove()
+                doClose()
                 try { refreshDynamicWidgets(root, pid) } catch {}
               } catch { alert('招待に失敗しました') }
             })
@@ -3579,11 +3603,15 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
         if (st && st.login) {
           const avatar = st.avatar_url || `https://avatars.githubusercontent.com/${st.login}?s=96`
           host.innerHTML = `<div class=\"w-full h-full grid place-items-center text-center\">\n            <div class=\"grid place-items-center\">\n              <img src=\"${avatar}\" class=\"w-10 h-10 rounded-full ring-2 ring-neutral-600 object-cover\"/>\n              <div class=\"mt-1 text-[12px] text-gray-200 truncate max-w-[90px]\">${st.login}</div>\n            </div>\n          </div>`
+          host.style.cursor = 'pointer'
+          ;(host as any).onclick = () => openPicker()
           return
         }
-        host.innerHTML = `<div class=\"w-full h-full grid place-items-center text-center\">\n          <div>\n            <div class=\"text-[11px] text-gray-300 mb-0.5\">メンバー追加</div>\n            <button class=\"iv-add rounded-full bg-emerald-600 hover:bg-emerald-500 text-white w-8 h-8 leading-none text-xl\">＋</button>\n          </div>\n        </div>`
+        host.innerHTML = `<div class=\"w-full h-full grid place-items-center text-center\">\n          <div>\n            <div class=\"text-[11px] text-gray-300 mb-0.5\">メンバー追加</div>\n            <button class=\"iv-add rounded-full bg-emerald-600 text-white w-8 h-8 leading-none text-xl\">＋</button>\n          </div>\n        </div>`
         const btn = host.querySelector('.iv-add') as HTMLElement | null
-        btn?.addEventListener('click', openPicker)
+        btn?.addEventListener('click', (e) => { e.stopPropagation(); openPicker() })
+        host.style.cursor = 'pointer'
+        ;(host as any).onclick = () => openPicker()
       }
       if (slotsWrap) {
         const inner = slotsWrap.querySelector('.hxw-slot .slot-inner') as HTMLElement | null
@@ -6088,7 +6116,16 @@ function hxwRenderShortcuts(root: HTMLElement, pid: string): void {
     // assign gradient colors via CSS variables for visual variety
     const [c1, c2] = palette[idx % palette.length]
     try { btn.style.setProperty('--hxw-sc-a', c1); btn.style.setProperty('--hxw-sc-b', c2) } catch {}
-    btn.addEventListener('click', onClick)
+    btn.addEventListener('click', (ev) => {
+      try { onClick() } finally {
+        // Auto-collapse the rail by removing focus so :focus-within no longer applies
+        try { (ev.currentTarget as HTMLElement)?.blur() } catch {}
+        try {
+          const active = document.activeElement as HTMLElement | null
+          if (active && rail.contains(active)) active.blur()
+        } catch {}
+      }
+    })
     rail.appendChild(btn)
   })
 }
