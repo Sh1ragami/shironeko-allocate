@@ -873,4 +873,77 @@ MD;
         $updated = $this->findByIdForUser($request, $id);
         return response()->json($updated);
     }
+
+    // ---- UI widget state persistence ----
+    // Stored under github_meta.ui.widget_state as a flat key-value map
+    public function getWidgetState(Request $request, int $id)
+    {
+        $project = $this->findByIdForUser($request, $id);
+        if (!$project) return response()->json(['message' => 'Not found'], 404);
+        if ($project instanceof \App\Models\Project) {
+            $meta = $project->github_meta ?? [];
+            $ui = is_array($meta['ui'] ?? null) ? $meta['ui'] : [];
+            $state = is_array($ui['widget_state'] ?? null) ? $ui['widget_state'] : [];
+            return response()->json($state);
+        }
+        $meta = is_array($project['github_meta'] ?? null) ? $project['github_meta'] : [];
+        $ui = is_array($meta['ui'] ?? null) ? $meta['ui'] : [];
+        $state = is_array($ui['widget_state'] ?? null) ? $ui['widget_state'] : [];
+        return response()->json($state);
+    }
+
+    public function patchWidgetState(Request $request, int $id)
+    {
+        $project = $this->findByIdForUser($request, $id);
+        if (!$project) return response()->json(['message' => 'Not found'], 404);
+
+        $data = $request->validate([
+            'key' => ['nullable','string','max:200'],
+            'value' => ['nullable'], // JSON value or null (to delete)
+            'state' => ['nullable','array'], // bulk merge
+        ]);
+
+        $applyState = function (&$meta, array $merge) {
+            if (!isset($meta['ui']) || !is_array($meta['ui'])) $meta['ui'] = [];
+            if (!isset($meta['ui']['widget_state']) || !is_array($meta['ui']['widget_state'])) $meta['ui']['widget_state'] = [];
+            foreach ($merge as $k => $v) {
+                if ($v === null) {
+                    unset($meta['ui']['widget_state'][$k]);
+                } else {
+                    $meta['ui']['widget_state'][$k] = $v;
+                }
+            }
+        };
+
+        $merge = [];
+        if (array_key_exists('state', $data) && is_array($data['state'])) {
+            $merge = $data['state'];
+        } elseif (array_key_exists('key', $data)) {
+            $merge = [ (string)$data['key'] => $data['value'] ?? null ];
+        }
+
+        if ($project instanceof \App\Models\Project) {
+            $meta = $project->github_meta ?? [];
+            $applyState($meta, $merge);
+            $project->github_meta = $meta;
+            $project->save();
+            return response()->json($meta['ui']['widget_state'] ?? []);
+        }
+
+        // JSON fallback persistence
+        $all = $this->readAll();
+        foreach ($all as &$p) {
+            if ((int)($p['id'] ?? 0) !== $id || ($p['user_id'] ?? null) !== $request->user()?->id) continue;
+            $m = $p['github_meta'] ?? [];
+            $applyState($m, $merge);
+            $p['github_meta'] = $m;
+        }
+        $this->writeAll($all);
+        // return updated state
+        $updated = $this->findByIdForUser($request, $id);
+        $meta = is_array($updated['github_meta'] ?? null) ? $updated['github_meta'] : [];
+        $ui = is_array($meta['ui'] ?? null) ? $meta['ui'] : [];
+        $state = is_array($ui['widget_state'] ?? null) ? $ui['widget_state'] : [];
+        return response()->json($state);
+    }
 }

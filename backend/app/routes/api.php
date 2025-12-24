@@ -49,6 +49,10 @@ Route::middleware('token.auth')->group(function () {
     Route::post('/projects/{id}/issues/{number}/comments', [\App\Http\Controllers\Api\ProjectController::class, 'commentIssue']);
     Route::post('/projects/{id}/issues/assign-next', [\App\Http\Controllers\Api\ProjectController::class, 'assignNext']);
 
+    // UI widget state (per project, per user)
+    Route::get('/projects/{id}/widget-state', [\App\Http\Controllers\Api\ProjectController::class, 'getWidgetState']);
+    Route::patch('/projects/{id}/widget-state', [\App\Http\Controllers\Api\ProjectController::class, 'patchWidgetState']);
+
     // Auth
     Route::post('/logout', [\App\Http\Controllers\Api\AuthController::class, 'logout']);
 });

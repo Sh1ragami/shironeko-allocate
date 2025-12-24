@@ -26,6 +26,37 @@ function loadSkills(uid?: number, kind: SkillGroup = 'owned'): string[] {
 function saveSkills(uid: number | undefined, kind: SkillGroup, list: string[]): void {
   localStorage.setItem(skillsKey(uid, kind), JSON.stringify(Array.from(new Set(list))))
 }
+
+// ---- Server-backed widget state (DB) ----
+// Stored per project under `/projects/:id/widget-state` as a flat key-value map
+const WS_CACHE = new Map<string, Record<string, any>>()
+async function wsLoadAll(pid: string): Promise<Record<string, any>> {
+  try {
+    const data = await apiFetch<Record<string, any>>(`/projects/${pid}/widget-state`)
+    WS_CACHE.set(pid, data || {})
+    return data || {}
+  } catch {
+    const empty: Record<string, any> = {}
+    WS_CACHE.set(pid, empty)
+    return empty
+  }
+}
+function wsGet(pid: string, key: string): any | null {
+  const m = WS_CACHE.get(pid)
+  return m ? (m[key] ?? null) : null
+}
+async function wsSet(pid: string, key: string, value: any | null): Promise<void> {
+  try {
+    await apiFetch<Record<string, any>>(`/projects/${pid}/widget-state`, {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key, value })
+    })
+    const cur = WS_CACHE.get(pid) || {}
+    if (value === null) { try { delete cur[key] } catch {} }
+    else cur[key] = value
+    WS_CACHE.set(pid, cur)
+  } catch { /* ignore to keep UI responsive */ }
+}
 function renderSkillSection(kind: SkillGroup, title: string, uid?: number): string {
   const selected = new Set(loadSkills(uid, kind).filter((s) => ALL_SKILLS.includes(s)))
   const seed = ALL_SKILLS.slice(0, 12)
@@ -685,7 +716,8 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
   loadCustomTabs(container, String(project.id))
   // Apply saved tab order (core + custom)
   try { applySavedTabOrder(container, String(project.id)) } catch { }
-  // After tabs are ready, refresh dynamic widgets (task summary, links, tabnew, etc.)
+  // Load server-backed widget state (for tabnew/invite, etc.), then refresh dynamic widgets
+  try { await wsLoadAll(String(project.id)) } catch {}
   try { refreshDynamicWidgets(container, String(project.id)) } catch { }
   // Enable DnD for tabs
   try { enableTabDnD(container, String(project.id)) } catch { }
@@ -2796,6 +2828,7 @@ function openWidgetPickerModal(root: HTMLElement, pid: string, onPick?: (type: s
             ${widgetCard('markdown', 'Markdownブロック')}
             ${widgetCard('tasksum', 'タスクサマリー')}
             ${widgetCard('links', 'クイックリンク')}
+            ${widgetCard('skin', '着せ替え')}
             ${widgetCard('tabnew', '新規タブ')}
             ${widgetCard('invite', 'メンバー追加')}
             ${widgetCard('account', 'ユーザー設定')}
@@ -2826,7 +2859,7 @@ function openWidgetPickerModal(root: HTMLElement, pid: string, onPick?: (type: s
   const getCat = (t: string): string => {
     if (['readme', 'contrib', 'committers'].includes(t)) return 'github'
     if (['markdown'].includes(t)) return 'text'
-    if (['tasksum', 'links', 'clock', 'clock-digital', 'spacer', 'tabnew', 'invite', 'account'].includes(t)) return 'manage'
+    if (['tasksum', 'links', 'clock', 'clock-digital', 'spacer', 'tabnew', 'invite', 'account', 'skin'].includes(t)) return 'manage'
     return 'other'
   }
   const applyCat = (cat: string) => {
@@ -2860,6 +2893,9 @@ function widgetCard(type: string, title: string): string {
 function widgetThumb(type: string): string {
   // All class names are explicit to be kept by Tailwind JIT
   if (type === 'spacer') return `<div class=\"w-20 h-20 bg-neutral-900/60 ring-2 ring-neutral-600 rounded grid place-items-center\"><span class=\"text-xs text-gray-400\">1セル</span></div>`
+  if (type === 'skin') {
+    return `<div class=\"w-20 h-20 bg-neutral-900/60 ring-2 ring-neutral-600 rounded grid place-items-center text-center\">\n      <div>\n        <div class=\"text-[11px] text-gray-300 mb-0.5\">着せ替え</div>\n        <div class=\"w-7 h-7 rounded-full bg-emerald-600 text-white grid place-items-center text-lg\">＋</div>\n      </div>\n    </div>`
+  }
   if (type === 'tabnew') {
     return `<div class=\"w-20 h-20 bg-neutral-900/60 ring-2 ring-neutral-600 rounded grid place-items-center text-center\">\n      <div>\n        <div class=\"text-[11px] text-gray-300 mb-0.5\">新規タブ</div>\n        <div class=\"w-7 h-7 rounded-full bg-emerald-600 text-white grid place-items-center text-lg\">＋</div>\n      </div>\n    </div>`
   }
@@ -3322,10 +3358,10 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
     if (!w) return
     if (m.type === 'tabnew') {
       const slotsWrap = w.querySelector('.hxw-cells') as HTMLElement | null
-      const tnKey = (p: string, wid: string) => `pj-tabnew-${p}-${wid}`
-      const tnGet = (): { id: string; title?: string } | null => { try { return JSON.parse(localStorage.getItem(tnKey(pid, id)) || 'null') } catch { return null } }
-      const tnSet = (v: { id: string; title?: string }) => { try { localStorage.setItem(tnKey(pid, id), JSON.stringify(v)) } catch {} }
-      const tnClear = () => { try { localStorage.removeItem(tnKey(pid, id)) } catch {} }
+      const wsKey = `tabnew:${id}`
+      const tnGet = (): { id: string; title?: string } | null => { try { return wsGet(pid, wsKey) || null } catch { return null } }
+      const tnSet = (v: { id: string; title?: string }) => { try { wsSet(pid, wsKey, v) } catch {} }
+      const tnClear = () => { try { wsSet(pid, wsKey, null) } catch {} }
       const renderCell = (host: HTMLElement) => {
         const assoc = tnGet()
         if (assoc && assoc.id && assoc.id.startsWith('custom-')) {
@@ -3408,11 +3444,53 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
       }
       return
     }
+    if (m.type === 'skin') {
+      const slotsWrap = w.querySelector('.hxw-cells') as HTMLElement | null
+      const wsKey = `skin:${id}`
+      type ThemeId = 'dark' | 'warm' | 'sakura'
+      const renderCell = (host: HTMLElement) => {
+        const st = (wsGet(pid, wsKey) as { theme?: ThemeId } | null) || null
+        const choose = () => {
+          host.innerHTML = `<div class=\"w-full h-full grid place-items-center text-center\">\n            <div>\n              <div class=\"text-[11px] text-gray-300 mb-1\">テーマを選択</div>\n              <div class=\"flex items-center justify-center gap-2\">\n                <button data-th=\"warm\" class=\"px-2 py-1 rounded bg-neutral-800/70 ring-2 ring-neutral-600 text-xs text-gray-100 hover:bg-neutral-800\">ウォーム</button>\n                <button data-th=\"sakura\" class=\"px-2 py-1 rounded bg-neutral-800/70 ring-2 ring-neutral-600 text-xs text-gray-100 hover:bg-neutral-800\">さくら</button>\n              </div>\n            </div>\n          </div>`
+          host.querySelectorAll('[data-th]')?.forEach((b) => {
+            b.addEventListener('click', async () => {
+              const th = (b as HTMLElement).getAttribute('data-th') as ThemeId
+              await wsSet(pid, wsKey, { theme: th })
+              renderCell(host)
+            })
+          })
+        }
+        if (st && st.theme) {
+          const cur = getTheme()
+          const label = st.theme === 'warm' ? 'ウォーム' : st.theme === 'sakura' ? 'さくら' : 'ダーク'
+          host.innerHTML = `<button class=\"w-full h-full grid place-items-center text-center group\" title=\"クリックで切替\">\n            <div>\n              <div class=\"text-[11px] text-gray-300 mb-0.5\">着せ替え</div>\n              <div class=\"px-3 py-1 rounded ring-2 ring-neutral-600 bg-neutral-800/70 text-sm text-gray-100 group-hover:bg-neutral-800\">${label}</div>\n              <div class=\"mt-1 text-[10px] text-gray-400\">現在: ${cur === st.theme ? 'ON' : 'OFF'}</div>\n            </div>\n          </button>`
+          const btn = host.querySelector('button') as HTMLButtonElement | null
+          btn?.addEventListener('click', () => {
+            const now = getTheme()
+            const next = now === st.theme ? 'dark' : st.theme
+            setTheme(next as ThemeId)
+          })
+          return
+        }
+        // not configured yet -> show plus to choose
+        host.innerHTML = `<div class=\"w-full h-full grid place-items-center text-center\">\n          <div>\n            <div class=\"text-[11px] text-gray-300 mb-0.5\">着せ替え</div>\n            <button class=\"sk-add rounded-full bg-emerald-600 hover:bg-emerald-500 text-white w-8 h-8 leading-none text-xl\" title=\"テーマを選択\">＋</button>\n          </div>\n        </div>`
+        const btn = host.querySelector('.sk-add') as HTMLElement | null
+        btn?.addEventListener('click', () => choose())
+      }
+      if (slotsWrap) {
+        const inner = slotsWrap.querySelector('.hxw-slot .slot-inner') as HTMLElement | null
+        if (inner) renderCell(inner)
+      } else {
+        const body = w.querySelector('.wg-content') as HTMLElement | null
+        if (body) renderCell(body)
+      }
+      return
+    }
     if (m.type === 'invite') {
       const slotsWrap = w.querySelector('.hxw-cells') as HTMLElement | null
-      const ivKey = (p: string, wid: string) => `pj-invite-${p}-${wid}`
-      const ivGet = (): { login: string; avatar_url?: string } | null => { try { return JSON.parse(localStorage.getItem(ivKey(pid, id)) || 'null') } catch { return null } }
-      const ivSet = (v: { login: string; avatar_url?: string }) => { try { localStorage.setItem(ivKey(pid, id), JSON.stringify(v)) } catch {} }
+      const wsKey = `invite:${id}`
+      const ivGet = (): { login: string; avatar_url?: string } | null => { try { return wsGet(pid, wsKey) || null } catch { return null } }
+      const ivSet = (v: { login: string; avatar_url?: string }) => { try { wsSet(pid, wsKey, v) } catch {} }
       const openPicker = () => {
         document.getElementById('ivPicker')?.remove()
         const overlay = document.createElement('div')
@@ -4240,6 +4318,7 @@ function widgetTitle(type: string): string {
     case 'tabbar': return 'タブ切替'
     case 'invite': return 'メンバー追加'
     case 'account': return 'ユーザー設定'
+    case 'skin': return '着せ替え'
     default: return 'Widget'
   }
 }
@@ -4254,6 +4333,7 @@ function buildWidgetBody(type: string): string {
     case 'milestones': return `<ul class=\"text-sm text-gray-200 space-y-2\"><li>企画 <span class=\"text-gray-400\">(完了)</span></li><li>実装 <span class=\"text-gray-400\">(進行中)</span></li><li>リリース <span class=\"text-gray-400\">(未着手)</span></li></ul>`
     case 'spacer': return `<div class=\"h-full\"></div>`
     case 'tabnew': return `<div class=\"tn-body h-full\"></div>`
+    case 'skin': return `<div class=\"skin-body h-full\"></div>`
     case 'tabbar': return `<div class=\"h-full\"></div>`
     case 'invite': return `<div class=\"iv-body h-full\"></div>`
     case 'account': return `<div class=\"acc-body h-full\"></div>`
@@ -4815,16 +4895,14 @@ function openTabContextMenu(root: HTMLElement, pid: string, arg: { kind: 'core' 
       const saved = JSON.parse(localStorage.getItem(`tabs-${pid}`) || '[]') as Array<{ id: string; type: TabTemplate; title?: string }>
       const next = saved.filter((t) => t.id !== id)
       localStorage.setItem(`tabs-${pid}`, JSON.stringify(next))
-      // Also clear any "新規タブ" widget association pointing to this tab
+      // Also clear any "新規タブ" widget association pointing to this tab (server state)
       try {
         const meta = hxwGetMeta(pid)
         Object.entries(meta).forEach(([wid, m]) => {
           if ((m as any)?.type === 'tabnew') {
-            const key = `pj-tabnew-${pid}-${wid}`
-            try {
-              const st = JSON.parse(localStorage.getItem(key) || 'null') as { id?: string } | null
-              if (st?.id === id) localStorage.removeItem(key)
-            } catch {}
+            const k = `tabnew:${wid}`
+            const st = wsGet(pid, k)
+            if (st && st.id === id) wsSet(pid, k, null)
           }
         })
       } catch {}
@@ -5904,6 +5982,7 @@ function hxwShapeFor(type: string): Array<[number, number]> {
     case 'tasksum': return [[0,0],[1,0],[0,1],[1,1]] as any
     case 'calendar': return axGrow(12)
     case 'tabnew': return [[0, 0]] as any
+    case 'skin': return [[0, 0]] as any
     case 'tabbar': return axGrow(7)
     case 'invite': return [[0, 0]] as any
     case 'account': return [[0, 0]] as any
@@ -6736,10 +6815,10 @@ function hxwPlaceWidgets(root: HTMLElement, pid: string, st: HexWLayout): void {
       const noSlots = t === 'readme' || t === 'markdown' || t === 'flow'
       if (noSlots && cellsWrap) { cellsWrap.remove(); cellsWrap = null as any }
     } catch {}
-    // Hide rectangular body for compact slot-driven widgets (invite/account/tabnew)
+    // Hide rectangular body for compact slot-driven widgets (invite/account/tabnew/skin)
     try {
       const t = (host!.getAttribute('data-type') || '').toLowerCase()
-      if (t === 'invite' || t === 'account' || t === 'tabnew') {
+      if (t === 'invite' || t === 'account' || t === 'tabnew' || t === 'skin') {
         const body2 = host!.querySelector('.hxw-body') as HTMLElement | null
         if (body2) body2.style.display = 'none'
       }
