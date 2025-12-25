@@ -297,8 +297,8 @@ export function openAccountModal(root: HTMLElement): void {
   function saveCardTheme(uid: number | undefined, id: string) { localStorage.setItem(cardThemeKey(uid), id) }
   const chip = (s: string) => `<span class=\"inline-flex items-center px-2 py-0.5 rounded-full ring-1 ring-neutral-600 bg-neutral-800/70 text-gray-100 mr-1 mb-1\" style=\"font-size:var(--chip-fs,12px)\">${skillIcon(s)}${s}</span>`
   const renderCardPreview = (data: ProfileData): string => {
-    const own = (data.owned || []).filter((s) => ALL_SKILLS.includes(s)).slice(0, 12)
-    const want = (data.want || []).filter((s) => ALL_SKILLS.includes(s)).slice(0, 12)
+    const own = (data.owned || []).filter((s) => ALL_SKILLS.includes(s))
+    const want = (data.want || []).filter((s) => ALL_SKILLS.includes(s))
     const th = themeById(data.theme)
     const bg = `linear-gradient(135deg, ${th.a} 0%, ${th.b} 100%)`
     return `
