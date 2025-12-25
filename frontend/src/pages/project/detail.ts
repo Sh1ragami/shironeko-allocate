@@ -34,6 +34,9 @@ function tintHex(hex: string, pct = 0.2): string {
 }
 const ICON_BELL = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="36" height="36" fill="currentColor" aria-hidden="true"><path d="M12 22a2 2 0 002-2h-4a2 2 0 002 2zm6-6v-5a6 6 0 00-4.5-5.82V4a1.5 1.5 0 10-3 0v1.18A6 6 0 006 11v5l-2 2v1h16v-1l-2-2z"/></svg>'
 const ICON_PALETTE = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="36" height="36" fill="currentColor" aria-hidden="true"><path d="M12 3a9 9 0 100 18h1a2 2 0 002-2 2 2 0 012-2h1a4 4 0 100-8h-1a1 1 0 01-1-1 4 4 0 00-4-4zm-5.5 8A1.5 1.5 0 118 9.5 1.5 1.5 0 016.5 11zm3 3A1.5 1.5 0 1111 12.5 1.5 1.5 0 019.5 14zm5-6A1.5 1.5 0 1116 6.5 1.5 1.5 0 0114.5 8zm2 4A1.5 1.5 0 1118 10.5 1.5 1.5 0 0116.5 12z"/></svg>'
+// Icons for profile menu items
+const ICON_SKILLS = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M4 4h7v7H4V4Zm0 9h7v7H4v-7Zm9-9h7v7h-7V4Zm0 9h7v7h-7v-7Z"/></svg>'
+const ICON_WISH = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M12 21s-6.716-3.858-9.193-7.335C1.084 11.62 2.02 8.8 4.46 7.67 6.227 6.844 8.23 7.24 9.5 8.5L12 11l2.5-2.5c1.27-1.26 3.273-1.656 5.04-.83 2.44 1.13 3.376 3.95 1.653 5.995C18.716 17.142 12 21 12 21Z"/></svg>'
 function skillsKey(uid?: number, kind: SkillGroup = 'owned'): string { return `acct-skills-${uid ?? 'guest'}-${kind}` }
 function loadSkills(uid?: number, kind: SkillGroup = 'owned'): string[] {
   try { return JSON.parse(localStorage.getItem(skillsKey(uid, kind)) || '[]') as string[] } catch { return [] }
@@ -134,13 +137,12 @@ export function openAccountModal(root: HTMLElement): void {
           <span id="acctTabLabelText">基本情報</span>
         </div>
       </div>
-      <div class="flex items-center h-12 px-5">
-        <button id="accountClose" class="ml-auto text-2xl text-neutral-300 hover:text-white">×</button>
-      </div>
-      <div class="h-[calc(78vh-3rem)]">
-        <section class="h-full p-6 space-y-6 overflow-y-auto">
-          <div class="tab-panel" data-tab="basic">
-            <div class="flex items-center gap-4">
+      <div id="leftPaneModalBg" class="hidden absolute inset-y-0 left-0" style="width:40%; background: rgba(64,72,84,0.78); border-top-left-radius:12px; border-bottom-left-radius:12px;"></div>
+      <div class="relative h-[78vh]">
+        
+        <section class="relative h-full p-6 overflow-y-auto">
+          <div class="tab-panel relative" data-tab="basic">
+            <div id="acctBasicHeader" class="flex items-center gap-4">
             <div class="w-16 h-16 rounded-full overflow-hidden bg-neutral-700 ring-2 ring-neutral-600">
                 ${avatarUrl ? `<img src="${avatarUrl}" class="w-full h-full object-cover"/>` : ''}
               </div>
@@ -150,12 +152,54 @@ export function openAccountModal(root: HTMLElement): void {
               </div>
               <button id="logoutBtn" class="ml-auto inline-flex items-center rounded-md bg-rose-700 hover:bg-rose-600 text-white text-sm font-medium px-3 py-1.5">ログアウト</button>
             </div>
-            <hr class="my-6 border-neutral-600"/>
-            <h4 class="text-base font-medium">ユーザー設定</h4>
-            <div class="space-y-6">
-              ${renderSkillSection('owned', '所有スキル一覧', (root as any)._me?.id)}
-              ${renderSkillSection('want', '希望スキル一覧', (root as any)._me?.id)}
-            </div>
+            <!-- Profile big card -->
+            <section id="profileStart" class="mt-6">
+              <div class="text-sm text-gray-400 mb-2">プロフィール</div>
+              <div class="grid place-items-center min-h-[60vh]">
+                <button id="profileCard" type="button" class="rounded-2xl bg-neutral-900/40 w-[min(90%,720px)] aspect-[16/9] overflow-hidden">
+                  <div id="profileCardInner" class="w-full h-full"></div>
+                </button>
+              </div>
+            </section>
+
+            <!-- Profile editor view (hidden by default) -->
+            <section id="profileEditor" class="hidden">
+              <div class="relative flex items-stretch gap-6 h-[60vh]" style="height: calc(78vh - 48px)">
+                <aside class="relative z-10 basis-[40%] shrink-0 p-3 h-full">
+                  <div class="flex items-center justify-start mb-3">
+                    <button id="profBack" type="button" class="inline-flex items-center gap-1 text-sm text-gray-200 hover:text-white">
+                      <span>←</span><span>閉じる</span>
+                    </button>
+                  </div>
+                    <!-- メニュー一覧 -->
+                  <div id="profMenuWrap" class="space-y-3">
+                    <button class="prof-menu-btn w-full h-12 inline-flex items-center rounded-lg ring-2 ring-neutral-600 bg-neutral-900/60 hover:bg-neutral-900 px-3 text-[18px] font-medium" data-item="owned">
+                      <span class="relative mr-3 grid place-items-center w-12 h-12 bg-neutral-700/60 rounded-sm ring-1 ring-neutral-600 overflow-hidden">
+                        <span class="absolute inset-y-0 left-0" style="width:16.66%; background-color: rgba(59,130,246,.7)"></span>
+                        <span class="relative" style="color:#cde2ff">${ICON_SKILLS}</span>
+                      </span>
+                      <span>所持スキル</span>
+                    </button>
+                    <button class="prof-menu-btn w-full h-12 inline-flex items-center rounded-lg ring-2 ring-neutral-600 bg-neutral-900/60 hover:bg-neutral-900 px-3 text-[18px] font-medium" data-item="want">
+                      <span class="relative mr-3 grid place-items-center w-12 h-12 bg-neutral-700/60 rounded-sm ring-1 ring-neutral-600 overflow-hidden">
+                        <span class="absolute inset-y-0 left-0" style="width:16.66%; background-color: rgba(217,70,239,.7)"></span>
+                        <span class="relative" style="color:#ffd6ff">${ICON_WISH}</span>
+                      </span>
+                      <span>希望スキル一覧</span>
+                    </button>
+                  </div>
+
+                    <!-- メニュー個別の選択欄 -->
+                    <div id="menuEditWrap" class="hidden mt-1">
+                      <div class="mb-2 text-base" id="editTitle">項目</div>
+                      <div id="menuEdit" class="rounded-lg ring-2 ring-neutral-600 bg-neutral-900/40 p-3 min-h-[260px] overflow-auto"></div>
+                    </div>
+                </aside>
+                <section class="relative z-10 basis-[60%] shrink-0 grid place-items-center h-full">
+                  <div id="cardPreview" class="rounded-2xl bg-neutral-900/40 w-[min(90%,720px)] aspect-[16/9]"></div>
+                </section>
+              </div>
+            </section>
           </div>
           <div class="tab-panel hidden" data-tab="notify">
             <div class="mb-6 p-4 rounded-lg ring-2 ring-neutral-600 bg-neutral-900/60">
@@ -219,6 +263,110 @@ export function openAccountModal(root: HTMLElement): void {
   const label = overlay.querySelector('#acctTabLabel') as HTMLElement | null
   const labelText = overlay.querySelector('#acctTabLabelText') as HTMLElement | null
   let currentTabEl: HTMLElement | null = null
+  // ---- Profile card + editor helpers ----
+  type ProfileData = { name: string; owned: string[]; want: string[]; avatar?: string }
+  const meId = (root as any)._me?.id as number | undefined
+  const getProfile = (): ProfileData => ({
+    name: me?.name || 'ゲスト',
+    owned: loadSkills(meId, 'owned') || [],
+    want: loadSkills(meId, 'want') || [],
+    avatar: avatarUrl || ''
+  })
+  const chip = (s: string) => `<span class=\"inline-flex items-center px-2 py-0.5 rounded-full text-[11px] ring-1 ring-neutral-600 bg-neutral-800/70 text-gray-100 mr-1 mb-1\">${skillIcon(s)}${s}</span>`
+  const renderCardPreview = (data: ProfileData): string => {
+    const own = (data.owned || []).filter((s) => ALL_SKILLS.includes(s)).slice(0, 12)
+    const want = (data.want || []).filter((s) => ALL_SKILLS.includes(s)).slice(0, 12)
+    return `
+      <div class=\"w-full h-full rounded-xl overflow-hidden bg-gradient-to-br from-neutral-800/80 to-neutral-900/80\">
+        <div class=\"p-4 flex items-center gap-3 bg-neutral-900/40\">
+          <div class=\"w-12 h-12 rounded-full overflow-hidden bg-neutral-700 ring-1 ring-neutral-600\">${data.avatar ? `<img src='${data.avatar}' class='w-full h-full object-cover'/>` : ''}</div>
+          <div>
+            <div class=\"text-[15px] font-semibold\">${data.name}</div>
+            <div class=\"text-[12px] text-gray-400\">Profile Card</div>
+          </div>
+        </div>
+        <div class=\"p-4\">
+          <div class=\"text-[12px] text-gray-400 mb-1\">所有スキル</div>
+          <div class=\"flex flex-wrap\">${own.length ? own.map(chip).join('') : '<span class="text-[12px] text-gray-500">未選択</span>'}</div>
+          <div class=\"mt-3 text-[12px] text-gray-400 mb-1\">希望スキル</div>
+          <div class=\"flex flex-wrap\">${want.length ? want.map(chip).join('') : '<span class="text-[12px] text-gray-500">未選択</span>'}</div>
+        </div>
+      </div>`
+  }
+  const mountStartCard = () => {
+    const box = overlay.querySelector('#profileCardInner') as HTMLElement | null
+    if (box) box.innerHTML = renderCardPreview(getProfile())
+    const prev = overlay.querySelector('#cardPreview') as HTMLElement | null
+    if (prev) prev.innerHTML = renderCardPreview(getProfile())
+  }
+  const showEditor = (on: boolean) => {
+    const start = overlay.querySelector('#profileStart') as HTMLElement | null
+    const editor = overlay.querySelector('#profileEditor') as HTMLElement | null
+    const head = overlay.querySelector('#acctBasicHeader') as HTMLElement | null
+    const leftBg = overlay.querySelector('#leftPaneModalBg') as HTMLElement | null
+    start?.classList.toggle('hidden', on)
+    editor?.classList.toggle('hidden', !on)
+    head?.classList.toggle('hidden', on)
+    if (leftBg) leftBg.classList.toggle('hidden', !on)
+  }
+  const showMenuList = (on: boolean) => {
+    const menu = overlay.querySelector('#profMenuWrap') as HTMLElement | null
+    const edit = overlay.querySelector('#menuEditWrap') as HTMLElement | null
+    menu?.classList.toggle('hidden', !on)
+    edit?.classList.toggle('hidden', on)
+  }
+  const openCategory = (kind: 'owned' | 'want') => {
+    markMenu(kind)
+    const title = overlay.querySelector('#editTitle') as HTMLElement | null
+    if (title) title.textContent = kind === 'owned' ? '所持スキル' : '希望スキル一覧'
+    renderEditorSkills(kind)
+    showMenuList(false)
+    const prev = overlay.querySelector('#cardPreview') as HTMLElement | null
+    if (prev) prev.innerHTML = renderCardPreview(getProfile())
+  }
+  const markMenu = (id: 'owned' | 'want') => {
+    overlay.querySelectorAll('.prof-menu-btn').forEach((b) => {
+      const active = (b as HTMLElement).getAttribute('data-item') === id
+      b.classList.toggle('bg-neutral-800', active)
+      b.classList.toggle('ring-emerald-600', active)
+      b.classList.toggle('text-white', active)
+    })
+  }
+  const renderEditorSkills = (kind: 'owned' | 'want') => {
+    const cont = overlay.querySelector('#menuEdit') as HTMLElement | null
+    if (!cont) return
+    const selected = new Set(loadSkills(meId, kind).filter((s) => ALL_SKILLS.includes(s)))
+    const seed = ALL_SKILLS
+    cont.innerHTML = `
+      <div class=\"flex items-center justify-between mb-2\">
+        <div class=\"text-sm text-gray-200\">${kind === 'owned' ? '所有スキルを選択' : '希望スキルを選択'}</div>
+        <div class=\"text-[12px] text-gray-400\">${selected.size} 件選択</div>
+      </div>
+      <div class=\"rounded-lg ring-2 ring-neutral-600 bg-neutral-900/40 p-3 flex flex-wrap gap-2\">
+        ${seed.map((s) => `<button class=\\"skill-pill px-3 py-1.5 rounded-full text-sm ring-2 ${selected.has(s) ? 'bg-emerald-700 text-white ring-emerald-600' : 'bg-neutral-800/60 text-gray-200 ring-neutral-600'}\\" data-skill=\\"${s}\\">${skillIcon(s)}${s}</button>`).join('')}
+      </div>`
+    cont.querySelectorAll('.skill-pill')?.forEach((el) => {
+      el.addEventListener('click', () => {
+        const btn = el as HTMLElement
+        const name = btn.getAttribute('data-skill') || ''
+        const cur = new Set(loadSkills(meId, kind))
+        if (cur.has(name)) cur.delete(name); else cur.add(name)
+        saveSkills(meId, kind, Array.from(cur))
+        // toggle styles
+        btn.classList.toggle('bg-emerald-700')
+        btn.classList.toggle('text-white')
+        btn.classList.toggle('ring-emerald-600')
+        btn.classList.toggle('bg-neutral-800/60')
+        btn.classList.toggle('text-gray-200')
+        btn.classList.toggle('ring-neutral-600')
+        // update preview + counter
+        const c = overlay.querySelector('#cardPreview') as HTMLElement | null
+        if (c) c.innerHTML = renderCardPreview(getProfile())
+        const counter = cont.querySelector('div.text-[12px].text-gray-400') as HTMLElement | null
+        if (counter) counter.textContent = `${cur.size} 件選択`
+      })
+    })
+  }
   const setTabVisual = (el: HTMLElement, active: boolean) => {
     const col = el.getAttribute('data-accent') || '#3b82f6'
     el.style.backgroundColor = col
@@ -261,6 +409,13 @@ export function openAccountModal(root: HTMLElement): void {
       const cx = (btn as HTMLElement).offsetLeft + ((btn as HTMLElement).offsetWidth / 2)
       label.style.left = `${cx}px`
     }
+    // Ensure left 2/5 overlay shows only on Basic tab while editor is open
+    const leftOverlay = overlay.querySelector('#leftPaneModalBg') as HTMLElement | null
+    if (leftOverlay) {
+      const ed = overlay.querySelector('#profileEditor') as HTMLElement | null
+      const editorShown = !!ed && !ed.classList.contains('hidden')
+      leftOverlay.classList.toggle('hidden', !(id === 'basic' && editorShown))
+    }
   }
   tabsRow?.addEventListener('click', (e) => {
     const t = (e.target as HTMLElement).closest('.tab-btn') as HTMLElement | null
@@ -278,6 +433,32 @@ export function openAccountModal(root: HTMLElement): void {
   })
   activate(overlay.querySelector('#acctTabs .tab-btn[data-tab="basic"]') as HTMLElement | null)
   window.addEventListener('resize', () => { if (currentTabEl) activate(currentTabEl) }, { passive: true })
+  // mount profile card content
+  mountStartCard()
+  // interactions to toggle editor
+  overlay.querySelector('#profileCard')?.addEventListener('click', () => {
+    showEditor(true)
+    showMenuList(true)
+    // initial preview
+    const prev = overlay.querySelector('#cardPreview') as HTMLElement | null
+    if (prev) prev.innerHTML = renderCardPreview(getProfile())
+  })
+  overlay.querySelector('#profBack')?.addEventListener('click', () => {
+    const menuEdit = overlay.querySelector('#menuEditWrap') as HTMLElement | null
+    // If currently in item edit, go back to menu list. Otherwise exit editor to card view.
+    if (menuEdit && !menuEdit.classList.contains('hidden')) {
+      showMenuList(true)
+    } else {
+      showEditor(false); mountStartCard()
+    }
+  })
+  overlay.querySelector('#profMenuWrap')?.addEventListener('click', (e) => {
+    const t = (e.target as HTMLElement).closest('.prof-menu-btn') as HTMLElement | null
+    if (!t) return
+    const id = (t.getAttribute('data-item') || 'owned') as 'owned' | 'want'
+    openCategory(id)
+  })
+  // editBack button removed; use the left-arrow close button to return to menu list when editing
   // Theme option interactions
   const initTheme = getTheme()
   const mark = (cur: 'dark' | 'warm') => {
@@ -319,33 +500,7 @@ export function openAccountModal(root: HTMLElement): void {
   }
   ntfToggle?.addEventListener('click', () => setTimeout(applyTimeLock, 0))
   applyTimeLock()
-  
-  // Skills interactions
-  const meId = (root as any)._me?.id as number | undefined
-  const onToggle = (btn: HTMLElement, sec: HTMLElement) => {
-    const kind = (sec.getAttribute('data-skill-section') as SkillGroup) || 'owned'
-    const name = btn.getAttribute('data-skill') || ''
-    const sel = new Set(loadSkills(meId, kind))
-    if (sel.has(name)) sel.delete(name); else sel.add(name)
-    saveSkills(meId, kind, Array.from(sel))
-    btn.classList.toggle('bg-emerald-700')
-    btn.classList.toggle('text-white')
-    btn.classList.toggle('ring-emerald-600')
-    btn.classList.toggle('bg-neutral-800/60')
-    btn.classList.toggle('text-gray-200')
-    btn.classList.toggle('ring-neutral-600')
-  }
-  overlay.querySelectorAll('section[data-skill-section]')?.forEach((sec) => {
-    const section = sec as HTMLElement
-    section.querySelectorAll('.skill-pill')?.forEach((el) => {
-      el.addEventListener('click', () => onToggle(el as HTMLElement, section))
-    })
-    const toggleMore = section.querySelector('.see-all') as HTMLElement | null
-    toggleMore?.addEventListener('click', () => {
-      const box = section.querySelector('.more-skills') as HTMLElement | null
-      box?.classList.toggle('hidden')
-    })
-  })
+
 }
 import { openTabPickerModal, type TabTemplate } from './tabs'
 
