@@ -729,106 +729,56 @@ function bindHoneyInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTM
 
 // ----- Progress Overlay for Project Creation -----
 function openCreateProgress(msg: string) {
-  // Close existing one
+  // 既存オーバーレイを閉じる
   document.getElementById('pjProgress')?.remove()
   const overlay = document.createElement('div')
   overlay.id = 'pjProgress'
-  overlay.className = 'fixed inset-0 z-[70] bg-black/50 backdrop-blur-[1px] grid place-items-center'
+  // フルスクリーンで中央にシンプル表示
+  overlay.className = 'fixed inset-0 z-[70] bg-black/60 grid place-items-center'
   overlay.innerHTML = `
-    <div class="w-[min(560px,92vw)] rounded-xl bg-neutral-900 ring-2 ring-neutral-600 shadow-2xl p-6 text-gray-100">
-      <div class="flex items-center gap-3">
-        <div class="w-6 h-6 rounded-full border-2 border-emerald-500 border-t-transparent animate-spin" id="pjProgSpin"></div>
-        <div id="pjProgMsg" class="text-sm">${msg}</div>
-      </div>
-      <div id="pjProgBody" class="mt-4 text-sm text-gray-300">
-        <ul id="pjProgSteps" class="space-y-2">
-          <li data-step="ai" class="flex items-center gap-2">
-            <span class="w-4 h-4 rounded-full bg-neutral-700/60" data-icon></span>
-            <span>AIプラン生成</span>
-            <span class="ml-auto text-xs text-gray-400" data-note></span>
-          </li>
-          <li data-step="repo" class="flex items-center gap-2">
-            <span class="w-4 h-4 rounded-full bg-neutral-700/60" data-icon></span>
-            <span>リポジトリ処理（作成/リンク）</span>
-            <span class="ml-auto text-xs text-gray-400" data-note></span>
-          </li>
-          <li data-step="readme" class="flex items-center gap-2">
-            <span class="w-4 h-4 rounded-full bg-neutral-700/60" data-icon></span>
-            <span>README更新</span>
-            <span class="ml-auto text-xs text-gray-400" data-note></span>
-          </li>
-          <li data-step="issues" class="flex items-center gap-2">
-            <span class="w-4 h-4 rounded-full bg-neutral-700/60" data-icon></span>
-            <span>Issue作成</span>
-            <span class="ml-auto text-xs text-gray-400" data-note></span>
-          </li>
-          <li data-step="tasks" class="flex items-center gap-2">
-            <span class="w-4 h-4 rounded-full bg-neutral-700/60" data-icon></span>
-            <span>初期タスク保存</span>
-            <span class="ml-auto text-xs text-gray-400" data-note></span>
-          </li>
-        </ul>
-      </div>
-      <div id="pjProgActions" class="mt-5 flex justify-end gap-3 hidden">
-        <button id="pjProgClose" class="rounded-md bg-neutral-800/60 ring-2 ring-neutral-600 px-3 py-1.5 text-gray-200">閉じる</button>
-        <button id="pjProgOpen" class="hidden rounded-md bg-emerald-700 hover:bg-emerald-600 text-white px-3 py-1.5">詳細を開く</button>
-      </div>
+    <div class="flex flex-col items-center gap-4 text-gray-100 select-none">
+      <div id="pjProgMsg" class="text-xl md:text-2xl tracking-wide">${msg}</div>
+      <div id="pjProgError" class="hidden text-rose-400 text-sm"></div>
+      <button id="pjProgClose" class="hidden mt-4 rounded-md bg-neutral-800/70 ring-2 ring-neutral-600 px-3 py-1.5 text-gray-200">閉じる</button>
     </div>
   `
   document.body.appendChild(overlay)
-    ; (function () { const c = +(document.body.getAttribute('data-lock') || '0'); if (c === 0) { document.body.style.overflow = 'hidden' } document.body.setAttribute('data-lock', String(c + 1)) })()
-  const set = (text: string) => { const el = overlay.querySelector('#pjProgMsg'); if (el) el.textContent = text }
+  ;(function () {
+    const c = +(document.body.getAttribute('data-lock') || '0')
+    if (c === 0) { document.body.style.overflow = 'hidden' }
+    document.body.setAttribute('data-lock', String(c + 1))
+  })()
+  const set = (text: string) => {
+    const el = overlay.querySelector('#pjProgMsg') as HTMLElement | null
+    if (el) el.textContent = text
+  }
+  const unlockBody = () => {
+    const c = +(document.body.getAttribute('data-lock') || '0')
+    const n = Math.max(0, c - 1)
+    if (n === 0) { document.body.style.overflow = '' }
+    document.body.setAttribute('data-lock', String(n))
+  }
   const showError = (text: string) => {
-    const body = overlay.querySelector('#pjProgBody') as HTMLElement | null
-    if (body) body.innerHTML = `<div class="text-rose-400">${text}</div>`
-    const actions = overlay.querySelector('#pjProgActions') as HTMLElement | null
-    actions?.classList.remove('hidden')
-    const spinner = overlay.querySelector('#pjProgSpin') as HTMLElement | null
-    if (spinner) spinner.classList.add('hidden')
-    overlay.querySelector('#pjProgClose')?.addEventListener('click', () => { overlay.remove(); const c = +(document.body.getAttribute('data-lock') || '0'); const n = Math.max(0, c - 1); if (n === 0) { document.body.style.overflow = ''; } document.body.setAttribute('data-lock', String(n)) })
+    const err = overlay.querySelector('#pjProgError') as HTMLElement | null
+    if (err) { err.textContent = text; err.classList.remove('hidden') }
+    const closeBtn = overlay.querySelector('#pjProgClose') as HTMLElement | null
+    if (closeBtn) {
+      closeBtn.classList.remove('hidden')
+      closeBtn.addEventListener('click', () => { overlay.remove(); unlockBody() })
+    }
   }
   const showSuccess = (id?: number) => {
     set('プロジェクトの準備が完了しました。')
-    const actions = overlay.querySelector('#pjProgActions') as HTMLElement | null
-    actions?.classList.remove('hidden')
-    const openBtn = overlay.querySelector('#pjProgOpen') as HTMLElement | null
-    if (id && openBtn) {
-      openBtn.classList.remove('hidden')
-      openBtn.addEventListener('click', () => {
-        window.location.hash = `#/project/detail?id=${id}`
-        overlay.remove(); const c = +(document.body.getAttribute('data-lock') || '0'); const n = Math.max(0, c - 1); if (n === 0) { document.body.style.overflow = ''; } document.body.setAttribute('data-lock', String(n))
-      })
+    // 作成完了後は自動で該当プロジェクトを開く
+    if (id) {
+      try { window.location.hash = `#/project/detail?id=${id}` } catch {}
     }
-    const spinner = overlay.querySelector('#pjProgSpin') as HTMLElement | null
-    if (spinner) spinner.classList.add('hidden')
-    overlay.querySelector('#pjProgClose')?.addEventListener('click', () => overlay.remove())
+    // すぐに閉じる（遷移中の背景ロック解除）
+    overlay.remove(); unlockBody()
   }
-  const mark = (step: string, ok: boolean, note?: string) => {
-    const li = overlay.querySelector(`li[data-step="${step}"]`) as HTMLElement | null
-    if (!li) return
-    const icon = li.querySelector('[data-icon]') as HTMLElement | null
-    const noteEl = li.querySelector('[data-note]') as HTMLElement | null
-    if (icon) icon.className = `w-4 h-4 rounded-full ${ok ? 'bg-emerald-600' : 'bg-rose-600'}`
-    if (note && noteEl) noteEl.textContent = note
-  }
-  const updateFromMeta = (meta: any) => {
-    // ai
-    mark('ai', !!meta?.ai_used, meta?.ai_used ? `tasks: ${meta?.ai_tasks_count ?? 0}` : 'fallback')
-    // repo
-    mark('repo', (meta?.gh_repo_created ?? true), meta?.gh_repo_created ? 'ok' : 'linked')
-    // readme
-    const rs = meta?.gh_readme_status
-    mark('readme', !!meta?.gh_readme_updated, meta?.gh_readme_updated ? 'updated' : (rs ? `status ${rs}` : 'skipped'))
-    // issues
-    const cnt = Number(meta?.gh_issues_created ?? 0)
-    const is = meta?.gh_issue_last_status
-    const en = meta?.gh_enable_issues_status
-    const note = cnt > 0 ? `${cnt}件` : (is ? `status ${is}` : (en ? `enable ${en}` : '0件'))
-    mark('issues', cnt > 0, note)
-    // tasks
-    mark('tasks', true, (Array.isArray(meta?.initial_tasks) ? meta.initial_tasks.length : 0) + '件')
-  }
-  return { set, showError, showSuccess, updateFromMeta, close: () => overlay.remove() }
+  // 互換のため残す（何もしない）
+  const updateFromMeta = (_meta: any) => { /* no-op for simplified UI */ }
+  return { set, showError, showSuccess, updateFromMeta, close: () => { overlay.remove(); unlockBody() } }
 }
 
 function loadProjects(root: HTMLElement): void {
@@ -1607,7 +1557,6 @@ function openCreateProjectModal(root: HTMLElement): void {
     const submitBtn = overlay.querySelector('#pj-submit') as HTMLButtonElement | null
     if (submitBtn?.disabled) return
     if (submitBtn) submitBtn.disabled = true
-    const prog = openCreateProgress('プロジェクトを作成しています...')
     const active = overlay.querySelector('.pj-panel:not(.hidden)') as HTMLElement
     const mode = active?.getAttribute('data-tab')
     try {
@@ -1615,36 +1564,10 @@ function openCreateProjectModal(root: HTMLElement): void {
         clearFormErrors(overlay)
         const payload = readNewProjectForm(overlay)
         if (!validateProjectForm(overlay, payload)) return
-        const created = await createProject(payload)
-        // Use server response if available; fallback to form values
-        const id = Number(created?.id)
-        const name = (created?.name ?? payload.name ?? '').toString()
-        const start = created?.start_date || created?.start || payload.start
-        const end = created?.end_date || created?.end || payload.end
-        if (id && name) {
-          const color = randomCardColor()
-          addProjectToGrid(root, { id, name, start, end, color })
-          // 初期タスクは保存しない（ローカル生成を廃止）
-          // Persist chosen color
-          try { await apiFetch(`/projects/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ color }) }) } catch { }
-          // Update progress steps from server meta
-          prog.updateFromMeta(created)
-          // Close create form and show success
-          // Map to requested group if any
-          try {
-            const gid = localStorage.getItem('createTargetGroup')
-            if (gid) {
-              const me = (root as any)._me as { id?: number }
-              const map = getGroupMap(me?.id)
-              map[String(id)] = gid
-              setGroupMap(me?.id, map)
-              localStorage.removeItem('createTargetGroup')
-            }
-          } catch {}
-          close()
-          loadProjects(root)
-          prog.showSuccess(id)
-        }
+        // Hand off creation to dedicated screen
+        try { sessionStorage.setItem('project-create', JSON.stringify({ mode: 'new', payload })) } catch {}
+        close()
+        window.location.hash = '#/project/creating'
       } else {
         const repo = (overlay as any)._selectedRepo as string | undefined
         if (!repo) {
@@ -1660,36 +1583,15 @@ function openCreateProjectModal(root: HTMLElement): void {
           n?.classList.add('ring-rose-600')
           return
         }
-        const created = await createProject({ linkRepo: repo, ...extra })
-        const id = Number(created?.id)
-        const name = (created?.name ?? (repo.split('/')[1] || 'Repo')).toString()
-        if (id && name) {
-          const color = randomCardColor()
-          addProjectToGrid(root, { id, name, start: extra.start, end: extra.end, color })
-          // 初期タスクは保存しない（ローカル生成を廃止）
-          try { await apiFetch(`/projects/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ color }) }) } catch { }
-          prog.updateFromMeta(created)
-          try {
-            const gid = localStorage.getItem('createTargetGroup')
-            if (gid) {
-              const me = (root as any)._me as { id?: number }
-              const map = getGroupMap(me?.id)
-              map[String(id)] = gid
-              setGroupMap(me?.id, map)
-              localStorage.removeItem('createTargetGroup')
-            }
-          } catch {}
-          close(); loadProjects(root); prog.showSuccess(id)
-        }
+        try { sessionStorage.setItem('project-create', JSON.stringify({ mode: 'existing', payload: { linkRepo: repo, ...extra } })) } catch {}
+        close()
+        window.location.hash = '#/project/creating'
       }
     } catch (e) {
       console.error(e)
       // If unauthorized, route to login
       if ((e as any)?.message?.includes('401')) {
-        prog.showError('ログインが必要です。ログイン画面へ移動します。')
         window.location.hash = '#/login'
-      } else {
-        prog.showError('作成に失敗しました。サーバーやネットワークの状態をご確認ください。')
       }
     } finally {
       if (submitBtn) submitBtn.disabled = false

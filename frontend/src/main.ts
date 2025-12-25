@@ -4,6 +4,7 @@ import { renderRoot } from './pages/root/root'
 import { renderLogin } from './pages/login/login'
 import { renderProject } from './pages/project/project'
 import { renderProjectDetail } from './pages/project/detail'
+import { renderProjectCreating } from './pages/project/creating'
 import { renderNotFound } from './pages/not-found/not-found'
 import { getTheme, applyTheme } from './utils/theme'
 
@@ -16,6 +17,7 @@ if (app) {
     '/login': renderLogin,
     '/project': renderProject,
     '/project/detail': renderProjectDetail,
+    '/project/creating': renderProjectCreating,
     '/404': renderNotFound,
   })
   // Capture token in hash and store
