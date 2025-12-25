@@ -19,6 +19,21 @@ function skillIcon(name: string): string {
 // Inline SVGs for lock icons (sourced from src/public, fill adapted to currentColor)
 const LOCK_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 -960 960 960" fill="currentColor" aria-hidden="true"><path d="M240-80q-33 0-56.5-23.5T160-160v-400q0-33 23.5-56.5T240-640h40v-80q0-83 58.5-141.5T480-920q83 0 141.5 58.5T680-720v80h40q33 0 56.5 23.5T800-560v400q0 33-23.5 56.5T720-80H240Zm0-80h480v-400H240v400Zm240-120q33 0 56.5-23.5T560-360q0-33-23.5-56.5T480-440q-33 0-56.5 23.5T400-360q0 33 23.5 56.5T480-280ZM360-640h240v-80q0-50-35-85t-85-35q-50 0-85 35t-35 85v80ZM240-160v-400 400Z"/></svg>'
 const LOCK_OPEN_RIGHT_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 -960 960 960" fill="currentColor" aria-hidden="true"><path d="M240-160h480v-400H240v400Zm240-120q33 0 56.5-23.5T560-360q0-33-23.5-56.5T480-440q-33 0-56.5 23.5T400-360q0 33 23.5 56.5T480-280ZM240-160v-400 400Zm0 80q-33 0-56.5-23.5T160-160v-400q0-33 23.5-56.5T240-640h280v-80q0-83 58.5-141.5T720-920q83 0 141.5 58.5T920-720h-80q0-50-35-85t-85-35q-50 0-85 35t-35 85v80h120q33 0 56.5 23.5T800-560v400q0 33-23.5 56.5T720-80H240Z"/></svg>'
+// Simple inline icons for account tabs
+const ICON_USER = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="36" height="36" fill="currentColor" aria-hidden="true"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-3.87 0-7 3.13-7 7h14c0-3.87-3.13-7-7-7z"/></svg>'
+// Slightly lighten a hex color by pct (0..1)
+function tintHex(hex: string, pct = 0.2): string {
+  const m = (hex || '').trim().match(/^#?([0-9a-fA-F]{6})$/)
+  if (!m) return hex
+  const n = parseInt(m[1], 16)
+  let r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255
+  r = Math.min(255, Math.round(r + (255 - r) * pct))
+  g = Math.min(255, Math.round(g + (255 - g) * pct))
+  b = Math.min(255, Math.round(b + (255 - b) * pct))
+  return `rgb(${r}, ${g}, ${b})`
+}
+const ICON_BELL = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="36" height="36" fill="currentColor" aria-hidden="true"><path d="M12 22a2 2 0 002-2h-4a2 2 0 002 2zm6-6v-5a6 6 0 00-4.5-5.82V4a1.5 1.5 0 10-3 0v1.18A6 6 0 006 11v5l-2 2v1h16v-1l-2-2z"/></svg>'
+const ICON_PALETTE = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="36" height="36" fill="currentColor" aria-hidden="true"><path d="M12 3a9 9 0 100 18h1a2 2 0 002-2 2 2 0 012-2h1a4 4 0 100-8h-1a1 1 0 01-1-1 4 4 0 00-4-4zm-5.5 8A1.5 1.5 0 118 9.5 1.5 1.5 0 016.5 11zm3 3A1.5 1.5 0 1111 12.5 1.5 1.5 0 019.5 14zm5-6A1.5 1.5 0 1116 6.5 1.5 1.5 0 0114.5 8zm2 4A1.5 1.5 0 1118 10.5 1.5 1.5 0 0116.5 12z"/></svg>'
 function skillsKey(uid?: number, kind: SkillGroup = 'owned'): string { return `acct-skills-${uid ?? 'guest'}-${kind}` }
 function loadSkills(uid?: number, kind: SkillGroup = 'owned'): string[] {
   try { return JSON.parse(localStorage.getItem(skillsKey(uid, kind)) || '[]') as string[] } catch { return [] }
@@ -98,26 +113,32 @@ function openAccountModal(root: HTMLElement): void {
   const avatarUrl = me?.github_id ? `https://avatars.githubusercontent.com/u/${me.github_id}?s=128` : ''
   const overlay = document.createElement('div')
   overlay.id = 'accountOverlay'
-  overlay.className = 'fixed inset-0 z-50 bg-black/60 backdrop-blur-[1px] grid place-items-center'
+  overlay.className = 'fixed inset-0 z-50 bg-black/60 backdrop-blur-[1px] grid justify-center items-start pt-16 sm:pt-20 px-4'
   overlay.innerHTML = `
-    <div class="relative w-[min(960px,92vw)] overflow-hidden rounded-xl bg-neutral-800 ring-2 ring-neutral-600 shadow-2xl text-gray-100 pop-modal modal-fixed">
-      <div class="flex items-center h-12 px-5 border-b border-neutral-600">
-        <h3 class="text-lg font-semibold">マイページ</h3>
+    <div class="relative w-[min(960px,92vw)] overflow-visible rounded-xl bg-neutral-800 ring-2 ring-neutral-600 shadow-2xl text-gray-100 pop-modal modal-fixed">
+      <!-- Accent bar across top (color changes per tab) -->
+      <div id="acctAccent" class="absolute left-0 right-0 rounded-t-xl z-10 pointer-events-none" style="height:12px; top:-8px; background-color: transparent;"></div>
+      <!-- Floating top icon tabs -->
+      <div id="acctTabs" class="absolute left-6 z-30 flex gap-0 items-end relative" style="top:-56px;">
+        <button data-tab="basic" data-name="基本情報" data-accent="#3b82f6" class="tab-btn acct-tab grid place-items-center rounded-t-[18px] text-white" style="background-color:#3b82f6; width:80px; height:48px;">
+          ${ICON_USER}
+        </button>
+        <button data-tab="notify" data-name="通知設定" data-accent="#ef4444" class="tab-btn acct-tab grid place-items-center rounded-t-[18px] text-white ml-[-2px]" style="background-color:#ef4444; width:80px; height:48px;">
+          ${ICON_BELL}
+        </button>
+        <button data-tab="theme" data-name="着せ替え" data-accent="#8b5cf6" class="tab-btn acct-tab grid place-items-center rounded-t-[18px] text-white ml-[-2px]" style="background-color:#8b5cf6; width:80px; height:48px;">
+          ${ICON_PALETTE}
+        </button>
+        <!-- Floating label under active tab -->
+        <div id="acctTabLabel" class="absolute pointer-events-none text-[13px] font-semibold text-white text-center rounded-b-md shadow z-30" style="left:0; transform: translateX(-50%); padding:8px 14px; min-width:110px; background-color:#3b82f6;">
+          <span id="acctTabLabelText">基本情報</span>
+        </div>
+      </div>
+      <div class="flex items-center h-12 px-5">
         <button id="accountClose" class="ml-auto text-2xl text-neutral-300 hover:text-white">×</button>
       </div>
-      <div class="flex h-[calc(86vh-3rem)]">
-        <aside class="w-48 shrink-0 p-4 border-r border-neutral-600 space-y-2">
-          <button data-tab="basic" class="tab-btn w-full text-left px-3 py-2 rounded-md bg-neutral-800/60 ring-2 ring-neutral-600 text-gray-100">
-            <span>基本情報</span>
-          </button>
-          <button data-tab="notify" class="tab-btn w-full text-left px-3 py-2 rounded-md hover:bg-neutral-800/40 ring-2 ring-transparent text-gray-100">
-            <span>通知設定</span>
-          </button>
-          <button data-tab="theme" class="tab-btn w-full text-left px-3 py-2 rounded-md hover:bg-neutral-800/40 ring-2 ring-transparent text-gray-100">
-            <span>着せ替え</span>
-          </button>
-        </aside>
-        <section class="flex-1 p-6 space-y-6 overflow-y-auto">
+      <div class="h-[calc(78vh-3rem)]">
+        <section class="h-full p-6 space-y-6 overflow-y-auto">
           <div class="tab-panel" data-tab="basic">
             <div class="flex items-center gap-4">
             <div class="w-16 h-16 rounded-full overflow-hidden bg-neutral-700 ring-2 ring-neutral-600">
@@ -192,20 +213,71 @@ function openAccountModal(root: HTMLElement): void {
     close()
     window.location.hash = '#/login'
   })
-  overlay.querySelectorAll('.tab-btn')?.forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const id = (btn as HTMLElement).getAttribute('data-tab')
-      overlay.querySelectorAll('.tab-panel')?.forEach((p) => {
-        (p as HTMLElement).classList.toggle('hidden', (p as HTMLElement).getAttribute('data-tab') !== id)
-      })
-      overlay.querySelectorAll('.tab-btn')?.forEach((b) => {
-        const active = b === btn
-        b.classList.toggle('bg-neutral-800/60', active)
-        b.classList.toggle('ring-2', active)
-        b.classList.toggle('ring-neutral-600', active)
-      })
+  // Tab activation logic (icon-only tabs + accent + floating label)
+  const tabsRow = overlay.querySelector('#acctTabs') as HTMLElement | null
+  const accent = overlay.querySelector('#acctAccent') as HTMLElement | null
+  const label = overlay.querySelector('#acctTabLabel') as HTMLElement | null
+  const labelText = overlay.querySelector('#acctTabLabelText') as HTMLElement | null
+  let currentTabEl: HTMLElement | null = null
+  const setTabVisual = (el: HTMLElement, active: boolean) => {
+    const col = el.getAttribute('data-accent') || '#3b82f6'
+    el.style.backgroundColor = col
+    el.style.width = active ? '96px' : '80px'
+    el.style.height = active ? '56px' : '48px'
+    el.style.zIndex = active ? '40' : '10'
+    el.classList.remove('shadow-xl', 'shadow-lg', 'shadow')
+  }
+  const activate = (btn: HTMLElement | null) => {
+    if (!btn) return
+    currentTabEl = btn
+    const id = btn.getAttribute('data-tab') || 'basic'
+    const name = btn.getAttribute('data-name') || ''
+    const col = btn.getAttribute('data-accent') || '#3b82f6'
+    overlay.querySelectorAll('.tab-panel')?.forEach((p) => {
+      (p as HTMLElement).classList.toggle('hidden', (p as HTMLElement).getAttribute('data-tab') !== id)
     })
+    overlay.querySelectorAll('#acctTabs .tab-btn')?.forEach((b) => {
+      const active = b === btn
+      setTabVisual(b as HTMLElement, active)
+    })
+    // Align tabs row so the bottom of active tab sits just above the popup border
+    if (tabsRow) {
+      const h = btn.offsetHeight || 48
+      tabsRow.style.top = `-${h + 8}px`
+    }
+    if (accent) (accent as HTMLElement).style.backgroundColor = col
+    if (label && labelText && tabsRow && accent) {
+      labelText.textContent = name
+      label.style.backgroundColor = tintHex(col, 0.2)
+      const rr = tabsRow.getBoundingClientRect()
+      const ar = accent.getBoundingClientRect()
+      const br = btn.getBoundingClientRect()
+      // Place label so its上辺が線と重なる
+      const labTop = Math.round(ar.bottom - rr.top)
+      label.style.top = `${labTop}px`
+      const minW = Math.max(br.width + 24, 110)
+      label.style.minWidth = `${minW}px`
+      // Center exactly under the active tab (許容してはみ出しOK)
+      const cx = (btn as HTMLElement).offsetLeft + ((btn as HTMLElement).offsetWidth / 2)
+      label.style.left = `${cx}px`
+    }
+  }
+  tabsRow?.addEventListener('click', (e) => {
+    const t = (e.target as HTMLElement).closest('.tab-btn') as HTMLElement | null
+    if (t && tabsRow.contains(t)) activate(t)
   })
+  // Append first, then compute positions so label doesn't misplace
+  document.body.appendChild(overlay); (function () { const c = +(document.body.getAttribute('data-lock') || '0'); if (c === 0) { document.body.style.overflow = 'hidden' } document.body.setAttribute('data-lock', String(c + 1)) })()
+  // Ensure each tab shows its own accent color background
+  overlay.querySelectorAll('#acctTabs .acct-tab').forEach((el) => {
+    const b = el as HTMLElement
+    const col = b.getAttribute('data-accent') || '#555'
+    b.style.backgroundColor = col
+    b.style.width = '80px'
+    b.style.height = '48px'
+  })
+  activate(overlay.querySelector('#acctTabs .tab-btn[data-tab="basic"]') as HTMLElement | null)
+  window.addEventListener('resize', () => { if (currentTabEl) activate(currentTabEl) }, { passive: true })
   // Theme option interactions
   const initTheme = getTheme()
   const mark = (cur: 'dark' | 'warm') => {
@@ -247,7 +319,7 @@ function openAccountModal(root: HTMLElement): void {
   }
   ntfToggle?.addEventListener('click', () => setTimeout(applyTimeLock, 0))
   applyTimeLock()
-  document.body.appendChild(overlay); (function () { const c = +(document.body.getAttribute('data-lock') || '0'); if (c === 0) { document.body.style.overflow = 'hidden' } document.body.setAttribute('data-lock', String(c + 1)) })()
+  
   // Skills interactions
   const meId = (root as any)._me?.id as number | undefined
   const onToggle = (btn: HTMLElement, sec: HTMLElement) => {
