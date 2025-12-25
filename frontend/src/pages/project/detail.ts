@@ -618,6 +618,31 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
   applyCoreTabs(container, String(project.id))
   // Build hex-grid widget field for Summary
   try { renderHexWidgets(container, String(project.id)) } catch { }
+  // Re-run once after mount to avoid initial 0-size measurement shrinking the field
+  try {
+    const pidStr = String(project.id)
+    setTimeout(() => { try { renderHexWidgets(container, pidStr) } catch {} }, 0)
+  } catch {}
+  // Watch the host size and re-render the hex grid if the viewport for it changes
+  try {
+    const wrap = container.querySelector('#hxwWrap') as HTMLElement | null
+    if (wrap && !(wrap as any)._hxwRO) {
+      const ro = new ResizeObserver((entries) => {
+        const cr = entries[0]?.contentRect
+        if (!cr) return
+        const w = Math.round(cr.width)
+        const h = Math.round(cr.height)
+        const prev = (wrap as any)._hxwSize as [number, number] | undefined
+        if (w > 0 && h > 0 && (!prev || prev[0] !== w || prev[1] !== h)) {
+          ;(wrap as any)._hxwSize = [w, h]
+          // Defer to next frame so CSS settles before rebuilding geometry
+          requestAnimationFrame(() => { try { renderHexWidgets(container, String(project.id)) } catch {} })
+        }
+      })
+      ro.observe(wrap)
+      ;(wrap as any)._hxwRO = ro
+    }
+  } catch {}
   // Ensure essential widgets (tabbar, invite, account) exist at least once
   try {
     const pid = String(project.id)
@@ -652,10 +677,10 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
     applyLabel()
     btn?.addEventListener('click', () => {
       if (!wrap || !canvas) return
-      wrap.classList.toggle('hxw-iso')
-      localStorage.setItem(key, wrap.classList.contains('hxw-iso') ? 'iso' : '2d')
+      const toIso = !wrap.classList.contains('hxw-iso')
       const st = (wrap as any)._hxw as any
-      if (st) { try { hxwApplyTransform(wrap, canvas, st) } catch {} }
+      try { if (st) hxwToggleIsoKeepCenter(wrap, canvas, st, toIso) } catch {}
+      localStorage.setItem(key, wrap.classList.contains('hxw-iso') ? 'iso' : '2d')
       applyLabel()
     })
   } catch {}
@@ -6214,11 +6239,22 @@ function hxwShapeFor(type: string): Array<[number, number]> {
 
 function hxwApplyTransform(wrap: HTMLElement, canvas: HTMLElement, st: HexWLayout): void {
   const iso = wrap.classList.contains('hxw-iso')
-  const isoScale = iso ? 0.98 : 1
-  const sc = st.scale * isoScale
+  // Keep scale consistent; 3D depth is controlled by --hxw-elev instead of shrinking
+  const sc = st.scale
   // Stage handles rotation/elevation so panning stays parallel to plane
   const stage = document.getElementById('hxwStage') as HTMLElement | null
-  if (stage) stage.style.transform = iso ? 'rotateX(var(--hxw-rot-x, 46deg)) rotateZ(var(--hxw-rot-z, -22deg)) translateZ(calc(-1 * var(--hxw-elev, 140px)))' : ''
+  if (stage) {
+    // Make the transition feel smooth and predictable
+    let pivot = (wrap as any)._hxwPivot as [number, number] | undefined
+    if (iso && !pivot) {
+      // default to viewport center if not set yet
+      pivot = [Math.round(wrap.clientWidth / 2), Math.round(wrap.clientHeight / 2)]
+      ;(wrap as any)._hxwPivot = pivot
+    }
+    stage.style.transformOrigin = iso && pivot ? `${pivot[0]}px ${pivot[1]}px` : '0 0'
+    stage.style.transition = 'transform .22s ease'
+    stage.style.transform = iso ? 'rotateX(var(--hxw-rot-x, 46deg)) rotateZ(var(--hxw-rot-z, 0deg)) translateZ(calc(-1 * var(--hxw-elev, 140px)))' : ''
+  }
   const move = `translate(${st.offsetX}px, ${st.offsetY}px) scale(${sc})`
   canvas.style.transform = move
   const base = document.getElementById('hxwBase') as HTMLElement | null
@@ -6240,14 +6276,20 @@ function hxwDrawMini(wrap: HTMLElement, st: HexWLayout): void {
   const sx = (W - pad * 2) / (st.width || 1)
   const sy = (H - pad * 2) / (st.height || 1)
   const s = Math.max(sx, sy) * 1.15
-  const vx = (-st.offsetX) / st.scale
-  const vy = (-st.offsetY) / st.scale
-  const vw = wrap.clientWidth / st.scale
-  const vh = wrap.clientHeight / st.scale
-  const cxView = vx + vw / 2
-  const cyView = vy + vh / 2
-  const ox = W / 2 - cxView * s
-  const oy = H / 2 - cyView * s
+  // Effective scale reflects 3D elevation so minimap stays in sync
+  const iso = wrap.classList.contains('hxw-iso')
+  const elev = (function(){ try { const v = getComputedStyle(wrap).getPropertyValue('--hxw-elev').trim(); const n = parseFloat(v.replace('px','')); return isNaN(n) ? 140 : n } catch { return 140 } })()
+  const isoFactor = iso ? (140 / Math.max(1, elev)) : 1
+  const eff = st.scale * isoFactor
+  // Anchor the world center using the base scale so pinch-elevation doesn't make the center jump
+  const bx = (-st.offsetX) / st.scale
+  const by = (-st.offsetY) / st.scale
+  const bw = wrap.clientWidth / st.scale
+  const bh = wrap.clientHeight / st.scale
+  const cxBase = bx + bw / 2
+  const cyBase = by + bh / 2
+  const ox = W / 2 - cxBase * s
+  const oy = H / 2 - cyBase * s
   const t = st.tile || 200
   const hw = t * 0.25 * s, hh = (t * 0.866) * s
   const drawHex = (x: number, y: number, fill: string) => {
@@ -6280,10 +6322,22 @@ function hxwDrawMini(wrap: HTMLElement, st: HexWLayout): void {
   } catch { }
   // Viewport frame
   try {
-    const vx = (-st.offsetX) / st.scale
-    const vy = (-st.offsetY) / st.scale
-    const vw = wrap.clientWidth / st.scale
-    const vh = wrap.clientHeight / st.scale
+    // Rectangle is based on effective scale (visible size), centered on base world center
+    let vw = wrap.clientWidth / eff
+    let vh = wrap.clientHeight / eff
+    let vx = cxBase - vw / 2
+    let vy = cyBase - vh / 2
+    // In 3D, bias the rectangle downward a bit to reflect the visible area under camera tilt
+    if (iso) {
+      const rxDeg = (function(){ try { const v = getComputedStyle(wrap).getPropertyValue('--hxw-rot-x').trim(); const n = parseFloat(v.replace('deg','')); return isNaN(n) ? 46 : n } catch { return 46 } })()
+      const rxRad = rxDeg * Math.PI / 180
+      // base bias from tilt; allow override via CSS var --hxw-mini-bias (as fraction)
+      const cssBias = (function(){
+        try { const v = getComputedStyle(wrap).getPropertyValue('--hxw-mini-bias').trim(); const n = parseFloat(v); return isNaN(n) ? NaN : n } catch { return NaN }
+      })()
+      const frac = isFinite(cssBias) ? cssBias : Math.min(0.32, Math.max(0.10, Math.sin(rxRad) * 0.26))
+      vy += vh * frac
+    }
     const rectX = ox + vx * s
     const rectY = oy + vy * s
     const rectW = vw * s
@@ -6293,6 +6347,67 @@ function hxwDrawMini(wrap: HTMLElement, st: HexWLayout): void {
     ctx.strokeRect(rectX, rectY, rectW, rectH)
   } catch { }
   ctx.restore()
+}
+
+// --- 2D/3D toggle: keep the same world point under the screen center ---
+function hxwReadElev(wrap: HTMLElement): number {
+  try {
+    const v = getComputedStyle(wrap).getPropertyValue('--hxw-elev').trim()
+    const n = parseFloat(v.replace('px', ''))
+    return isNaN(n) ? 140 : n
+  } catch {
+    return 140
+  }
+}
+
+function hxwEffectiveScale(wrap: HTMLElement, st: HexWLayout): number {
+  const iso = wrap.classList.contains('hxw-iso')
+  const elev = hxwReadElev(wrap)
+  const isoFactor = iso ? (140 / Math.max(1, elev)) : 1
+  return st.scale * isoFactor
+}
+
+function hxwToggleIsoKeepCenter(wrap: HTMLElement, canvas: HTMLElement, st: HexWLayout, toIso: boolean): void {
+  const vw = wrap.clientWidth
+  const vh = wrap.clientHeight
+  // world coords at current screen center using current effective scale
+  const effBefore = hxwEffectiveScale(wrap, st)
+  const wx = (vw / 2 - st.offsetX) / (effBefore || 1)
+  const wy = (vh / 2 - st.offsetY) / (effBefore || 1)
+  // toggle class
+  wrap.classList.toggle('hxw-iso', toIso)
+  // ensure default angles present (can be customized via CSS vars)
+  try { if (toIso) { const rs = wrap.style; if (!rs.getPropertyValue('--hxw-rot-x')) rs.setProperty('--hxw-rot-x', '46deg'); if (!rs.getPropertyValue('--hxw-rot-z')) rs.setProperty('--hxw-rot-z', '0deg'); if (!rs.getPropertyValue('--hxw-elev')) rs.setProperty('--hxw-elev', '140px') } } catch {}
+  // recompute effective scale and adjust offsets so wx/wy stays at screen center
+  const effAfter = hxwEffectiveScale(wrap, st)
+  st.offsetX = Math.round(vw / 2 - wx * (effAfter || 1))
+  st.offsetY = Math.round(vh / 2 - wy * (effAfter || 1))
+  // set rotation pivot to the world point under screen center AFTER offset adjustment
+  try { (wrap as any)._hxwPivot = [ Math.round(st.offsetX + wx * st.scale), Math.round(st.offsetY + wy * st.scale) ] } catch {}
+  hxwApplyTransform(wrap, canvas, st)
+}
+
+// Adjust elevation while keeping the world point under (clientX, clientY) fixed on screen
+function hxwSetElevAt(wrap: HTMLElement, canvas: HTMLElement, st: HexWLayout, clientX: number, clientY: number, nextElevPx: number): void {
+  const rect = wrap.getBoundingClientRect()
+  const cx = clientX - rect.left
+  const cy = clientY - rect.top
+  const effBefore = hxwEffectiveScale(wrap, st)
+  const wx = (cx - st.offsetX) / (effBefore || 1)
+  const wy = (cy - st.offsetY) / (effBefore || 1)
+  wrap.style.setProperty('--hxw-elev', `${Math.round(nextElevPx)}px`)
+  const effAfter = hxwEffectiveScale(wrap, st)
+  st.offsetX = Math.round(cx - wx * (effAfter || 1))
+  st.offsetY = Math.round(cy - wy * (effAfter || 1))
+  hxwApplyTransform(wrap, canvas, st)
+}
+
+// Keep viewport center fixed while changing elevation (3D)
+function hxwSetElevCenter(wrap: HTMLElement, canvas: HTMLElement, st: HexWLayout, nextElevPx: number): void {
+  const rect = wrap.getBoundingClientRect()
+  const cx = rect.left + wrap.clientWidth / 2
+  const cy = rect.top + wrap.clientHeight / 2
+  hxwSetElevAt(wrap, canvas, st, cx, cy, nextElevPx)
 }
 
 function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLElement, st: HexWLayout): void {
@@ -7170,7 +7285,7 @@ export function renderHexWidgets(root: HTMLElement, pid: string): void {
   const viewRows = Math.max(3, Math.ceil(vh / stepY()))
   const R_VIEW = Math.max(1, Math.floor(Math.min(viewCols, viewRows) / 2) - 1)
   // フィールドが広すぎたため縮小: 以前の約8倍 → 約3倍に調整
-  const RADIUS_SCALE = 3.5 // 少しだけ広げる
+  const RADIUS_SCALE = 5.0 // フィールドを広く確保（視界を拡大）
   let R_STRICT = Math.max(3, Math.floor(R_VIEW * RADIUS_SCALE))
   // 既存ウィジェットの占有範囲を必ず内包するように半径を引き上げる
   try {

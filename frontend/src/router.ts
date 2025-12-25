@@ -1,4 +1,5 @@
 export type Render = (container: HTMLElement) => void
+import { hideRouteLoading } from './utils/route-loading'
 
 type RouteTable = Record<string, Render>
 
@@ -25,6 +26,8 @@ export class Router {
   render(): void {
     const path = this.normalize(window.location.hash)
     this.cleanupFloatingUI()
+    // Always clear any route-loading overlay when switching routes
+    try { hideRouteLoading() } catch {}
     // Auth guard: allow only public paths when not logged in
     const publicPaths = new Set<string>(['/', '/login', '/404'])
     const token = localStorage.getItem('apiToken')
@@ -39,8 +42,6 @@ export class Router {
       this.outlet.innerHTML = '<p class="text-rose-700">Route not found</p>'
       return
     }
-
-    render(this.outlet)
   }
 
   private cleanupFloatingUI(): void {

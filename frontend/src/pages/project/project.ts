@@ -848,11 +848,24 @@ function loadProjects(root: HTMLElement): void {
       const all = list
         .filter((p) => p && typeof p === 'object' && Number(p.id) > 0 && (p.name ?? '').toString().trim().length > 0)
       const ids = new Set(all.map((p) => String(p.id)))
-      const items = all.map(toCard)
+      let items = all.map(toCard)
+      // If API unexpectedly returns 0 projects but we have a recent cache, use it to avoid "all disappeared" perception
+      try {
+        if (items.length === 0) {
+          const cached = JSON.parse(localStorage.getItem('projects-cache') || '[]') as Project[]
+          if (Array.isArray(cached) && cached.length > 0) items = cached
+        }
+      } catch {}
+      // Cache the successful snapshot for resilience
+      try { localStorage.setItem('projects-cache', JSON.stringify(items)) } catch {}
       renderHoneycomb(root, items)
     })
     .catch(() => {
-      // ignore if API not ready
+      // Fallback to last known projects from cache when API fails
+      try {
+        const cached = JSON.parse(localStorage.getItem('projects-cache') || '[]') as Project[]
+        if (Array.isArray(cached) && cached.length > 0) renderHoneycomb(root, cached)
+      } catch { /* ignore */ }
     })
 }
 
