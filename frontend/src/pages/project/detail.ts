@@ -4854,14 +4854,16 @@ function detailLayout(ctx: { id: number; name: string; fullName: string; owner: 
   return `
     <div class="min-h-screen gh-canvas text-gray-100">
       <div class="relative">
-        <!-- Top-left breadcrumb (keeps repo / projects) -->
-        <div class="fixed left-3 top-3 z-[19] px-3 py-1.5 rounded-md bg-neutral-900/70 ring-1 ring-neutral-600 text-sm">
-          <a href="#/project" class="text-gray-300 hover:text-white truncate max-w-[8rem] align-middle" id="topPathUser" title="${ctx.owner}">${ctx.owner}</a>
-          <span class="text-gray-500">/</span>
-          <span class="text-gray-300" id="topPathRepo" title="${ctx.repo}">${ctx.repo}</span>
-          <div class="mt-1 flex gap-1">
-            <button id="topGoSummary" class="px-2 py-0.5 rounded ring-1 ring-neutral-600 bg-neutral-900/70 text-gray-200 text-xs hover:bg-neutral-800">概要</button>
-            <button id="topGoBoard" class="px-2 py-0.5 rounded ring-1 ring-neutral-600 bg-neutral-900/70 text-gray-200 text-xs hover:bg-neutral-800">ボード</button>
+        <!-- Top-left breadcrumb (repo / projects) with tabs below -->
+        <div class="fixed left-3 top-3 z-[19]">
+          <div class="flex items-baseline gap-2">
+            <a href="#/project" class="text-gray-300 hover:text-white truncate max-w-[10rem] align-middle text-2xl font-semibold" id="topPathUser" title="${ctx.owner}">${ctx.owner}</a>
+            <span class="text-gray-500 text-2xl">/</span>
+            <span class="text-gray-300 text-2xl font-semibold" id="topPathRepo" title="${ctx.repo}">${ctx.repo}</span>
+          </div>
+          <div class="mt-2 flex items-center gap-0">
+            <button id="topGoSummary" class="px-6 py-1.5 text-white text-xs font-medium drop-shadow-sm hover:bg-sky-600 bg-sky-700 transition select-none" style="clip-path: polygon(20% 0%, 100% 0%, 80% 100%, 0% 100%); -webkit-clip-path: polygon(20% 0%, 100% 0%, 80% 100%, 0% 100%);">概要</button>
+            <button id="topGoBoard" class="px-6 py-1.5 text-white text-xs font-medium drop-shadow-sm hover:bg-emerald-600 bg-emerald-700 transition select-none" style="clip-path: polygon(20% 0%, 100% 0%, 80% 100%, 0% 100%); -webkit-clip-path: polygon(20% 0%, 100% 0%, 80% 100%, 0% 100%); margin-left:-12px;">ボード</button>
           </div>
         </div>
         <!-- Content -->
