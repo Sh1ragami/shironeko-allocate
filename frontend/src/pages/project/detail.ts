@@ -34,6 +34,7 @@ function tintHex(hex: string, pct = 0.2): string {
 }
 const ICON_BELL = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="36" height="36" fill="currentColor" aria-hidden="true"><path d="M12 22a2 2 0 002-2h-4a2 2 0 002 2zm6-6v-5a6 6 0 00-4.5-5.82V4a1.5 1.5 0 10-3 0v1.18A6 6 0 006 11v5l-2 2v1h16v-1l-2-2z"/></svg>'
 const ICON_PALETTE = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="36" height="36" fill="currentColor" aria-hidden="true"><path d="M12 3a9 9 0 100 18h1a2 2 0 002-2 2 2 0 012-2h1a4 4 0 100-8h-1a1 1 0 01-1-1 4 4 0 00-4-4zm-5.5 8A1.5 1.5 0 118 9.5 1.5 1.5 0 016.5 11zm3 3A1.5 1.5 0 1111 12.5 1.5 1.5 0 019.5 14zm5-6A1.5 1.5 0 1116 6.5 1.5 1.5 0 0114.5 8zm2 4A1.5 1.5 0 1118 10.5 1.5 1.5 0 0116.5 12z"/></svg>'
+const ICON_BRUSH = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M7 14c-2.21 0-4 1.79-4 4a3 3 0 006 0h5l6-6-5-5-6 6v5H7Zm9.586-9.586 2 2L17 8l-2-2 1.586-1.586Z"/></svg>'
 // Icons for profile menu items
 const ICON_SKILLS = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M4 4h7v7H4V4Zm0 9h7v7H4v-7Zm9-9h7v7h-7V4Zm0 9h7v7h-7v-7Z"/></svg>'
 const ICON_WISH = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M12 21s-6.716-3.858-9.193-7.335C1.084 11.62 2.02 8.8 4.46 7.67 6.227 6.844 8.23 7.24 9.5 8.5L12 11l2.5-2.5c1.27-1.26 3.273-1.656 5.04-.83 2.44 1.13 3.376 3.95 1.653 5.995C18.716 17.142 12 21 12 21Z"/></svg>'
@@ -156,21 +157,22 @@ export function openAccountModal(root: HTMLElement): void {
             <section id="profileStart" class="mt-6">
               <div class="text-sm text-gray-400 mb-2">プロフィール</div>
               <div class="grid place-items-center min-h-[60vh]">
-                <button id="profileCard" type="button" class="rounded-2xl bg-neutral-900/40 w-[min(90%,720px)] aspect-[16/9] overflow-hidden">
+                <div id="profileCard" role="button" class="block cursor-pointer rounded-2xl w-[min(90%,720px)] aspect-[16/9] overflow-hidden">
                   <div id="profileCardInner" class="w-full h-full"></div>
-                </button>
+                </div>
               </div>
             </section>
 
             <!-- Profile editor view (hidden by default) -->
             <section id="profileEditor" class="hidden">
               <div class="relative flex items-stretch gap-6 h-[60vh]" style="height: calc(78vh - 48px)">
-                <aside class="relative z-10 basis-[40%] shrink-0 p-3 h-full">
+                <aside class="relative z-10 basis-[40%] shrink-0 px-3 h-full">
                   <div class="flex items-center justify-start mb-3">
                     <button id="profBack" type="button" class="inline-flex items-center gap-1 text-sm text-gray-200 hover:text-white">
                       <span>←</span><span>閉じる</span>
                     </button>
                   </div>
+                  <div class="mx-auto w-full max-w-[560px]">
                     <!-- メニュー一覧 -->
                   <div id="profMenuWrap" class="space-y-3">
                     <button class="prof-menu-btn w-full h-12 inline-flex items-center rounded-lg ring-2 ring-neutral-600 bg-neutral-900/60 hover:bg-neutral-900 px-3 text-[18px] font-medium" data-item="owned">
@@ -187,16 +189,24 @@ export function openAccountModal(root: HTMLElement): void {
                       </span>
                       <span>希望スキル一覧</span>
                     </button>
+                    <button class="prof-menu-btn w-full h-12 inline-flex items-center rounded-lg ring-2 ring-neutral-600 bg-neutral-900/60 hover:bg-neutral-900 px-3 text-[18px] font-medium" data-item="design">
+                      <span class="relative mr-3 grid place-items-center w-12 h-12 bg-neutral-700/60 rounded-sm ring-1 ring-neutral-600 overflow-hidden">
+                        <span class="absolute inset-y-0 left-0" style="width:16.66%; background-color: rgba(250,204,21,.7)"></span>
+                        <span class="relative" style="color:#fff2b0">${ICON_BRUSH}</span>
+                      </span>
+                      <span>デザイン変更</span>
+                    </button>
                   </div>
 
                     <!-- メニュー個別の選択欄 -->
                     <div id="menuEditWrap" class="hidden mt-1">
-                      <div class="mb-2 text-base" id="editTitle">項目</div>
-                      <div id="menuEdit" class="rounded-lg ring-2 ring-neutral-600 bg-neutral-900/40 p-3 min-h-[260px] overflow-auto"></div>
+                      <div id="editTitle" class="hidden"></div>
+                      <div id="menuEdit"></div>
                     </div>
+                  </div>
                 </aside>
                 <section class="relative z-10 basis-[60%] shrink-0 grid place-items-center h-full">
-                  <div id="cardPreview" class="rounded-2xl bg-neutral-900/40 w-[min(90%,720px)] aspect-[16/9]"></div>
+                  <div id="cardPreview" class="rounded-2xl w-[min(90%,720px)] aspect-[16/9] overflow-hidden"></div>
                 </section>
               </div>
             </section>
@@ -264,31 +274,46 @@ export function openAccountModal(root: HTMLElement): void {
   const labelText = overlay.querySelector('#acctTabLabelText') as HTMLElement | null
   let currentTabEl: HTMLElement | null = null
   // ---- Profile card + editor helpers ----
-  type ProfileData = { name: string; owned: string[]; want: string[]; avatar?: string }
+  type ProfileData = { name: string; owned: string[]; want: string[]; avatar?: string; theme?: string }
   const meId = (root as any)._me?.id as number | undefined
   const getProfile = (): ProfileData => ({
     name: me?.name || 'ゲスト',
     owned: loadSkills(meId, 'owned') || [],
     want: loadSkills(meId, 'want') || [],
-    avatar: avatarUrl || ''
+    avatar: avatarUrl || '',
+    theme: loadCardTheme(meId)
   })
-  const chip = (s: string) => `<span class=\"inline-flex items-center px-2 py-0.5 rounded-full text-[11px] ring-1 ring-neutral-600 bg-neutral-800/70 text-gray-100 mr-1 mb-1\">${skillIcon(s)}${s}</span>`
+  const CARD_THEMES: { id: string; name: string; a: string; b: string }[] = [
+    { id: 'ocean', name: 'オーシャン', a: '#0ea5e9', b: '#1e3a8a' },
+    { id: 'sunset', name: 'サンセット', a: '#f97316', b: '#ef4444' },
+    { id: 'grape', name: 'グレープ', a: '#7c3aed', b: '#a855f7' },
+    { id: 'forest', name: 'フォレスト', a: '#065f46', b: '#10b981' },
+    { id: 'sakura', name: 'さくら', a: '#f472b6', b: '#fca5a5' },
+    { id: 'steel', name: 'スティール', a: '#334155', b: '#0f172a' }
+  ]
+  function themeById(id?: string) { return CARD_THEMES.find(t => t.id === id) || CARD_THEMES[0] }
+  function cardThemeKey(uid?: number) { return `acct-card-theme-${uid ?? 'guest'}` }
+  function loadCardTheme(uid?: number): string { try { return localStorage.getItem(cardThemeKey(uid)) || 'ocean' } catch { return 'ocean' } }
+  function saveCardTheme(uid: number | undefined, id: string) { localStorage.setItem(cardThemeKey(uid), id) }
+  const chip = (s: string) => `<span class=\"inline-flex items-center px-2 py-0.5 rounded-full ring-1 ring-neutral-600 bg-neutral-800/70 text-gray-100 mr-1 mb-1\" style=\"font-size:var(--chip-fs,12px)\">${skillIcon(s)}${s}</span>`
   const renderCardPreview = (data: ProfileData): string => {
     const own = (data.owned || []).filter((s) => ALL_SKILLS.includes(s)).slice(0, 12)
     const want = (data.want || []).filter((s) => ALL_SKILLS.includes(s)).slice(0, 12)
+    const th = themeById(data.theme)
+    const bg = `linear-gradient(135deg, ${th.a} 0%, ${th.b} 100%)`
     return `
-      <div class=\"w-full h-full rounded-xl overflow-hidden bg-gradient-to-br from-neutral-800/80 to-neutral-900/80\">
-        <div class=\"p-4 flex items-center gap-3 bg-neutral-900/40\">
-          <div class=\"w-12 h-12 rounded-full overflow-hidden bg-neutral-700 ring-1 ring-neutral-600\">${data.avatar ? `<img src='${data.avatar}' class='w-full h-full object-cover'/>` : ''}</div>
+      <div class=\"gh-card-root w-full h-full rounded-xl overflow-hidden\" style=\"background:${bg}; font-size:var(--card-fs,14px)\"> 
+        <div class=\"flex items-center gap-3 bg-neutral-900/40\" style=\"padding: var(--pad,16px)\">
+          <div class=\"rounded-full overflow-hidden bg-neutral-700 ring-1 ring-neutral-600\" style=\"width:var(--avatar,48px); height:var(--avatar,48px)\">${data.avatar ? `<img src='${data.avatar}' class='w-full h-full object-cover'/>` : ''}</div>
           <div>
-            <div class=\"text-[15px] font-semibold\">${data.name}</div>
-            <div class=\"text-[12px] text-gray-400\">Profile Card</div>
+            <div class=\"font-semibold\" style=\"font-size:var(--name-fs,15px)\">${data.name}</div>
+            <div class=\"text-gray-300/80\" style=\"font-size:var(--label-fs,12px)\">Profile Card</div>
           </div>
         </div>
-        <div class=\"p-4\">
-          <div class=\"text-[12px] text-gray-400 mb-1\">所有スキル</div>
+        <div style=\"padding: var(--pad,16px)\">
+          <div class=\"text-gray-200/80 mb-1\" style=\"font-size:var(--label-fs,12px)\">所有スキル</div>
           <div class=\"flex flex-wrap\">${own.length ? own.map(chip).join('') : '<span class="text-[12px] text-gray-500">未選択</span>'}</div>
-          <div class=\"mt-3 text-[12px] text-gray-400 mb-1\">希望スキル</div>
+          <div class=\"mt-3 text-gray-200/80 mb-1\" style=\"font-size:var(--label-fs,12px)\">希望スキル</div>
           <div class=\"flex flex-wrap\">${want.length ? want.map(chip).join('') : '<span class="text-[12px] text-gray-500">未選択</span>'}</div>
         </div>
       </div>`
@@ -297,7 +322,38 @@ export function openAccountModal(root: HTMLElement): void {
     const box = overlay.querySelector('#profileCardInner') as HTMLElement | null
     if (box) box.innerHTML = renderCardPreview(getProfile())
     const prev = overlay.querySelector('#cardPreview') as HTMLElement | null
-    if (prev) prev.innerHTML = renderCardPreview(getProfile())
+    if (prev) { prev.innerHTML = renderCardPreview(getProfile()); try { tuneCardScale(prev as HTMLElement) } catch {} }
+    window.addEventListener('resize', () => { try { tuneCardScale(box?.parentElement as HTMLElement) } catch {} ; try { tuneCardScale(prev as HTMLElement) } catch {} }, { passive: true })
+    try { tuneCardScale(box?.parentElement as HTMLElement) } catch {}
+    try { tuneCardScale(prev as HTMLElement) } catch {}
+  }
+  function tuneCardScale(container?: HTMLElement | null) {
+    if (!container) return
+    const wrapAndScale = () => {
+      let root = container.querySelector('.gh-card-root') as HTMLElement | null
+      if (!root) return
+      let sizer = container.querySelector('.gh-card-sizer') as HTMLElement | null
+      if (!sizer) {
+        const wrap = document.createElement('div')
+        wrap.className = 'gh-card-wrap w-full h-full'
+        wrap.style.setProperty('--s', '1')
+        sizer = document.createElement('div')
+        sizer.className = 'gh-card-sizer'
+        sizer.style.transformOrigin = 'top left'
+        sizer.style.width = '720px'
+        sizer.style.height = '405px'
+        root.style.width = '720px'
+        root.style.height = '405px'
+        root.parentElement?.insertBefore(wrap, root)
+        wrap.appendChild(sizer)
+        sizer.appendChild(root)
+      }
+      const w = Math.round(container.getBoundingClientRect().width || 0)
+      if (!w) { requestAnimationFrame(wrapAndScale); return }
+      const s = Math.max(0.1, Math.min(2, w / 720))
+      ;(container.querySelector('.gh-card-sizer') as HTMLElement).style.transform = `scale(${s})`
+    }
+    wrapAndScale()
   }
   const showEditor = (on: boolean) => {
     const start = overlay.querySelector('#profileStart') as HTMLElement | null
@@ -315,16 +371,16 @@ export function openAccountModal(root: HTMLElement): void {
     menu?.classList.toggle('hidden', !on)
     edit?.classList.toggle('hidden', on)
   }
-  const openCategory = (kind: 'owned' | 'want') => {
+  const openCategory = (kind: 'owned' | 'want' | 'design') => {
     markMenu(kind)
     const title = overlay.querySelector('#editTitle') as HTMLElement | null
-    if (title) title.textContent = kind === 'owned' ? '所持スキル' : '希望スキル一覧'
-    renderEditorSkills(kind)
+    if (title) title.textContent = kind === 'owned' ? '所持スキル' : (kind === 'want' ? '希望スキル一覧' : 'デザイン変更')
+    if (kind === 'design') renderEditorDesign(); else renderEditorSkillsGrid(kind)
     showMenuList(false)
     const prev = overlay.querySelector('#cardPreview') as HTMLElement | null
-    if (prev) prev.innerHTML = renderCardPreview(getProfile())
+    if (prev) { prev.innerHTML = renderCardPreview(getProfile()); try { tuneCardScale(prev as HTMLElement) } catch {} }
   }
-  const markMenu = (id: 'owned' | 'want') => {
+  const markMenu = (id: 'owned' | 'want' | 'design') => {
     overlay.querySelectorAll('.prof-menu-btn').forEach((b) => {
       const active = (b as HTMLElement).getAttribute('data-item') === id
       b.classList.toggle('bg-neutral-800', active)
@@ -332,7 +388,70 @@ export function openAccountModal(root: HTMLElement): void {
       b.classList.toggle('text-white', active)
     })
   }
-  const renderEditorSkills = (kind: 'owned' | 'want') => {
+  // Grid-style skills selector (no extra headers or inner frames)
+  const renderEditorSkillsGrid = (kind: 'owned' | 'want') => {
+    const cont = overlay.querySelector('#menuEdit') as HTMLElement | null
+    if (!cont) return
+    const seed = ALL_SKILLS
+    const key = kind === 'owned' ? '_pgOwned' : '_pgWant'
+    let page = (overlay as any)[key] || 0
+    const colKey = kind === 'owned' ? '_colsOwned' : '_colsWant'
+    const ROWS = 4
+    const measureCols = (): number => {
+      const aside = cont.closest('aside') as HTMLElement | null
+      const availW = Math.max(240, Math.min(560, (aside?.clientWidth || 560)))
+      return Math.max(1, Math.floor(availW / 120))
+    }
+    if ((overlay as any)[colKey] == null) (overlay as any)[colKey] = measureCols()
+    const draw = () => {
+      const cols = Math.max(1, (overlay as any)[colKey] as number)
+      const perPage = Math.max(1, cols * ROWS)
+      const total = Math.max(1, Math.ceil(seed.length / perPage))
+      page = Math.min(page, total - 1)
+      ;(overlay as any)[key] = page
+      const selected = new Set(loadSkills(meId, kind).filter((s) => ALL_SKILLS.includes(s)))
+      const items = seed.slice(page * perPage, page * perPage + perPage)
+      cont.innerHTML = `
+        <div class="mx-auto w-full max-w-[560px]">
+          <div class="sk-grid grid gap-2" style="grid-template-columns: repeat(${cols},minmax(0,1fr));">
+            ${items.map((s) => `<button class=\"skill-pill grid place-items-center gap-1 p-2 rounded-lg ring-2 ${selected.has(s) ? 'bg-emerald-700/40 text-white ring-emerald-600' : 'bg-neutral-800/60 text-gray-200 ring-neutral-600'}\" style=\"aspect-ratio:1/1\" data-skill=\"${s}\">${skillIcon(s)}<span class=\"text-xs\">${s}</span></button>`).join('')}
+          </div>
+          <div class="mt-3 flex justify-center items-center gap-3">
+            <button class="pg-prev px-3 py-1 rounded bg-neutral-800/60 ring-1 ring-neutral-600 text-sm disabled:opacity-50" ${page<=0?'disabled':''}>◀</button>
+            <span class="text-xs text-gray-300">${page+1} / ${total}</span>
+            <button class="pg-next px-3 py-1 rounded bg-neutral-800/60 ring-1 ring-neutral-600 text-sm disabled:opacity-50" ${page>=total-1?'disabled':''}>▶</button>
+          </div>
+        </div>`
+      cont.querySelectorAll('.skill-pill')?.forEach((el) => {
+        el.addEventListener('click', () => {
+          const btn = el as HTMLElement
+          const name = btn.getAttribute('data-skill') || ''
+          const cur = new Set(loadSkills(meId, kind))
+          if (cur.has(name)) cur.delete(name); else cur.add(name)
+          saveSkills(meId, kind, Array.from(cur))
+          btn.classList.toggle('bg-emerald-700/40')
+          btn.classList.toggle('text-white')
+          btn.classList.toggle('ring-emerald-600')
+          btn.classList.toggle('bg-neutral-800/60')
+          btn.classList.toggle('text-gray-200')
+          btn.classList.toggle('ring-neutral-600')
+          const c = overlay.querySelector('#cardPreview') as HTMLElement | null
+          if (c) { c.innerHTML = renderCardPreview(getProfile()); try { tuneCardScale(c as HTMLElement) } catch {} }
+        })
+      })
+      ;(cont.querySelector('.pg-prev') as HTMLButtonElement | null)?.addEventListener('click', () => { if (page>0) { page--; (overlay as any)[key]=page; draw() } })
+      ;(cont.querySelector('.pg-next') as HTMLButtonElement | null)?.addEventListener('click', () => { if (page<total-1) { page++; (overlay as any)[key]=page; draw() } })
+      if (!(overlay as any)._pgResizeBound) {
+        window.addEventListener('resize', () => {
+          const newCols = measureCols()
+          if (newCols !== (overlay as any)[colKey]) { (overlay as any)[colKey] = newCols; draw() }
+        }, { passive: true })
+        ;(overlay as any)._pgResizeBound = true
+      }
+    }
+    draw()
+  }
+  const renderEditorSkillsOld = (kind: 'owned' | 'want') => {
     const cont = overlay.querySelector('#menuEdit') as HTMLElement | null
     if (!cont) return
     const selected = new Set(loadSkills(meId, kind).filter((s) => ALL_SKILLS.includes(s)))
@@ -361,9 +480,77 @@ export function openAccountModal(root: HTMLElement): void {
         btn.classList.toggle('ring-neutral-600')
         // update preview + counter
         const c = overlay.querySelector('#cardPreview') as HTMLElement | null
-        if (c) c.innerHTML = renderCardPreview(getProfile())
+        if (c) { c.innerHTML = renderCardPreview(getProfile()); try { tuneCardScale(c as HTMLElement) } catch {} }
         const counter = cont.querySelector('div.text-[12px].text-gray-400') as HTMLElement | null
         if (counter) counter.textContent = `${cur.size} 件選択`
+      })
+    })
+  }
+  const renderEditorSkills = (kind: 'owned' | 'want') => {
+    const cont = overlay.querySelector('#menuEdit') as HTMLElement | null
+    if (!cont) return
+    const selected = new Set(loadSkills(meId, kind).filter((s) => ALL_SKILLS.includes(s)))
+    const seed = ALL_SKILLS
+    cont.innerHTML = `
+      <div class="flex items-center justify-between mb-2">
+        <div class="text-sm text-gray-200">${kind === 'owned' ? '所有スキルを選択' : '希望スキルを選択'}</div>
+        <div class="text-[12px] text-gray-400">${selected.size} 件選択</div>
+      </div>
+      <div class="rounded-lg ring-2 ring-neutral-600 bg-neutral-900/40 p-3 min-h-[260px] overflow-auto">
+        <div class="sk-grid grid gap-2" style="grid-template-columns: repeat(auto-fill,minmax(140px,1fr));"></div>
+      </div>`
+    const grid = cont.querySelector('.sk-grid') as HTMLElement | null
+    if (grid) grid.innerHTML = seed.map((s) => `
+      <button class="skill-pill flex items-center gap-2 px-3 py-2 rounded-lg ring-2 ${selected.has(s) ? 'bg-emerald-700/40 text-white ring-emerald-600' : 'bg-neutral-800/60 text-gray-200 ring-neutral-600'}" data-skill="${s}">
+        ${skillIcon(s)}<span class="text-sm">${s}</span>
+      </button>
+    `).join('')
+    cont.querySelectorAll('.skill-pill')?.forEach((el) => {
+      el.addEventListener('click', () => {
+        const btn = el as HTMLElement
+        const name = btn.getAttribute('data-skill') || ''
+        const cur = new Set(loadSkills(meId, kind))
+        if (cur.has(name)) cur.delete(name); else cur.add(name)
+        saveSkills(meId, kind, Array.from(cur))
+        btn.classList.toggle('bg-emerald-700/40')
+        btn.classList.toggle('text-white')
+        btn.classList.toggle('ring-emerald-600')
+        btn.classList.toggle('bg-neutral-800/60')
+        btn.classList.toggle('text-gray-200')
+        btn.classList.toggle('ring-neutral-600')
+        const c = overlay.querySelector('#cardPreview') as HTMLElement | null
+        if (c) { c.innerHTML = renderCardPreview(getProfile()); try { tuneCardScale(c as HTMLElement) } catch {} }
+        const counter = cont.querySelector('div.text-[12px].text-gray-400') as HTMLElement | null
+        if (counter) counter.textContent = `${cur.size} 件選択`
+      })
+    })
+  }
+  const renderEditorDesign = () => {
+    const cont = overlay.querySelector('#menuEdit') as HTMLElement | null
+    if (!cont) return
+    const cur = loadCardTheme(meId)
+    cont.innerHTML = `
+      <div class="mx-auto w-full max-w-[560px]"><div class="th-grid grid gap-2" style="grid-template-columns: repeat(auto-fill,minmax(110px,1fr));"></div></div>`
+    const grid = cont.querySelector('.th-grid') as HTMLElement | null
+    if (grid) grid.innerHTML = CARD_THEMES.map((t) => `
+      <button class="design-opt rounded-lg ring-2 ${t.id===cur?'ring-emerald-600 bg-neutral-800/60':'ring-neutral-600 bg-neutral-800/40'} overflow-hidden text-left" data-theme="${t.id}">
+        <div class="h-16 w-full" style="background: linear-gradient(135deg, ${t.a} 0%, ${t.b} 100%)"></div>
+        <div class="px-2 py-1 text-sm">${t.name}</div>
+      </button>
+    `).join('')
+    cont.querySelectorAll('.design-opt')?.forEach((el) => {
+      el.addEventListener('click', () => {
+        const id = (el as HTMLElement).getAttribute('data-theme') || 'ocean'
+        saveCardTheme(meId, id)
+        cont.querySelectorAll('.design-opt').forEach((n) => {
+          const sel = (n as HTMLElement).getAttribute('data-theme') === id
+          n.classList.toggle('ring-emerald-600', sel)
+          n.classList.toggle('ring-neutral-600', !sel)
+          n.classList.toggle('bg-neutral-800/60', sel)
+          n.classList.toggle('bg-neutral-800/40', !sel)
+        })
+        const prev = overlay.querySelector('#cardPreview') as HTMLElement | null
+    if (prev) { prev.innerHTML = renderCardPreview(getProfile()); try { tuneCardScale(prev as HTMLElement) } catch {} }
       })
     })
   }
@@ -441,7 +628,7 @@ export function openAccountModal(root: HTMLElement): void {
     showMenuList(true)
     // initial preview
     const prev = overlay.querySelector('#cardPreview') as HTMLElement | null
-    if (prev) prev.innerHTML = renderCardPreview(getProfile())
+    if (prev) { prev.innerHTML = renderCardPreview(getProfile()); try { tuneCardScale(prev as HTMLElement) } catch {} }
   })
   overlay.querySelector('#profBack')?.addEventListener('click', () => {
     const menuEdit = overlay.querySelector('#menuEditWrap') as HTMLElement | null
@@ -455,7 +642,7 @@ export function openAccountModal(root: HTMLElement): void {
   overlay.querySelector('#profMenuWrap')?.addEventListener('click', (e) => {
     const t = (e.target as HTMLElement).closest('.prof-menu-btn') as HTMLElement | null
     if (!t) return
-    const id = (t.getAttribute('data-item') || 'owned') as 'owned' | 'want'
+    const id = (t.getAttribute('data-item') || 'owned') as 'owned' | 'want' | 'design'
     openCategory(id)
   })
   // editBack button removed; use the left-arrow close button to return to menu list when editing
