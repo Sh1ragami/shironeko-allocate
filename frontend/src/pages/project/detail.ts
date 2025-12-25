@@ -6263,6 +6263,41 @@ function hxwApplyTransform(wrap: HTMLElement, canvas: HTMLElement, st: HexWLayou
   try { hxwDrawMini(wrap, st) } catch { }
 }
 
+function hxwEnsureContentInView(wrap: HTMLElement, canvas: HTMLElement, st: HexWLayout): void {
+  try {
+    const nodes = (wrap as any)._hxw?.nodes as Array<{ x: number; y: number }> | undefined
+    if (!nodes || nodes.length === 0) return
+    const vw = wrap.clientWidth
+    const vh = wrap.clientHeight
+    const tW = st.tile
+    const tH = Math.round(st.tile * 0.866)
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+    for (const n of nodes) {
+      if (n.x < minX) minX = n.x
+      if (n.y < minY) minY = n.y
+      if (n.x + tW > maxX) maxX = n.x + tW
+      if (n.y + tH > maxY) maxY = n.y + tH
+    }
+    if (!isFinite(minX) || !isFinite(minY) || !isFinite(maxX) || !isFinite(maxY)) return
+    // current viewport in world coordinates (use base scale so it matches offsets)
+    const cxBase = (-st.offsetX) / (st.scale || 1) + vw / (st.scale || 1) / 2
+    const cyBase = (-st.offsetY) / (st.scale || 1) + vh / (st.scale || 1) / 2
+    const wBase = vw / (st.scale || 1)
+    const hBase = vh / (st.scale || 1)
+    const vx0 = cxBase - wBase / 2
+    const vy0 = cyBase - hBase / 2
+    const vx1 = cxBase + wBase / 2
+    const vy1 = cyBase + hBase / 2
+    const ov = !(vx1 < minX || vx0 > maxX || vy1 < minY || vy0 > maxY)
+    if (ov) return
+    // recentre to content
+    const ccx = (minX + maxX) / 2
+    const ccy = (minY + maxY) / 2
+    st.offsetX = Math.round(vw / 2 - ccx * (st.scale || 1))
+    st.offsetY = Math.round(vh / 2 - ccy * (st.scale || 1))
+  } catch { }
+}
+
 function hxwDrawMini(wrap: HTMLElement, st: HexWLayout): void {
   const mini = document.getElementById('hxwMini') as HTMLCanvasElement | null
   if (!mini) return
@@ -6320,32 +6355,6 @@ function hxwDrawMini(wrap: HTMLElement, st: HexWLayout): void {
       drawHex(x, y, fill)
     })
   } catch { }
-  // Viewport frame
-  try {
-    // Rectangle is based on effective scale (visible size), centered on base world center
-    let vw = wrap.clientWidth / eff
-    let vh = wrap.clientHeight / eff
-    let vx = cxBase - vw / 2
-    let vy = cyBase - vh / 2
-    // In 3D, bias the rectangle downward a bit to reflect the visible area under camera tilt
-    if (iso) {
-      const rxDeg = (function(){ try { const v = getComputedStyle(wrap).getPropertyValue('--hxw-rot-x').trim(); const n = parseFloat(v.replace('deg','')); return isNaN(n) ? 46 : n } catch { return 46 } })()
-      const rxRad = rxDeg * Math.PI / 180
-      // base bias from tilt; allow override via CSS var --hxw-mini-bias (as fraction)
-      const cssBias = (function(){
-        try { const v = getComputedStyle(wrap).getPropertyValue('--hxw-mini-bias').trim(); const n = parseFloat(v); return isNaN(n) ? NaN : n } catch { return NaN }
-      })()
-      const frac = isFinite(cssBias) ? cssBias : Math.min(0.32, Math.max(0.10, Math.sin(rxRad) * 0.26))
-      vy += vh * frac
-    }
-    const rectX = ox + vx * s
-    const rectY = oy + vy * s
-    const rectW = vw * s
-    const rectH = vh * s
-    ctx.strokeStyle = isLight ? 'rgba(0,0,0,0.85)' : 'rgba(255,255,255,0.85)'
-    ctx.lineWidth = 1.4
-    ctx.strokeRect(rectX, rectY, rectW, rectH)
-  } catch { }
   ctx.restore()
 }
 
@@ -6378,10 +6387,42 @@ function hxwToggleIsoKeepCenter(wrap: HTMLElement, canvas: HTMLElement, st: HexW
   wrap.classList.toggle('hxw-iso', toIso)
   // ensure default angles present (can be customized via CSS vars)
   try { if (toIso) { const rs = wrap.style; if (!rs.getPropertyValue('--hxw-rot-x')) rs.setProperty('--hxw-rot-x', '46deg'); if (!rs.getPropertyValue('--hxw-rot-z')) rs.setProperty('--hxw-rot-z', '0deg'); if (!rs.getPropertyValue('--hxw-elev')) rs.setProperty('--hxw-elev', '140px') } } catch {}
-  // recompute effective scale and adjust offsets so wx/wy stays at screen center
-  const effAfter = hxwEffectiveScale(wrap, st)
-  st.offsetX = Math.round(vw / 2 - wx * (effAfter || 1))
-  st.offsetY = Math.round(vh / 2 - wy * (effAfter || 1))
+  // recompute offsets with base scale so画面中心のワールド点を維持
+  const sc = st.scale || 1
+  st.offsetX = Math.round(vw / 2 - wx * sc)
+  st.offsetY = Math.round(vh / 2 - wy * sc)
+  // Clamp offsets using effective size so切替直後に場外へ飛ばないようにする
+  try {
+    const W = (st.width || 0) * (st.scale || 1)
+    const H = (st.height || 0) * (st.scale || 1)
+    const iso = wrap.classList.contains('hxw-iso')
+    let mX = 120, mY = 120
+    if (iso) {
+      const parseDeg = (v: string, d: number) => { const n = parseFloat(v.replace('deg','')); return isNaN(n) ? d : n }
+      let rx = 46, rz = -22
+      try {
+        const cs = getComputedStyle(wrap)
+        rx = parseDeg(cs.getPropertyValue('--hxw-rot-x') || '', rx)
+        rz = parseDeg(cs.getPropertyValue('--hxw-rot-z') || '', rz)
+      } catch {}
+      const rxRad = rx * Math.PI / 180
+      const rzRad = rz * Math.PI / 180
+      const extraX = Math.abs(H * Math.sin(rxRad) * 0.65) + Math.abs(W * Math.sin(rzRad) * 0.25)
+      const extraY = Math.abs(H * Math.sin(rxRad) * 0.25) + Math.abs(W * Math.sin(rzRad) * 0.65)
+      mX += Math.round(extraX)
+      mY += Math.round(extraY)
+    }
+    const minX = (vw - W) - mX
+    const maxX = mX
+    const minY = (vh - H) - mY
+    const maxY = mY
+    if (W + 2 * mX <= vw) st.offsetX = Math.round((vw - W) / 2)
+    else st.offsetX = Math.max(minX, Math.min(maxX, st.offsetX))
+    if (H + 2 * mY <= vh) st.offsetY = Math.round((vh - H) / 2)
+    else st.offsetY = Math.max(minY, Math.min(maxY, st.offsetY))
+  } catch {}
+  // If content is out of view after mode switch, recentre to the content bounds
+  try { hxwEnsureContentInView(wrap, canvas, st) } catch {}
   // set rotation pivot to the world point under screen center AFTER offset adjustment
   try { (wrap as any)._hxwPivot = [ Math.round(st.offsetX + wx * st.scale), Math.round(st.offsetY + wy * st.scale) ] } catch {}
   hxwApplyTransform(wrap, canvas, st)
@@ -6425,8 +6466,9 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
   const enforceBounds = () => {
     const vw = wrap.clientWidth
     const vh = wrap.clientHeight
-    const W = (st.width || 0) * st.scale
-    const H = (st.height || 0) * st.scale
+    // Use base scale for clamping. 3Dの見かけサイズ変化（elev）ではパン制限を厳しくしない
+    const W = (st.width || 0) * (st.scale || 1)
+    const H = (st.height || 0) * (st.scale || 1)
     if (!isFinite(vw) || !isFinite(vh)) return
     const iso = wrap.classList.contains('hxw-iso')
     let mX = 120, mY = 120
