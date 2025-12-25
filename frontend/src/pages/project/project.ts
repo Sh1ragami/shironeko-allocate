@@ -2,6 +2,7 @@ import { apiFetch } from '../../utils/api'
 import { getTheme, setTheme } from '../../utils/theme'
 import { showRouteLoading, hideRouteLoading } from '../../utils/route-loading'
 import { prefetchProjectDetail } from '../../utils/prefetch'
+import { openAccountModal as openDetailAccountModal } from './detail'
 
 type Project = {
   id: number
@@ -141,7 +142,7 @@ export function renderProject(container: HTMLElement): void {
 
   // Account modal
   const accountBtn = container.querySelector('#accountBtn')
-  accountBtn?.addEventListener('click', () => openAccountModal(container))
+  accountBtn?.addEventListener('click', () => openDetailAccountModal(container))
   // Group add handled inside quickbar
 
   // Load projects when me is unknown yet (fallback)
@@ -151,7 +152,7 @@ export function renderProject(container: HTMLElement): void {
   const wantAccount = localStorage.getItem('openAccountModal')
   if (wantAccount) {
     localStorage.removeItem('openAccountModal')
-    openAccountModal(container)
+    openDetailAccountModal(container)
   }
 }
 
@@ -1500,7 +1501,7 @@ function themeOption(id: 'dark' | 'warm' | 'sakura', title: string, desc: string
   return `
   <button type="button" data-theme="${id}" class="theme-option relative text-left rounded-lg ring-2 ring-neutral-600 bg-neutral-900/40 hover:ring-emerald-600 transition-colors">
     <div class="absolute right-2 top-2 text-[10px] px-2 py-0.5 rounded-full bg-emerald-700 text-white opacity-0" data-check>選択中</div>
-    <div class="p-3 ${scopeClass}" ${scopeClass === 'th-sakura' ? 'data-demo' : ''}>
+    <div class="p-3 ${scopeClass}">
       <div class="h-5 rounded bg-neutral-900/80 ring-2 ring-neutral-600"></div>
       <div class="mt-2 flex gap-2">
         <div class="w-8 rounded bg-neutral-900/50 ring-2 ring-neutral-600 h-20"></div>
