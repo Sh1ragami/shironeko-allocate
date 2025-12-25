@@ -574,7 +574,7 @@ function showGroupLocationToast(gid: string, uid?: number): void {
   wrap.appendChild(inner)
   host.appendChild(wrap)
   // Auto remove after animation
-  setTimeout(() => { wrap.remove() }, 2000)
+  setTimeout(() => { wrap.remove() }, 1100)
 }
 
 function drawMiniMap(wrap: HTMLElement, st: HexLayout): void {

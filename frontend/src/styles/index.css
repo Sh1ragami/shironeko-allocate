@@ -573,6 +573,7 @@ body[data-lock]:not([data-lock="0"]) .hxw-wrap { pointer-events: none; }
 
 /* ---- Group Location Toast (Projects) ---- */
 .loc-toast { position: fixed; inset: 0; display: grid; place-items: center; pointer-events: none; z-index: 40; }
+:root[data-theme="warm"] .loc-inner, :root[data-theme="sakura"] .loc-inner { color: var(--loc-color, rgb(22,22,22)); }
 .loc-inner {
   padding: 0; /* text only (no frame) */
   border: none;
@@ -582,16 +583,13 @@ body[data-lock]:not([data-lock="0"]) .hxw-wrap { pointer-events: none; }
   letter-spacing: .04em;
   font-size: clamp(18px, 3.8vw, 38px);
   line-height: 1.05;
-  animation: loc-center-rise 2s cubic-bezier(.22,1,.36,1) both;
-}
-:root[data-theme="warm"] .loc-inner, :root[data-theme="sakura"] .loc-inner {
-  color: var(--loc-color, rgb(22,22,22));
+  text-align: center;
+  animation: loc-center-rise 1s cubic-bezier(.2,.9,.24,1) both;
 }
 @keyframes loc-center-rise {
-  0%   { opacity: 0; transform: translateY(16px) scale(.985); }
-  25%  { opacity: 1; transform: translateY(0)    scale(1); }
-  88%  { opacity: 1; transform: translateY(0)    scale(1); }
-  100% { opacity: 0; transform: translateY(-4px) scale(1.01); }
+  0%   { opacity: 0; transform: translateY(32px) scale(.985); }
+  60%  { opacity: 1; transform: translateY(0)    scale(1); }
+  100% { opacity: 0; transform: translateY(-6px) scale(1.01); }
 }
 
 /* ---- Hex Widgets: Isometric View ---- */
