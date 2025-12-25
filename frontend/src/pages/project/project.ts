@@ -153,6 +153,41 @@ type HexLayout = {
   inited?: boolean
 }
 
+// ---- Hex helpers (odd-q axial conversion) ----
+type Ax = { x: number; z: number }
+function oddqToAxial(q: number, r: number): Ax { return { x: q, z: r - ((q - (q & 1)) >> 1) } }
+function axialToOddq(x: number, z: number): { q: number; r: number } { const q = x; const r = z + ((q - (q & 1)) >> 1); return { q, r } }
+function hexDist(a: Ax, b: Ax): number {
+  const dx = a.x - b.x, dz = a.z - b.z, dy = -dx - dz
+  return Math.floor((Math.abs(dx) + Math.abs(dy) + Math.abs(dz)) / 2)
+}
+
+// ---- Group palette (stable by index) ----
+const GROUP_COLORS: Project['color'][] = ['blue', 'purple', 'green', 'orange', 'yellow', 'red', 'gray']
+function colorForGroupId(groups: { id: string }[], gid: string): Project['color'] {
+  const idx = Math.max(0, groups.findIndex((g) => g.id === gid))
+  return GROUP_COLORS[idx % GROUP_COLORS.length]
+}
+function groupTone(color?: Project['color']): { bg: string; border: string } {
+  const t = (document.documentElement.getAttribute('data-theme') || 'dark')
+  const light = t === 'warm' || t === 'sakura'
+  // Slightly lighter than project tiles to stay in the background
+  const alpha = light ? 0.24 : 0.20
+  const border = 'var(--gh-border)'
+  const rgba = (r: number, g: number, b: number, a: number) => `rgba(${r},${g},${b},${a})`
+  switch (color) {
+    case 'red': return { bg: rgba(239, 68, 68, alpha), border }
+    case 'green': return { bg: rgba(16, 185, 129, alpha), border }
+    case 'purple': return { bg: rgba(168, 85, 247, alpha), border }
+    case 'orange': return { bg: rgba(251, 146, 60, alpha), border }
+    case 'yellow': return { bg: rgba(234, 179, 8, alpha), border }
+    case 'gray': return { bg: rgba(120, 120, 128, light ? 0.22 : 0.20), border }
+    case 'black': return { bg: rgba(0, 0, 0, light ? 0.25 : 0.35), border }
+    case 'white': return { bg: rgba(255, 255, 255, light ? 0.55 : 0.10), border }
+    default: /* blue */ return { bg: rgba(59, 130, 246, alpha), border }
+  }
+}
+
 // Symmetric small patterns (even-q offset: col,row)
 function smallHexPattern(n: number): Array<[number, number]> | null {
   const base: Array<[number, number]>[] = []
@@ -186,40 +221,88 @@ function renderHoneycomb(root: HTMLElement, projects: Project[]): void {
   const groups = ensureDefaultGroups(me?.id)
   st.uid = me?.id
   const gcount = Math.max(1, groups.length)
+  // Determine a uniform cluster radius to fit projects per group (+slack)
+  const gmapTmp = getGroupMap(me?.id)
+  const perGroupCount: Record<string, number> = {}
+  projects.forEach((p) => { const gid = gmapTmp[String(p.id)] || 'user'; perGroupCount[gid] = (perGroupCount[gid] || 0) + 1 })
+  const maxNeed = Math.max(1, ...groups.map((g) => perGroupCount[g.id] || 0))
+  const slack = 6
+  const needWithSlack = maxNeed + slack
+  const cap = (R: number) => 1 + 3 * R * (R + 1)
+  let R_CLUSTER = 3
+  while (cap(R_CLUSTER) < needWithSlack) R_CLUSTER++
+  const S = 2 * R_CLUSTER + 1 // center spacing in hex-distance to meet edges
   const gcols = Math.max(1, Math.ceil(Math.sqrt(gcount)))
   const grows = Math.max(1, Math.ceil(gcount / gcols))
-  const C_COLS = 10, C_ROWS = 9 // per-cluster internal nodes
-  const clusterW = stepX() * (C_COLS - 1) + W
-  const clusterH = stepY() * (C_ROWS + 0.5)
-  const totalCols = gcols * C_COLS
-  const totalRows = grows * C_ROWS
-  const width = stepX() * (totalCols - 1) + W
-  const height = stepY() * (totalRows + 0.5)
+  // Build per-group centers on a coarse axial lattice (E/SE basis)
+  type Node = { x: number; y: number; i: number; gid: string; q: number; r: number }
+  const nodes: Node[] = []
+  const centers: Record<string, { x: number; y: number }> = {}
+  type Ctr = { gid: string | null; ax: Ax; isGhost: boolean }
+  const realCenters: Ctr[] = []
+  const allCenters: Ctr[] = []
+  let gi = 0
+  for (let row = 0; row < grows; row++) {
+    for (let col = 0; col < gcols; col++) {
+      if (gi >= gcount) break
+      const gid = groups[gi].id
+      const axc: Ax = { x: col * S, z: row * S }
+      realCenters.push({ gid, ax: axc, isGhost: false })
+      gi++
+    }
+  }
+  // one-ring ghost centers around the grid to make edge groups hex-shaped and ensure seamless edges
+  for (let row = -1; row <= grows; row++) {
+    for (let col = -1; col <= gcols; col++) {
+      const inside = (row >= 0 && row < grows && col >= 0 && col < gcols)
+      if (inside) continue
+      const axc: Ax = { x: col * S, z: row * S }
+      allCenters.push({ gid: null, ax: axc, isGhost: true })
+    }
+  }
+  // add reals to all list
+  allCenters.push(...realCenters)
+  // compute centers pixels for UI
+  realCenters.forEach((c) => {
+    const o = axialToOddq(c.ax.x, c.ax.z)
+    const px = o.q * stepX()
+    const py = Math.round((o.r + (o.q % 2 ? 0.5 : 0)) * stepY())
+    centers[c.gid!] = { x: px, y: py }
+  })
+  // Determine fine-grid bounds from centers (including ghosts)
+  const odds = allCenters.map((c) => axialToOddq(c.ax.x, c.ax.z))
+  let minQ = Math.min(...odds.map(o => o.q)), maxQ = Math.max(...odds.map(o => o.q))
+  let minR = Math.min(...odds.map(o => o.r)), maxR = Math.max(...odds.map(o => o.r))
+  minQ -= S; maxQ += S; minR -= S; maxR += S
+  // classify each fine cell to nearest center (Voronoi in hex distance) and assign to real gid
+  for (let q = minQ; q <= maxQ; q++) {
+    for (let r = minR; r <= maxR; r++) {
+      const cellAx = oddqToAxial(q, r)
+      let best: { c: Ctr; d: number } | null = null
+      for (const c of allCenters) {
+        const d = hexDist(cellAx, c.ax)
+        if (!best || d < best.d) best = { c, d }
+      }
+      if (!best || best.c.isGhost || !best.c.gid) continue
+      const x = q * stepX()
+      const y = Math.round((r + (q % 2 ? 0.5 : 0)) * stepY())
+      nodes.push({ x, y, i: -1, gid: best.c.gid, q, r })
+    }
+  }
+  // Normalize to positive coordinates and compute canvas size
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+  nodes.forEach((n) => { if (n.x < minX) minX = n.x; if (n.y < minY) minY = n.y; if (n.x > maxX) maxX = n.x; if (n.y > maxY) maxY = n.y })
+  if (!isFinite(minX)) { minX = 0; minY = 0; maxX = W; maxY = H }
+  const shiftX = -minX, shiftY = -minY
+  nodes.forEach((n) => { n.x += shiftX; n.y += shiftY })
+  Object.keys(centers).forEach((gid) => { centers[gid].x += shiftX; centers[gid].y += shiftY })
+  const width = (maxX - minX) + W
+  const height = (maxY - minY) + H
   st.width = width; st.height = height
   canvas.style.width = `${width}px`
   canvas.style.height = `${height}px`
   // Ensure we can't zoom out beyond full coverage
   st.minScale = Math.max(wrap.clientWidth / width, wrap.clientHeight / height)
-
-  // cluster centers and node grid (global continuous columns/rows)
-  const nodes: Array<{ x: number; y: number; i: number; gid: string; q: number; r: number }> = []
-  const centers: Record<string, { x: number; y: number }> = {}
-  for (let q = 0; q < totalCols; q++) {
-    for (let r = 0; r < totalRows; r++) {
-      const x = q * stepX()
-      const y = Math.round((r + (q % 2 ? 0.5 : 0)) * stepY())
-      const cgx = Math.floor(q / C_COLS)
-      const cgy = Math.floor(r / C_ROWS)
-      const idxG = cgy * gcols + cgx
-      const gid = groups[idxG]?.id || `g-${cgx}-${cgy}`
-      if (!centers[gid]) {
-        const ox = cgx * clusterW
-        const oy = cgy * clusterH
-        centers[gid] = { x: ox + clusterW / 2, y: oy + clusterH / 2 }
-      }
-      nodes.push({ x, y, i: -1, gid, q, r })
-    }
-  }
   st.centers = centers
   ;(wrap as any)._hx = st
 
@@ -253,7 +336,14 @@ function renderHoneycomb(root: HTMLElement, projects: Project[]): void {
   }
 
   // Save nodes for minimap rendering
-  (wrap as any)._hx.nodes = nodes.map(n => ({ x: n.x, y: n.y, filled: n.i >= 0, color: n.i >= 0 ? (projects[n.i].color || 'blue') : undefined }))
+  // Save for minimap: tint empty cells by group color
+  ;(wrap as any)._hx.nodes = nodes.map(n => ({
+    x: n.x,
+    y: n.y,
+    filled: n.i >= 0,
+    // Minimap: always show region color by group for clear boundaries
+    color: colorForGroupId(groups, n.gid)
+  }))
 
   // Render (with one create tile per group if there is a free spot)
   const createdSpot = new Set<string>()
@@ -278,7 +368,9 @@ function renderHoneycomb(root: HTMLElement, projects: Project[]): void {
       const p = projects[pt.i]
       tile.setAttribute('data-id', String(p.id))
       const title = (p.alias && String(p.alias).trim() !== '' ? p.alias : p.name)
-      const tone = hexTone(p.color)
+      // Use group color for filled tiles to unify honeycomb color by group
+      const gcol = colorForGroupId(groups, pt.gid)
+      const tone = hexTone(gcol)
       tile.innerHTML = `
         <div class="hx-clip hx-plain" style="background:${tone.bg}; border-color:${tone.border}">
           <div class="hx-info hx-plain"><div>${escapeHtml(title)}</div></div>
@@ -310,8 +402,9 @@ function renderHoneycomb(root: HTMLElement, projects: Project[]): void {
         if (!makeCreate && !(byGroup[gid] && byGroup[gid].length > 0)) {
           const c = centers[gid]
           const dist = (pt.x - c.x) ** 2 + (pt.y - c.y) ** 2
-          // choose later after we scan? Simpler: choose when dist < threshold near center
-          makeCreate = dist < (clusterW * clusterW) / 20
+          // Threshold based on cluster radius in pixels
+          const clusterRadiusPx = stepX() * (R_CLUSTER + 0.5)
+          makeCreate = dist < (clusterRadiusPx * clusterRadiusPx) / 2
         }
       }
       if (makeCreate) {
@@ -323,8 +416,11 @@ function renderHoneycomb(root: HTMLElement, projects: Project[]): void {
           openCreateProjectModal(root)
         })
       } else {
-        tile.classList.add('hx-empty')
-        tile.innerHTML = `<div class="hx-clip hx-plain"></div>`
+        // Group-tinted empty cell for visible boundaries (no .hx-empty to avoid neutral override)
+        const gcol = colorForGroupId(groups, gid)
+        const gt = groupTone(gcol)
+        tile.setAttribute('data-group', gid)
+        tile.innerHTML = `<div class="hx-clip hx-plain" style="background:${gt.bg}; border-color:${gt.border}"></div>`
       }
     }
     canvas.appendChild(tile)
@@ -464,7 +560,7 @@ function drawMiniMap(wrap: HTMLElement, st: HexLayout): void {
     }
   }
   const nodes = st.nodes || []
-  for (const n of nodes) drawHex(n.x, n.y, colorFor(n.filled ? n.color : null))
+  for (const n of nodes) drawHex(n.x, n.y, colorFor((n as any).color))
   ctx.restore()
 }
 
