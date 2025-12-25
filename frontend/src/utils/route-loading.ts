@@ -1,34 +1,114 @@
-const MIN_MS = 2000
+const DEFAULT_MIN_MS = 2000
 let startedAt = 0
+let currentMinMs = DEFAULT_MIN_MS
 
-export function showRouteLoading(projectName?: string, projectColor?: 'blue' | 'red' | 'green' | 'black' | 'white' | 'purple' | 'orange' | 'yellow' | 'gray'): void {
+type RLColor = 'blue' | 'red' | 'green' | 'black' | 'white' | 'purple' | 'orange' | 'yellow' | 'gray'
+type RLOpts = { burstOnly?: boolean; minMs?: number; style?: 'burst' | 'single'; spinMs?: number }
+
+export function showRouteLoading(projectName?: string, projectColor?: RLColor, opts?: RLOpts): void {
   if (document.getElementById('routeLoading')) return
   const overlay = document.createElement('div')
   overlay.id = 'routeLoading'
   overlay.className = 'route-loading'
-  overlay.innerHTML = `
-    <div class="rl-stage">
-      <div class="rl-burst" id="rlBurst"></div>
-      <div class="rl-name" id="rlName"></div>
-      <div class="rl-bar"><div class="rl-bar-fill"></div></div>
-    </div>`
+  const style = opts?.style || 'burst'
+  const minimal = opts?.burstOnly === true
+  if (style === 'single') {
+    overlay.setAttribute('data-style', 'single')
+    try { (overlay as any)._spinMs = opts?.spinMs ?? 0 } catch {}
+    overlay.innerHTML = `
+      <div class="rl-stage">
+        <div class="rl-one" id="rlOne"></div>
+        <div class="rl-one-label" id="rlOneLabel"></div>
+      </div>`
+  } else {
+    overlay.innerHTML = minimal
+      ? `
+      <div class="rl-stage">
+        <div class="rl-burst" id="rlBurst"></div>
+      </div>`
+      : `
+      <div class="rl-stage">
+        <div class="rl-burst" id="rlBurst"></div>
+        <div class="rl-name" id="rlName"></div>
+        <div class="rl-bar"><div class="rl-bar-fill"></div></div>
+      </div>`
+  }
   document.body.appendChild(overlay)
   // lock background interactions/scroll
   const c = +(document.body.getAttribute('data-lock') || '0')
   if (c === 0) document.body.style.overflow = 'hidden'
   document.body.setAttribute('data-lock', String(c + 1))
   startedAt = Date.now()
-  // Inject project name
+  currentMinMs = Math.max(0, typeof opts?.minMs === 'number' ? opts!.minMs! : DEFAULT_MIN_MS)
+  // Inject project name when present
   const nm = overlay.querySelector('#rlName') as HTMLElement | null
   if (nm) nm.textContent = projectName || 'Loading'
+  const oneLabel = overlay.querySelector('#rlOneLabel') as HTMLElement | null
+  if (oneLabel) oneLabel.textContent = projectName || ''
   // Set bar duration CSS variable
-  (overlay.firstElementChild as HTMLElement | null)?.style.setProperty('--rl-dur', `${MIN_MS}ms`)
-  // Build honeycomb burst
-  try { buildHexBurst(overlay, projectColor) } catch {}
+  (overlay.firstElementChild as HTMLElement | null)?.style.setProperty('--rl-dur', `${currentMinMs}ms`)
+  // Build effect
+  if (style === 'burst') {
+    try { buildHexBurst(overlay, projectColor) } catch {}
+  } else {
+    // Single hex: optionally tint hex by projectColor
+    try {
+      const stage = overlay.firstElementChild as HTMLElement | null
+      const one = overlay.querySelector('#rlOne') as HTMLElement | null
+      if (one) {
+        // Map color name to vivid RGB and apply inline styles (stronger than CSS)
+        const pick = (c?: RLColor): [number, number, number] => {
+          switch (c) {
+            case 'red': return [239, 68, 68]
+            case 'green': return [16, 185, 129]
+            case 'purple': return [168, 85, 247]
+            case 'orange': return [251, 146, 60]
+            case 'yellow': return [234, 179, 8]
+            case 'gray': return [156, 163, 175]
+            case 'white': return [255, 255, 255]
+            case 'black': return [96, 165, 250] // use vivid blue instead of dark black
+            case 'blue':
+            default: return [59, 130, 246]
+          }
+        }
+        const rgb = pick(projectColor)
+        const theme = document.documentElement.getAttribute('data-theme') || 'dark'
+        const isLight = theme === 'warm' || theme === 'sakura'
+        const alpha = isLight ? 0.42 : 0.38 // align with other hex tones
+        const rgba = (a: number) => `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${a})`
+        // Muted, consistent fill
+        one.style.background = rgba(alpha)
+        // Use app border token for consistency
+        try { (one.style as any).borderColor = 'var(--gh-border)' } catch { one.style.borderColor = rgba(Math.min(1, alpha + 0.2)) }
+        // No extra saturation/brightness tweaks
+        one.style.filter = ''
+        one.setAttribute('data-color', String(projectColor || 'blue'))
+      }
+      // Compute scale so the hex covers entire viewport by the end of animation
+      if (stage) {
+        const W = window.innerWidth || document.documentElement.clientWidth || 1024
+        const H = window.innerHeight || document.documentElement.clientHeight || 768
+        const diag = Math.sqrt(W * W + H * H)
+        const base = 120 // base hex width in px (matches .rl-one width)
+        const scale = Math.max(1, (diag / base) * 1.35) // generous margin to ensure full coverage
+        stage.style.setProperty('--rl-one-scale', String(scale))
+        stage.style.setProperty('--rl-one-rot', '90deg')
+        // Tie animation duration to spinMs (fallback to 2000ms)
+        const dur = Math.max(0, Number((overlay as any)._spinMs) || Number((stage as any)._spinMs) || (opts?.spinMs ?? 0))
+        if (dur > 0) stage.style.setProperty('--rl-dur', `${dur}ms`)
+        else stage.style.setProperty('--rl-dur', `950ms`)
+        // Let animation end drive the close, not minMs
+        currentMinMs = 0
+        const onEnd = () => { try { hideRouteLoading() } catch {} }
+        // Delay binding to next frame to ensure animation is attached
+        setTimeout(() => { one?.addEventListener('animationend', onEnd, { once: true }) }, 0)
+      }
+    } catch {}
+  }
 }
 
 export function hideRouteLoading(): void {
-  const delay = Math.max(0, MIN_MS - (Date.now() - startedAt))
+  const delay = Math.max(0, currentMinMs - (Date.now() - startedAt))
   const finish = () => {
     const overlay = document.getElementById('routeLoading')
     if (overlay) overlay.remove()
@@ -36,6 +116,7 @@ export function hideRouteLoading(): void {
     const n = Math.max(0, c - 1)
     if (n === 0) document.body.style.overflow = ''
     document.body.setAttribute('data-lock', String(n))
+    currentMinMs = DEFAULT_MIN_MS
   }
   if (delay > 0) setTimeout(finish, delay)
   else finish()

@@ -682,8 +682,13 @@ body[data-lock]:not([data-lock="0"]) .hxw-wrap { pointer-events: none; }
 .group-quick #groupAddCircle { font-size: 18px; }
 
 /* Route loading overlay */
-.route-loading { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; background: var(--gh-canvas);
-  overflow: hidden;
+.route-loading { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; background: var(--gh-canvas); overflow: hidden; }
+.route-loading[data-style="single"] { background: var(--gh-canvas); }
+/* Center label for single-hex mode */
+.route-loading .rl-one-label { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  font-weight: 900; font-size: clamp(22px, 4.4vw, 46px); color: #ffffff; text-align: center; letter-spacing: .02em;
+  opacity: 0; text-shadow: 0 4px 18px rgba(0,0,0,.55); pointer-events: none; z-index: 2;
+  animation: rlOneLabel .36s ease-out forwards .06s;
 }
 /* Stage layout */
 .route-loading .rl-stage { position: relative; width: 100%; height: 100%; }
@@ -691,6 +696,16 @@ body[data-lock]:not([data-lock="0"]) .hxw-wrap { pointer-events: none; }
 .route-loading .rl-bar { position: absolute; left: 50%; top: 66%; transform: translateX(-50%); width: min(24vw, 260px); height: 6px; border-radius: 9999px; background: rgba(255,255,255,.12); overflow: hidden }
 .route-loading .rl-bar .rl-bar-fill { height: 100%; width: 0%; background: rgba(255,255,255,.9); animation: rlFill var(--rl-dur, 2000ms) linear forwards }
 .route-loading .rl-burst { position: absolute; inset: 0; }
+.route-loading .rl-one { position: absolute; left: 50%; top: 50%; width: 120px; height: calc(120px * 0.866); transform: translate(-50%, -50%) scale(.10) rotate(0deg); clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%); border: 2px solid var(--gh-border); background: linear-gradient(135deg, rgba(255,255,255,.06), rgba(0,0,0,.08)); box-shadow: 0 20px 60px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.06); animation: rlOne var(--rl-dur, 1200ms) cubic-bezier(.2,.9,.24,1) forwards; animation-iteration-count: 1; z-index: 1; }
+.route-loading .rl-one[data-color="blue"] { border-color: rgba(59,130,246,.95); background: linear-gradient(135deg, rgba(59,130,246,.55), rgba(59,130,246,.35)); }
+.route-loading .rl-one[data-color="green"] { border-color: rgba(16,185,129,.95); background: linear-gradient(135deg, rgba(16,185,129,.55), rgba(16,185,129,.35)); }
+.route-loading .rl-one[data-color="red"] { border-color: rgba(239,68,68,.95); background: linear-gradient(135deg, rgba(239,68,68,.55), rgba(239,68,68,.35)); }
+.route-loading .rl-one[data-color="purple"] { border-color: rgba(168,85,247,.95); background: linear-gradient(135deg, rgba(168,85,247,.55), rgba(168,85,247,.35)); }
+.route-loading .rl-one[data-color="orange"] { border-color: rgba(251,146,60,.95); background: linear-gradient(135deg, rgba(251,146,60,.55), rgba(251,146,60,.35)); }
+.route-loading .rl-one[data-color="yellow"] { border-color: rgba(234,179,8,.95); background: linear-gradient(135deg, rgba(234,179,8,.55), rgba(234,179,8,.35)); }
+.route-loading .rl-one[data-color="gray"] { border-color: rgba(156,163,175,.95); background: linear-gradient(135deg, rgba(156,163,175,.55), rgba(156,163,175,.35)); }
+.route-loading .rl-one[data-color="black"] { border-color: rgba(96,165,250,.95); background: linear-gradient(135deg, rgba(96,165,250,.55), rgba(59,130,246,.35)); }
+.route-loading .rl-one[data-color="white"] { border-color: rgba(255,255,255,.95); background: linear-gradient(135deg, rgba(255,255,255,.85), rgba(255,255,255,.65)); }
 .route-loading .rl-pop { position: absolute; transform: translate(-50%, -50%) scale(.8); opacity: 0; clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%);
   background: linear-gradient(135deg, rgba(255,255,255,.06), rgba(0,0,0,.02)), var(--rl-col, #fff);
   border: 1px solid var(--gh-border);
@@ -714,8 +729,13 @@ body[data-lock]:not([data-lock="0"]) .hxw-wrap { pointer-events: none; }
 .route-loading .rl-burst { transform-origin: 50% 50%; }
 
 @keyframes rlName { from { opacity: 0; transform: translate(-50%, -48%); } to { opacity: 1; transform: translate(-50%, -50%); } }
+@keyframes rlOneLabel { from { opacity: 0; transform: translate(-50%, calc(-50% + 20px)); } to { opacity: 1; transform: translate(-50%, -50%); } }
 @keyframes rlFill { from { width: 0% } to { width: 100% } }
 @keyframes rlPop { from { transform: translate(-50%, -50%) scale(.8); opacity: 0 } to { transform: translate(-50%, -50%) scale(1); opacity: 1 } }
+@keyframes rlOne { 
+  0% { transform: translate(-50%, -50%) scale(.10) rotate(0deg); opacity: 1 }
+  100% { transform: translate(-50%, -50%) scale(var(--rl-one-scale, 10)) rotate(var(--rl-one-rot, 360deg)); opacity: 1 }
+}
 /* Honeycomb background layers */
 /* Remove full-screen grid lines on loading overlay */
 .route-loading::before,

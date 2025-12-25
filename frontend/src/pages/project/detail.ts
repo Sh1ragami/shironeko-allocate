@@ -2,7 +2,7 @@ import { apiFetch, ApiError } from '../../utils/api'
 import { openTaskModal, openTaskModalGh } from './task-modal'
 import { renderNotFound } from '../not-found/not-found'
 import { getTheme, setTheme } from '../../utils/theme'
-import { hideRouteLoading } from '../../utils/route-loading'
+import { hideRouteLoading, showRouteLoading } from '../../utils/route-loading'
 import { consumePrefetchedProject } from '../../utils/prefetch'
 // (no component-level imports; keep in-page implementations)
 // Account modal helpers (duplicated to open over current page)
@@ -343,7 +343,7 @@ function renderProjectTabsBar(root: HTMLElement, activeId: number): void {
         // decide where to go
         const cand = nextList[idx] || nextList[idx - 1]
         if (cand) { try { navVisit(cand.id) } catch { }; window.location.hash = `#/project/detail?id=${encodeURIComponent(String(cand.id))}` }
-        else window.location.hash = '#/project'
+        else { try { sessionStorage.setItem('pj-back-anim', '1') } catch {}; try { sessionStorage.setItem('pj-back-color', String((root as HTMLElement).getAttribute('data-pj-color') || '')) } catch {}; try { showRouteLoading('プロジェクト一覧', ((root as HTMLElement).getAttribute('data-pj-color') || undefined) as any, { style: 'single', spinMs: 950 }) } catch {}; window.location.hash = '#/project' }
         return
       }
       // re-render bar keeping current active
@@ -535,7 +535,7 @@ function openProjectTabPicker(root: HTMLElement, anchor: HTMLElement): void {
     })
   })
   // open new
-  pop.querySelector('#ptp-new')?.addEventListener('click', () => { window.location.hash = '#/project'; pop.remove() })
+  pop.querySelector('#ptp-new')?.addEventListener('click', () => { try { sessionStorage.setItem('pj-back-anim', '1') } catch {}; try { sessionStorage.setItem('pj-back-color', String((root as HTMLElement).getAttribute('data-pj-color') || '')) } catch {}; try { showRouteLoading('プロジェクト一覧', ((root as HTMLElement).getAttribute('data-pj-color') || undefined) as any, { style: 'single', spinMs: 950 }) } catch {}; window.location.hash = '#/project'; pop.remove() })
   // open selected
   listEl.addEventListener('click', (e) => {
     const b = (e.target as HTMLElement).closest('button[data-id]') as HTMLElement | null
@@ -599,8 +599,21 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
 
   // Render the full layout once with all available data
   container.innerHTML = detailLayout({ id: project.id, name: project.name, fullName, owner, repo: repoName })
+  // Intercept breadcrumb click to add a back animation to project list
+  try {
+    const bc = container.querySelector('#topPathUser') as HTMLAnchorElement | null
+    bc?.addEventListener('click', (ev) => {
+      ev.preventDefault()
+      try { sessionStorage.setItem('pj-back-anim', '1') } catch {}
+      try { sessionStorage.setItem('pj-back-color', String(project.color || '')) } catch {}
+      try { showRouteLoading('プロジェクト一覧', project.color as any, { style: 'single', spinMs: 950 }) } catch {}
+      window.location.hash = '#/project'
+    })
+  } catch {}
   // expose project color for honeycomb widget field tone alignment
   try { (container as HTMLElement).setAttribute('data-pj-color', (project.color || 'blue') as string) } catch {}
+  // Persist back color so browser back/gesture also uses vivid color
+  try { sessionStorage.setItem('pj-back-color', String(project.color || 'blue')) } catch {}
   if (fullName) (container as HTMLElement).setAttribute('data-repo-full', fullName)
   // Hide route-loading once base layout is mounted; hydration continues in background
   try { hideRouteLoading() } catch {}

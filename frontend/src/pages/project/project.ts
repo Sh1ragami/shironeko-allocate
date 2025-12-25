@@ -1,6 +1,6 @@
 import { apiFetch } from '../../utils/api'
 import { getTheme, setTheme } from '../../utils/theme'
-import { showRouteLoading } from '../../utils/route-loading'
+import { showRouteLoading, hideRouteLoading } from '../../utils/route-loading'
 import { prefetchProjectDetail } from '../../utils/prefetch'
 
 type Project = {
@@ -59,6 +59,20 @@ function createProjectCard(): string {
 }
 
 export function renderProject(container: HTMLElement): void {
+  // If coming back from detail, optionally show a brief entry animation
+  let shouldHideAnim = false
+  try {
+    const flag = sessionStorage.getItem('pj-back-anim')
+    if (flag === '1') {
+      sessionStorage.removeItem('pj-back-anim')
+      const bc = sessionStorage.getItem('pj-back-color') || undefined
+      if (bc) { try { sessionStorage.removeItem('pj-back-color') } catch {} }
+      if (!document.getElementById('routeLoading')) {
+        try { showRouteLoading('プロジェクト一覧', (bc as any), { style: 'single', spinMs: 950 }) } catch {}
+        shouldHideAnim = true
+      }
+    }
+  } catch {}
   container.innerHTML = `
     <div class="min-h-screen gh-canvas text-gray-100">
       <!-- Compact heading and controls around minimap -->
@@ -78,6 +92,9 @@ export function renderProject(container: HTMLElement): void {
       <div class="hx-mini"><canvas id="hxMini" width="120" height="120"></canvas></div>
     </div>
   `
+
+  // Hide entry animation after mount if we started it here
+  try { if (shouldHideAnim) { hideRouteLoading() } } catch {}
 
   // Set user name into title if available
   apiFetch<{ id: number; name: string; github_id?: number; email?: string }>(`/me`)
