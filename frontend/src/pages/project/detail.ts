@@ -6300,7 +6300,13 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
   ; (canvas as any)._hxwBound = true
   const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, v))
   const Z_MAX = 2.4
-  const getMin = () => Math.max((wrap.clientWidth / (st.width || 1)), (wrap.clientHeight / (st.height || 1)))
+  // Allow further zoom-out so the entire field can fit on large screens
+  // Use a "contain" scale with a slight margin, and clamp to a sensible floor
+  const getMin = () => {
+    const contain = Math.min((wrap.clientWidth / (st.width || 1)), (wrap.clientHeight / (st.height || 1)))
+    const margin = 0.88 // allow a bit more zoom-out than strict contain
+    return Math.max(0.2, contain * margin)
+  }
   const enforceBounds = () => {
     const vw = wrap.clientWidth
     const vh = wrap.clientHeight
@@ -7163,8 +7169,27 @@ export function renderHexWidgets(root: HTMLElement, pid: string): void {
   const viewCols = Math.max(3, Math.ceil(vw / stepX()))
   const viewRows = Math.max(3, Math.ceil(vh / stepY()))
   const R_VIEW = Math.max(1, Math.floor(Math.min(viewCols, viewRows) / 2) - 1)
-  // 今の約8倍の大きさに拡大
-  const R_STRICT = Math.max(3, Math.floor(R_VIEW * 8))
+  // フィールドが広すぎたため縮小: 以前の約8倍 → 約3倍に調整
+  const RADIUS_SCALE = 3.5 // 少しだけ広げる
+  let R_STRICT = Math.max(3, Math.floor(R_VIEW * RADIUS_SCALE))
+  // 既存ウィジェットの占有範囲を必ず内包するように半径を引き上げる
+  try {
+    const hexDist = (a: Ax, b: Ax): number => {
+      const dx = a.x - b.x, dz = a.z - b.z, dy = -dx - dz
+      return Math.floor((Math.abs(dx) + Math.abs(dy) + Math.abs(dz)) / 2)
+    }
+    const centerAx = oddqToAxial(R_STRICT, R_STRICT)
+    let need = 0
+    Object.entries(metaAll).forEach(([_, m]: any) => {
+      const anc = oddqToAxial(m.q, m.r)
+      const rel = hxwShapeFor(m.type || 'mock')
+      for (const [ax, az] of rel) {
+        const d = hexDist({ x: anc.x + ax, z: anc.z + az }, centerAx)
+        if (d > need) need = d
+      }
+    })
+    if (need > R_STRICT) R_STRICT = need
+  } catch { /* fallback: ignore if any error */ }
   const COLS = 2 * R_STRICT + 1
   const ROWS = 2 * R_STRICT + 1
   const width = stepX() * (COLS - 1) + W

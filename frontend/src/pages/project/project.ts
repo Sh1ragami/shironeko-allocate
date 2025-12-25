@@ -151,6 +151,8 @@ type HexLayout = {
   uid?: number
   nodes?: Array<{ x: number; y: number; filled: boolean; color?: Project['color'] }>
   inited?: boolean
+  // last shown group banner timestamp to avoid spamming
+  lastToastAt?: number
 }
 
 // ---- Hex helpers (odd-q axial conversion) ----
@@ -185,6 +187,21 @@ function groupTone(color?: Project['color']): { bg: string; border: string } {
     case 'black': return { bg: rgba(0, 0, 0, light ? 0.25 : 0.35), border }
     case 'white': return { bg: rgba(255, 255, 255, light ? 0.55 : 0.10), border }
     default: /* blue */ return { bg: rgba(59, 130, 246, alpha), border }
+  }
+}
+
+// Solid (opaque) color for group icons/badges
+function groupSolid(color?: Project['color']): string {
+  switch (color) {
+    case 'red': return 'rgb(239, 68, 68)'
+    case 'green': return 'rgb(16, 185, 129)'
+    case 'purple': return 'rgb(168, 85, 247)'
+    case 'orange': return 'rgb(251, 146, 60)'
+    case 'yellow': return 'rgb(234, 179, 8)'
+    case 'gray': return 'rgb(120, 120, 128)'
+    case 'black': return 'rgb(0, 0, 0)'
+    case 'white': return 'rgb(255, 255, 255)'
+    default: /* blue */ return 'rgb(59, 130, 246)'
   }
 }
 
@@ -456,12 +473,18 @@ function hexTone(color?: Project['color']): { bg: string; border: string; textur
 }
 
 function clampOffsets(wrap: HTMLElement, st: HexLayout): void {
-  const minX = wrap.clientWidth - st.width * st.scale
-  const minY = wrap.clientHeight - st.height * st.scale
-  const maxX = 0, maxY = 0
-  if (minX > maxX) st.offsetX = Math.floor((wrap.clientWidth - st.width * st.scale) / 2)
+  // Allow overscroll so users can move into empty space and center any group
+  const PAD = Math.max(480, Math.floor(Math.max(wrap.clientWidth, wrap.clientHeight) * 0.7))
+  const contentW = st.width * st.scale
+  const contentH = st.height * st.scale
+  const minX = wrap.clientWidth - contentW - PAD
+  const minY = wrap.clientHeight - contentH - PAD
+  const maxX = PAD
+  const maxY = PAD
+  // If the range collapses (extremely small content), center within the allowed span
+  if (minX > maxX) st.offsetX = Math.floor((minX + maxX) / 2)
   else st.offsetX = Math.max(minX, Math.min(maxX, st.offsetX))
-  if (minY > maxY) st.offsetY = Math.floor((wrap.clientHeight - st.height * st.scale) / 2)
+  if (minY > maxY) st.offsetY = Math.floor((minY + maxY) / 2)
   else st.offsetY = Math.max(minY, Math.min(maxY, st.offsetY))
 }
 
@@ -493,9 +516,65 @@ function applyHexTransform(wrap: HTMLElement, canvas: HTMLElement, st: HexLayout
           el.classList.toggle('ring-sky-500', (el as HTMLElement).getAttribute('data-group') === best![0])
           el.classList.toggle('ring-neutral-600', (el as HTMLElement).getAttribute('data-group') !== best![0])
         })
+        // highlight in quickbar as well
+        const qb = document.getElementById('groupQuick')
+        qb?.querySelectorAll('[data-group]')?.forEach((el) => {
+          const on = (el as HTMLElement).getAttribute('data-group') === best![0]
+          el.classList.toggle('gq-active', on)
+          el.classList.toggle('ring-sky-500', on)
+          el.classList.toggle('ring-neutral-600', !on)
+          if (on) (el as HTMLElement).style.zIndex = '9000'
+        })
+        // Show center-screen group banner like game location display
+        try { showGroupLocationToast(best[0], uid) } catch {}
       }
     }
   } catch {}
+}
+
+function showGroupLocationToast(gid: string, uid?: number): void {
+  // Throttle a bit to avoid overwhelming on rapid toggles
+  const app = document.getElementById('app') as HTMLElement | null
+  const host = app || document.body
+  const overlayId = 'groupLocToast'
+  // Find group name
+  let name = ''
+  let accent: { r: number; g: number; b: number } | null = null
+  try {
+    const g = getGroupById(uid, gid)
+    name = g?.name || ''
+    // Resolve group color for accent
+    const groups = ensureDefaultGroups(uid)
+    const col = colorForGroupId(groups as any, gid)
+    const pick = (c: string): { r: number; g: number; b: number } => {
+      switch (c) {
+        case 'red': return { r: 248, g: 113, b: 113 } // red-400
+        case 'green': return { r: 52, g: 211, b: 153 } // emerald-400
+        case 'purple': return { r: 192, g: 132, b: 252 } // purple-400
+        case 'orange': return { r: 251, g: 146, b: 60 } // orange-400
+        case 'yellow': return { r: 250, g: 204, b: 21 } // yellow-400
+        case 'gray': return { r: 156, g: 163, b: 175 } // gray-400
+        default: /* blue */ return { r: 96, g: 165, b: 250 } // blue-400
+      }
+    }
+    accent = pick(col as any)
+  } catch {}
+  if (!name) return
+  // Recreate to restart animation cleanly
+  document.getElementById(overlayId)?.remove()
+  const wrap = document.createElement('div')
+  wrap.id = overlayId
+  wrap.className = 'loc-toast'
+  const inner = document.createElement('div')
+  inner.className = 'loc-inner'
+  inner.textContent = name
+  if (accent) {
+    inner.style.setProperty('--loc-color', `rgb(${accent.r}, ${accent.g}, ${accent.b})`)
+  }
+  wrap.appendChild(inner)
+  host.appendChild(wrap)
+  // Auto remove after animation
+  setTimeout(() => { wrap.remove() }, 2000)
 }
 
 function drawMiniMap(wrap: HTMLElement, st: HexLayout): void {
@@ -572,6 +651,20 @@ function bindHoneyInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTM
   const getMin = () => Math.max(st.minScale || 0.5, 0.4)
   let dragging = false, sx = 0, sy = 0, sox = 0, soy = 0, activePid: number | null = null
   const DRAG_TOL = 4
+  // Zoom keeping the world point under (clientX, clientY) fixed
+  const zoomAt = (clientX: number, clientY: number, nextScale: number) => {
+    const ns = clamp(nextScale, getMin(), Z_MAX)
+    const rect = wrap.getBoundingClientRect()
+    const prev = st.scale
+    const cx = clientX - rect.left
+    const cy = clientY - rect.top
+    const wx = (cx - st.offsetX) / prev
+    const wy = (cy - st.offsetY) / prev
+    st.scale = ns
+    st.offsetX = cx - wx * ns
+    st.offsetY = cy - wy * ns
+    applyHexTransform(wrap, canvas, st)
+  }
   wrap.addEventListener('pointerdown', (e) => {
     activePid = e.pointerId
     dragging = false
@@ -592,8 +685,7 @@ function bindHoneyInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTM
       e.preventDefault()
       const prev = st.scale
       const ds = Math.exp(-e.deltaY * 0.0022) // more sensitive
-      st.scale = clamp(prev * ds, getMin(), Z_MAX)
-      applyHexTransform(wrap, canvas, st)
+      zoomAt(e.clientX, e.clientY, prev * ds)
     } else {
       // two-finger pan on trackpad
       e.preventDefault()
@@ -620,8 +712,11 @@ function bindHoneyInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTM
       if (startDist === 0) { startDist = d; startScale = st.scale }
       if (d > 0 && startDist > 0) {
         const s = Math.pow(d / startDist, 1.25) // increase pinch response
-        st.scale = clamp(startScale * s, getMin(), Z_MAX)
-        applyHexTransform(wrap, canvas, st)
+        // Zoom around pinch midpoint
+        const a = Array.from(pts.values())
+        const midX = (a[0].x + a[1].x) / 2
+        const midY = (a[0].y + a[1].y) / 2
+        zoomAt(midX, midY, startScale * s)
       }
     }
   })
@@ -923,13 +1018,36 @@ function renderGroupQuickbar(root: HTMLElement, me: { id?: number; github_id?: n
   const makeBtn = (g: Group, idx: number) => {
     const el = document.createElement('button')
     el.setAttribute('data-group', g.id)
-    el.className = `gq-icon ${selected === g.id ? 'gq-active ring-2 ring-sky-500' : 'ring-2 ring-neutral-600'} overflow-hidden bg-neutral-700 grid place-items-center rounded-full text-base`
+    el.className = `gq-icon ${selected === g.id ? 'gq-active ring-2 ring-sky-500' : 'ring-2 ring-neutral-600'} overflow-hidden grid place-items-center rounded-full text-base`
     el.style.zIndex = selected === g.id ? '9000' : String(100 + idx)
-    if (g.avatar && idx === 0) {
-      el.innerHTML = `<img src="${g.avatar}" class="w-full h-full object-cover" alt="avatar"/>`
-    } else {
-      el.textContent = g.name.charAt(0)
-      el.classList.add('text-white')
+    try {
+      const gcol = colorForGroupId(groups as any, g.id)
+      // Apply solid background to non-avatar icons
+      if (!(g.avatar && idx === 0)) {
+        el.textContent = g.name.charAt(0)
+        el.style.background = groupSolid(gcol)
+        const darkText = (gcol === 'yellow' || gcol === 'white' || gcol === 'gray')
+        el.style.color = darkText ? '#111' : '#fff'
+      } else {
+        el.innerHTML = `<img src="${g.avatar}" class="w-full h-full object-cover" alt="avatar"/>`
+      }
+      // Match ring color to area color using Tailwind ring var
+      const ring = ((): string => {
+        switch (gcol) {
+          case 'red': return 'rgb(239,68,68)'
+          case 'green': return 'rgb(16,185,129)'
+          case 'purple': return 'rgb(168,85,247)'
+          case 'orange': return 'rgb(251,146,60)'
+          case 'yellow': return 'rgb(234,179,8)'
+          case 'gray': return 'rgb(120,120,128)'
+          case 'black': return 'rgb(0,0,0)'
+          case 'white': return 'rgb(255,255,255)'
+          default: return 'rgb(59,130,246)'
+        }
+      })()
+      el.style.setProperty('--tw-ring-color', ring)
+    } catch {
+      if (!(g.avatar && idx === 0)) { el.textContent = g.name.charAt(0); el.style.background = 'var(--gh-canvas-subtle)'; el.style.color = '#fff' }
     }
     el.title = g.name
     // Hover: bring to front and enlarge; suppress active (only if different icon)
@@ -985,6 +1103,7 @@ function centerOnGroup(root: HTMLElement, gid: string, animate = false): void {
     st.offsetY = sy + (ty - sy) * ease(p)
     applyHexTransform(wrap, canvas, st)
     if (p < 1) requestAnimationFrame(step)
+    else try { showGroupLocationToast(gid, st.uid) } catch {}
   }
   requestAnimationFrame(step)
 }

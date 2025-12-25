@@ -571,6 +571,29 @@ body[data-lock]:not([data-lock="0"]) .hxw-wrap { pointer-events: none; }
 :root[data-theme="warm"] .hxw-mini, :root[data-theme="sakura"] .hxw-mini { background: rgba(255,255,255,.45); }
 .hxw-mini canvas { width: 120px; height: 120px; border-radius: 50%; }
 
+/* ---- Group Location Toast (Projects) ---- */
+.loc-toast { position: fixed; inset: 0; display: grid; place-items: center; pointer-events: none; z-index: 40; }
+.loc-inner {
+  padding: 0; /* text only (no frame) */
+  border: none;
+  background: transparent;
+  color: var(--loc-color, var(--gh-contrast, #e5e7eb));
+  font-weight: 900;
+  letter-spacing: .04em;
+  font-size: clamp(18px, 3.8vw, 38px);
+  line-height: 1.05;
+  animation: loc-center-rise 2s cubic-bezier(.22,1,.36,1) both;
+}
+:root[data-theme="warm"] .loc-inner, :root[data-theme="sakura"] .loc-inner {
+  color: var(--loc-color, rgb(22,22,22));
+}
+@keyframes loc-center-rise {
+  0%   { opacity: 0; transform: translateY(16px) scale(.985); }
+  25%  { opacity: 1; transform: translateY(0)    scale(1); }
+  88%  { opacity: 1; transform: translateY(0)    scale(1); }
+  100% { opacity: 0; transform: translateY(-4px) scale(1.01); }
+}
+
 /* ---- Hex Widgets: Isometric View ---- */
 .hxw-wrap.hxw-iso { perspective: var(--hxw-persp, 1400px); perspective-origin: 58% 42%; overflow: visible;
   --hxw-elev: 140px; /* raise board above ground */
