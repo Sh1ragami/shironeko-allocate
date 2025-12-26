@@ -2400,7 +2400,8 @@ function enableDragAndDrop(root: HTMLElement): void {
         const node = t.content.firstElementChild as HTMLElement | null
         if (node) {
           grid.appendChild(node)
-          node.addEventListener('click', () => openWidgetPickerModal(root, pid))
+          // In grid panels, picker should add rectangular widgets here, not start hex placement
+          node.addEventListener('click', () => openWidgetPickerModal(root, pid, (type) => addWidget(root, pid, type)))
         }
       }
     } else {
@@ -2469,8 +2470,8 @@ function enableDragAndDrop(root: HTMLElement): void {
       } catch { }
     })()
 
-  // Add widget button
-  grid.querySelector('#addWidget')?.addEventListener('click', () => openWidgetPickerModal(root, pid))
+  // Add widget button (grid context): use picker to add into this grid
+  grid.querySelector('#addWidget')?.addEventListener('click', () => openWidgetPickerModal(root, pid, (type) => addWidget(root, pid, type)))
 
   // Resize: edges and corners (handles with .wg-rz [data-rz])
   // Helper: detect resize direction from pointer proximity to widget edges
@@ -3438,6 +3439,14 @@ function openWidgetPickerModal(root: HTMLElement, pid: string, onPick?: (type: s
     host.addEventListener('mouseleave', () => { host.style.filter = '' })
     const pickFromItem = () => {
       if (it.lib) {
+        // If picker was opened with an onPick callback, we're in a grid panel.
+        // Grid cannot use hex placement; fallback to adding a simple "custom" widget card.
+        if (onPick) {
+          close()
+          setTimeout(() => { try { onPick('custom') } catch {} }, 0)
+          return
+        }
+        // Otherwise (summary/hex canvas), start hex placement with saved shape/color
         ;(window as any)._hxwPending = { shape: it.lib.shape, rgb: it.lib.rgb, alpha: it.lib.alpha, name: it.lib.name, flowGraph: it.lib.flowGraph }
         const t = it.lib.type
         close()
@@ -7499,7 +7508,7 @@ function hxwGetMeta(pid: string): Record<string, { type: string; q: number; r: n
     const meta: Record<string, { type: string; q: number; r: number }> = {}
     Object.entries(raw).forEach(([id, m]) => {
       const t = (m?.type || '')
-      if (t === 'flow') return
+      // Keep 'flow' widgets (created by the Widget Creator) for the hex field
       if (t === 'calendar') return // calendar widget retired
       if (t === 'tabbar') return // tab switch widget retired; replaced by tabnew behavior
       meta[id] = m
