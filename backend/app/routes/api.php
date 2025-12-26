@@ -24,9 +24,13 @@ Route::middleware('token.auth')->group(function () {
     Route::get('/github/repos', [\App\Http\Controllers\Api\GitHubProxyController::class, 'repos']);
     Route::get('/github/repo', [\App\Http\Controllers\Api\GitHubProxyController::class, 'repo']);
     Route::get('/github/contributors', [\App\Http\Controllers\Api\GitHubProxyController::class, 'contributors']);
+    Route::get('/github/collaborators', [\App\Http\Controllers\Api\GitHubProxyController::class, 'collaborators']);
     Route::get('/github/readme', [\App\Http\Controllers\Api\GitHubProxyController::class, 'readme']);
     Route::get('/github/search/users', [\App\Http\Controllers\Api\GitHubProxyController::class, 'searchUsers']);
     Route::get('/github/commits', [\App\Http\Controllers\Api\GitHubProxyController::class, 'commits']);
+
+    // Link unfurl (OpenGraph/Twitter Card)
+    Route::get('/unfurl', [\App\Http\Controllers\Api\UnfurlController::class, 'unfurl']);
 
     // Projects
     Route::post('/projects', [\App\Http\Controllers\Api\ProjectController::class, 'store']);
@@ -39,9 +43,15 @@ Route::middleware('token.auth')->group(function () {
     Route::delete('/projects/{id}/collaborators/{login}', [\App\Http\Controllers\Api\ProjectController::class, 'deleteCollaborator']);
 
     // GitHub Issues linkage
+    Route::post('/projects/{id}/issues', [\App\Http\Controllers\Api\ProjectController::class, 'createIssue']);
     Route::get('/projects/{id}/issues', [\App\Http\Controllers\Api\ProjectController::class, 'listIssues']);
     Route::patch('/projects/{id}/issues/{number}', [\App\Http\Controllers\Api\ProjectController::class, 'updateIssue']);
+    Route::post('/projects/{id}/issues/{number}/comments', [\App\Http\Controllers\Api\ProjectController::class, 'commentIssue']);
     Route::post('/projects/{id}/issues/assign-next', [\App\Http\Controllers\Api\ProjectController::class, 'assignNext']);
+
+    // UI widget state (per project, per user)
+    Route::get('/projects/{id}/widget-state', [\App\Http\Controllers\Api\ProjectController::class, 'getWidgetState']);
+    Route::patch('/projects/{id}/widget-state', [\App\Http\Controllers\Api\ProjectController::class, 'patchWidgetState']);
 
     // Auth
     Route::post('/logout', [\App\Http\Controllers\Api\AuthController::class, 'logout']);
