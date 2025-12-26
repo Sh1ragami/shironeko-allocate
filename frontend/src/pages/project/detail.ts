@@ -3234,6 +3234,12 @@ function openWidgetPickerModal(root: HTMLElement, pid: string, onPick?: (type: s
       <div class="flex h-[calc(86vh-3rem)]">
         <section class="flex-1 relative p-2 overflow-hidden">
           <div id=\"wp-field\" class=\"absolute inset-0 overflow-hidden\"></div>
+          <div class=\"absolute left-2 bottom-2 pointer-events-none\">
+            <button id=\"wp-create\" class=\"pointer-events-auto inline-flex items-center gap-2 rounded-md bg-emerald-700 hover:bg-emerald-600 text-white text-sm font-medium px-3 py-2 shadow-lg\" title=\"自由にウィジェットを作成\">
+              <span class=\"text-base leading-none\">＋</span>
+              <span>ウィジェット作成</span>
+            </button>
+          </div>
         </section>
         <aside class="w-80 shrink-0 p-4 border-l border-neutral-600">
           <div id=\"wp-desc-title\" class=\"text-base font-semibold mb-2\">ウィジェットを選択</div>
@@ -3252,6 +3258,13 @@ function openWidgetPickerModal(root: HTMLElement, pid: string, onPick?: (type: s
   const field = overlay.querySelector('#wp-field') as HTMLElement
   field.innerHTML = ''
   try { (field.style as any).touchAction = 'none'; (field.style as any).webkitUserSelect = 'none'; (field.style as any).userSelect = 'none' } catch {}
+
+  // Expose picker context for library actions
+  try { (window as any)._hxwPickerRoot = root; (window as any)._hxwPickerPid = pid } catch {}
+
+  // Create button → open creator modal (stacks above; picker remains open underneath)
+  const createBtn = overlay.querySelector('#wp-create') as HTMLElement | null
+  createBtn?.addEventListener('click', (ev) => { ev.preventDefault(); ev.stopPropagation(); openWidgetCreatorModal(root, pid) })
 
   const types: string[] = ['readme','contrib','committers','markdown','tasksum','links','skin','tabnew','invite','account','clock','clock-digital','spacer']
   const titleOf = (t: string) => widgetTitle(t)
@@ -3286,15 +3299,61 @@ function openWidgetPickerModal(root: HTMLElement, pid: string, onPick?: (type: s
   // Occupancy and anchor search (compact field centered in its container)
   const occ = new Set<string>()
   const key = (q:number,r:number) => `${q},${r}`
-  const anchors = axGrow(types.length * 30)
-  const items: Array<{ type: string; cells: Array<{q:number;r:number}> }> = []
+  // include user library entries
+  const lib = wpLibGet(pid)
+  const anchors = axGrow((types.length + lib.length) * 30)
+  const items: Array<{ type: string; cells: Array<{q:number;r:number}>, label?: string, rgba?: string, lib?: LibEntry }> = []
+  // neighbor helper for odd-q grid
+  const neighbors = (q:number,r:number): Array<{q:number;r:number}> => {
+    const odd = (q & 1) === 1
+    return [
+      { q, r: r-1 },
+      odd ? { q:q+1, r } : { q:q+1, r:r-1 },
+      odd ? { q:q+1, r:r+1 } : { q:q+1, r },
+      { q, r: r+1 },
+      odd ? { q:q-1, r:r+1 } : { q:q-1, r },
+      odd ? { q:q-1, r } : { q:q-1, r:r-1 },
+    ]
+  }
   types.forEach((type) => {
     const rel = hxwShapeFor(type)
+    if (type === 'clock-digital') {
+      // Prefer a spot that touches existing cells to look attached
+      let best: { cells: Array<{q:number;r:number}>; touches: number } | null = null
+      for (const [ax, az] of anchors) {
+        const cells = rel.map(([sx,sz]) => axialToOddq(ax+sx, az+sz))
+        if (cells.some(c => occ.has(key(c.q,c.r)))) continue
+        // count how many edges touch existing occupied cells
+        let t = 0
+        cells.forEach((c) => {
+          neighbors(c.q,c.r).forEach(nb => { if (occ.has(key(nb.q, nb.r))) t++ })
+        })
+        if (!best || t > best.touches) best = { cells, touches: t }
+        // small early exit if strongly attached
+        if (best && best.touches >= 3) break
+      }
+      const pick = best || { cells: rel.map(([sx,sz]) => axialToOddq(sx, sz)), touches: 0 }
+      pick.cells.forEach(c => occ.add(key(c.q,c.r)))
+      items.push({ type, cells: pick.cells, label: titleOf(type) })
+    } else {
+      for (const [ax, az] of anchors) {
+        const cells = rel.map(([sx,sz]) => axialToOddq(ax+sx, az+sz))
+        if (cells.some(c => occ.has(key(c.q,c.r)))) continue
+        cells.forEach(c => occ.add(key(c.q,c.r)))
+        items.push({ type, cells, label: titleOf(type) })
+        break
+      }
+    }
+  })
+  // place library entries with their saved shapes/colors
+  lib.forEach((en) => {
+    const rel = (en.shape && en.shape.length) ? en.shape : [[0,0]]
     for (const [ax, az] of anchors) {
       const cells = rel.map(([sx,sz]) => axialToOddq(ax+sx, az+sz))
       if (cells.some(c => occ.has(key(c.q,c.r)))) continue
       cells.forEach(c => occ.add(key(c.q,c.r)))
-      items.push({ type, cells })
+      const rgba = en.rgb ? `rgba(${en.rgb[0]},${en.rgb[1]},${en.rgb[2]}, ${typeof en.alpha==='number'? en.alpha : 0.38})` : fillFor('lib').flat
+      items.push({ type: `lib:${en.id}:${en.type}`, cells, label: en.name || (en.type==='flow'?'フロー':'カスタム'), rgba, lib: en })
       break
     }
   })
@@ -3326,11 +3385,40 @@ function openWidgetPickerModal(root: HTMLElement, pid: string, onPick?: (type: s
 
   const descTitle = overlay.querySelector('#wp-desc-title') as HTMLElement
   const descBody = overlay.querySelector('#wp-desc-body') as HTMLElement
-  const showDesc = (t: string) => { try { descTitle.textContent = titleOf(t); descBody.textContent = descOf(t) } catch {} }
+  const showDesc = (t: string) => {
+    try {
+      if (t.startsWith('lib:')) {
+        const parts = t.split(':')
+        const id = parts[1]
+        const entry = lib.find(x => x.id === id)
+        if (entry) {
+          descTitle.textContent = entry.name || (entry.type === 'flow' ? 'フロー' : 'カスタム')
+          descBody.innerHTML = `<div class="space-y-2">
+            <div class="text-sm text-gray-300">自作ウィジェット</div>
+            <div class="text-xs text-gray-400">クリックで配置。削除する場合は下のボタンから。</div>
+            <div><button id="lib-del" class="rounded bg-rose-700 hover:bg-rose-600 text-white text-xs font-medium px-3 py-1.5">削除</button></div>
+          </div>`
+          const del = descBody.querySelector('#lib-del') as HTMLElement | null
+          del?.addEventListener('click', () => {
+            if (!confirm(`${entry.name || 'ウィジェット'} を削除しますか？`)) return
+            try {
+              const next = wpLibGet(pid).filter(x => x.id !== entry.id)
+              wpLibSet(pid, next)
+              close()
+              setTimeout(() => { try { openWidgetPickerModal(root, pid) } catch {} }, 0)
+            } catch {}
+          })
+          return
+        }
+      }
+      descTitle.textContent = titleOf(t)
+      descBody.textContent = descOf(t)
+    } catch {}
+  }
 
   // Render items as grouped hex shapes
   items.forEach((it) => {
-    const col = fillFor(it.type)
+    const col = it.rgba ? { flat: it.rgba, solid: it.rgba } : fillFor(it.type)
     const points = it.cells.map(c => px(c.q, c.r))
     const bx = Math.min(...points.map(p => p.x))
     const by = Math.min(...points.map(p => p.y))
@@ -3348,8 +3436,31 @@ function openWidgetPickerModal(root: HTMLElement, pid: string, onPick?: (type: s
     host.style.transition = 'transform .12s ease, filter .12s ease'
     host.addEventListener('mouseenter', () => { host.style.filter = 'brightness(1.08)'; showDesc(it.type) })
     host.addEventListener('mouseleave', () => { host.style.filter = '' })
-    host.addEventListener('click', () => { if (onPick) onPick(it.type); else hxwStartPlacement(root, pid, it.type); close() })
-    host.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); if (onPick) onPick(it.type); else hxwStartPlacement(root, pid, it.type); close() } })
+    const pickFromItem = () => {
+      if (it.lib) {
+        ;(window as any)._hxwPending = { shape: it.lib.shape, rgb: it.lib.rgb, alpha: it.lib.alpha, name: it.lib.name, flowGraph: it.lib.flowGraph }
+        const t = it.lib.type
+        close()
+        setTimeout(() => { try { hxwStartPlacement(root, pid, t) } catch {} }, 0)
+      } else {
+        close()
+        setTimeout(() => { if (onPick) onPick(it.type); else try { hxwStartPlacement(root, pid, it.type) } catch {} }, 0)
+      }
+    }
+    host.addEventListener('click', pickFromItem)
+    host.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pickFromItem() } })
+    host.addEventListener('contextmenu', (ev) => {
+      if (!it.lib) return
+      ev.preventDefault(); ev.stopPropagation()
+      const ok = confirm(`${it.lib.name || 'ウィジェット'} を削除しますか？`)
+      if (!ok) return
+      try {
+        const next = wpLibGet(pid).filter(x => x.id !== it.lib!.id)
+        wpLibSet(pid, next)
+        ;(document.getElementById('wp-close') as HTMLButtonElement | null)?.click()
+        setTimeout(() => { try { openWidgetPickerModal(root, pid) } catch {} }, 0)
+      } catch {}
+    })
     host.tabIndex = 0
     it.cells.forEach((c) => {
       const p = px(c.q, c.r)
@@ -3367,13 +3478,16 @@ function openWidgetPickerModal(root: HTMLElement, pid: string, onPick?: (type: s
       host.appendChild(cell)
     })
     const lab = document.createElement('div')
-    lab.textContent = titleOf(it.type)
+    lab.textContent = it.label || titleOf(it.type)
     lab.style.position = 'absolute'; lab.style.inset = '0'
     lab.style.display = 'grid'; lab.style.placeItems = 'center'; lab.style.pointerEvents = 'none'
     lab.style.color = 'var(--gh-contrast)'; lab.style.textShadow = '0 1px 2px rgba(0,0,0,.18)'; lab.style.fontSize = '12px'
     host.appendChild(lab)
     canvas.appendChild(host)
   })
+
+  // Render user's saved widgets library at the bottom of the field
+  // Library items are now integrated as honeycomb shapes in the field
 
   // Pan and zoom similar to project detail (simple)
   const viewport = field // absolute inset-0
@@ -4240,6 +4354,69 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
         const gridEl = w.closest('#widgetGrid') as HTMLElement | null
         const edit = gridEl?.getAttribute('data-edit') === '1'
         const g = flowLoad(pid, id)
+        // Mode toggle: logic/design
+        const paletteWrap = (w.querySelector('.flow-palette') as HTMLElement | null)
+        const designWrap = (w.querySelector('.flow-design') as HTMLElement | null)
+        const modeBtns = Array.from(w.querySelectorAll('.flow-mode [data-mode]')) as HTMLElement[]
+        const applyMode = (md: 'logic'|'design') => {
+          if (paletteWrap) paletteWrap.classList.toggle('hidden', md !== 'logic')
+          if (designWrap) designWrap.classList.toggle('hidden', md !== 'design')
+          if (box) box.classList.toggle('hidden', md !== 'logic')
+          modeBtns.forEach(btn => {
+            const on = (btn.getAttribute('data-mode') === md)
+            btn.classList.toggle('bg-neutral-800/80', on)
+            btn.classList.toggle('text-gray-100', on)
+            btn.classList.toggle('text-gray-300', !on)
+          })
+        }
+        const currentMode = flowModeGet(pid, id)
+        applyMode(currentMode)
+        modeBtns.forEach(btn => btn.addEventListener('click', () => { const md = (btn.getAttribute('data-mode') as any) || 'logic'; flowModeSet(pid, id, md); applyMode(md) }))
+        // Design panel (color/alpha + shape presets)
+        const applyDesignUpdate = (conf: { rgb?: [number,number,number]; alpha?: number; shape?: Array<[number,number]> }) => {
+          const cur = hxwCustomGet(pid, id) || {}
+          const next = { ...cur, ...conf }
+          try { hxwCustomSet(pid, id, next) } catch {}
+          // Rebuild hex placement and rehydrate
+          try {
+            const wrap = root.querySelector('#hxwWrap') as HTMLElement | null
+            const canvasEl = root.querySelector('#hxwCanvas') as HTMLElement | null
+            const st: any = (wrap as any)?._hxw
+            if (wrap && canvasEl && st) { hxwPlaceWidgets(root, pid, st); refreshDynamicWidgets(root, pid) }
+          } catch {}
+        }
+        const colorsWrap = (w.querySelector('#fld-colors') as HTMLElement | null)
+        const alphaInput = (w.querySelector('#fld-alpha') as HTMLInputElement | null)
+        if (colorsWrap) {
+          const palette: Array<[number,number,number]> = [[59,130,246],[16,185,129],[239,68,68],[168,85,247],[251,146,60],[234,179,8],[99,102,241],[20,184,166],[14,165,233]]
+          const cur = hxwCustomGet(pid, id)
+          let pick = 1
+          if (cur?.rgb) {
+            const j = palette.findIndex(([r,g,b]) => r===cur.rgb![0] && g===cur.rgb![1] && b===cur.rgb![2])
+            if (j >= 0) pick = j
+          }
+          colorsWrap.innerHTML = ''
+          palette.forEach(([r,g,b], i) => {
+            const btt = document.createElement('button')
+            btt.type = 'button'
+            btt.title = `rgb(${r},${g},${b})`
+            btt.style.width = '18px'; btt.style.height = '18px'; btt.style.borderRadius = '9999px'
+            btt.style.border = i === pick ? '2px solid #fff' : '2px solid rgba(255,255,255,.22)'
+            btt.style.background = `rgb(${r},${g},${b})`
+            btt.addEventListener('click', () => { pick = i; Array.from(colorsWrap.children).forEach((c,idx)=>((c as HTMLElement).style.border = idx===pick?'2px solid #fff':'2px solid rgba(255,255,255,.22)')); applyDesignUpdate({ rgb: [r,g,b] as any }) })
+            colorsWrap.appendChild(btt)
+          })
+        }
+        if (alphaInput) {
+          const cur = hxwCustomGet(pid, id)
+          alphaInput.value = String(typeof cur?.alpha === 'number' ? cur!.alpha : 0.38)
+          alphaInput.addEventListener('input', () => { const a = Math.max(0, Math.min(1, parseFloat(alphaInput.value)||0.38)); applyDesignUpdate({ alpha: a }) })
+        }
+        const setShapePreset = (shape: Array<[number,number]>) => applyDesignUpdate({ shape })
+        ;(w.querySelector('#fld-t1') as HTMLElement | null)?.addEventListener('click', () => setShapePreset([[0,0]]))
+        ;(w.querySelector('#fld-t3') as HTMLElement | null)?.addEventListener('click', () => setShapePreset([[0,0],[1,0],[0,1]]))
+        ;(w.querySelector('#fld-t4') as HTMLElement | null)?.addEventListener('click', () => setShapePreset([[0,0],[1,0],[0,1],[1,1]]))
+        ;(w.querySelector('#fld-t7') as HTMLElement | null)?.addEventListener('click', () => setShapePreset([[0,0],[1,0],[0,1],[-1,1],[-1,0],[0,-1],[1,-1]]))
         // Hex-packed rendering if slots exist
         const slotsWrap = w.querySelector('.hxw-cells') as HTMLElement | null
         if (slotsWrap) { (slotsWrap as HTMLElement).style.display = 'none' }
@@ -4252,31 +4429,39 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
         const portSize = 8
         const createNodeEl = (n: FlowNode): HTMLElement => {
           const el = document.createElement('div')
-          el.className = 'flow-node absolute rounded-lg ring-2 ring-neutral-600 bg-neutral-800/80 shadow-sm select-none'
-          el.style.left = `${n.x}px`; el.style.top = `${n.y}px`; el.style.width = '160px'
+          el.className = 'flow-node absolute select-none'
+          el.style.left = `${n.x}px`; el.style.top = `${n.y}px`; el.style.width = '200px'; el.style.height = '120px'
+          el.style.display = 'grid'; (el.style as any).placeItems = 'center'
+          el.style.background = 'transparent'
           el.setAttribute('data-node', n.id)
-          const headCls = n.kind === 'trigger' ? 'bg-emerald-700' : 'bg-sky-700'
+          // Visual category: trigger / transform / action
+          const visualKind = (n.type === 'expr' || n.type === 'condition') ? 'transform' : (n.kind === 'trigger' ? 'trigger' : 'action')
+          const headCls = visualKind === 'trigger' ? 'bg-emerald-700' : (visualKind === 'transform' ? 'bg-fuchsia-700' : 'bg-sky-700')
+          // Apply distinct shapes and outline colors
+          const outline = visualKind === 'trigger' ? '#10b981' : (visualKind === 'transform' ? '#d946ef' : '#38bdf8')
+          // Shape is drawn in a separate layer to avoid clipping ports/bar
+          let shapeStyle = `position:absolute; inset:0; background: rgba(38,38,38,.8);`
+          if (visualKind !== 'action') shapeStyle += ` box-shadow: 0 0 0 2px ${outline};`
+          if (visualKind === 'trigger') shapeStyle += ' clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%);'
+          else if (visualKind === 'transform') shapeStyle += ' clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);'
+          else shapeStyle += ' border-radius: 12px;'
           const title = n.label || (n.kind === 'trigger' ? (n.type === 'timer' ? 'Timer' : 'Manual Trigger') : (n.type === 'webhook' ? 'Webhook' : (n.type === 'github_issue' ? 'GitHub Issue' : 'Notify')))
           el.innerHTML = `
-            <div class="fn-head ${headCls} text-white text-[11px] px-2 py-1 flex items-center justify-between cursor-move gap-1">
-              <span class="truncate">${title}</span>
-              <span class="flex items-center gap-1">
-                ${n.kind === 'trigger' ? '<button class="fn-run text-white/90 hover:text-white" title="このトリガーを実行">▶</button>' : ''}
-                ${edit ? '<button class="fn-gear text-white/90 hover:text-white" title="設定">⚙</button>' : ''}
-                ${edit ? '<button class="fn-del text-white/90 hover:text-white" title="削除">×</button>' : ''}
-              </span>
+            <div class="fn-shape" style="${shapeStyle}"></div>
+            <div class="fn-bar absolute top-1 right-1" style="z-index:8">
+              ${edit ? '<button class=\"fn-del text-rose-500 hover:text-rose-400 text-lg leading-none\" title=\"削除\">×</button>' : ''}
             </div>
-            <div class="fn-body px-2 py-2 text-xs text-gray-300 min-h-[40px]"></div>
-            <div class="fn-ports">
-              ${n.kind !== 'trigger' ? `<div class=\"port-in absolute -top-1 left-1/2 -translate-x-1/2 rounded-full ring-2 ring-neutral-500\" style=\"width:${portSize}px;height:${portSize}px;background:#38bdf8\"></div>` : ''}
-              <div class="port-out absolute -bottom-1 left-1/2 -translate-x-1/2 rounded-full ring-2 ring-neutral-500" style="width:${portSize}px; height:${portSize}px; background:#34d399"></div>
+            <div class="fn-body text-xs text-gray-100 text-center" style="position:absolute; inset:0; display:grid; place-items:center; z-index:1;"></div>
+            <div class="fn-ports" style="position:absolute; inset:0; z-index:7; pointer-events:none;">
+              ${n.kind !== 'trigger' ? `<div class=\"port-in absolute left-1/2 -translate-x-1/2 rounded-full ring-2 ring-neutral-500\" style=\"top:2px;width:${portSize}px;height:${portSize}px;background:#38bdf8; pointer-events:auto;\"></div>` : ''}
+              <div class="port-out absolute left-1/2 -translate-x-1/2 rounded-full ring-2 ring-neutral-500" style="bottom:2px;width:${portSize}px; height:${portSize}px; background:#34d399; pointer-events:auto;"></div>
             </div>
           `
           // body content (type + basic cfg)
           const body = el.querySelector('.fn-body') as HTMLElement | null
           if (body) {
             const typeSel = edit ? `<select class=\"fn-type rounded bg-neutral-800/60 ring-2 ring-neutral-600 px-2 py-1 text-gray-100\">${(n.kind==='trigger'?
-              ['manual','timer'] : ['notify','webhook','github_issue']).map(t=>`<option value=\"${t}\" ${t===n.type?'selected':''}>${t}</option>`).join('')}</select>` : `<span class=\"text-gray-400\">${n.type}</span>`
+              ['manual','timer'] : ['notify','webhook','github_issue','expr','condition']).map(t=>`<option value=\"${t}\" ${t===n.type?'selected':''}>${t}</option>`).join('')}</select>` : `<div class=\"text-[13px] font-semibold\">${title}</div>`
             let cfgHtml = ''
             const cfg = n.cfg || {}
             if (n.kind === 'trigger') {
@@ -4306,9 +4491,23 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
                   <div><label class=\"text-gray-400\">本文</label><textarea class=\"fn-gi-body mt-1 w-full rounded bg-neutral-800/60 ring-2 ring-neutral-600 px-2 py-1 text-gray-100\" rows=\"3\">${bodyTxt.replace(/</g,'&lt;').replace(/>/g,'&gt;')}</textarea></div>
                   <div><label class=\"text-gray-400\">ステータス</label> <select class=\"fn-gi-status ml-1 rounded bg-neutral-800/60 ring-2 ring-neutral-600 px-2 py-0.5 text-gray-100\"><option ${status==='todo'?'selected':''} value=\"todo\">todo</option><option ${status==='doing'?'selected':''} value=\"doing\">doing</option><option ${status==='review'?'selected':''} value=\"review\">review</option><option ${status==='done'?'selected':''} value=\"done\">done</option></select></div>
                 </div>`:`<div class=\"text-gray-400\">${title}</div>`
+              } else if (n.type === 'expr') {
+                const expr = String(cfg.expr ?? 'x + 1')
+                const out = String(cfg.out ?? 'result')
+                cfgHtml = edit?`<div class=\"space-y-1\">\
+                  <div><label class=\"text-gray-400\">式</label> <input class=\"fn-expr ml-1 w-full rounded bg-neutral-800/60 ring-2 ring-neutral-600 px-2 py-0.5 text-gray-100\" placeholder=\"x > 10 && user.role=='admin'\" value=\"${expr.replace(/\"/g,'&quot;')}\"/></div>\
+                  <div><label class=\"text-gray-400\">出力キー</label> <input class=\"fn-expr-out ml-1 w-48 rounded bg-neutral-800/60 ring-2 ring-neutral-600 px-2 py-0.5 text-gray-100\" placeholder=\"result\" value=\"${out.replace(/\"/g,'&quot;')}\"/></div>\
+                  <div class=\"text-[11px] text-gray-500\">ctx: user.name, count など。関数: len, lower, upper, trim, contains, now, dateAdd, formatDate。</div>\
+                </div>`:`<div class=\"text-gray-400\">${expr}</div>`
+              } else if (n.type === 'condition') {
+                const expr = String(cfg.expr ?? 'true')
+                cfgHtml = edit?`<div class=\"space-y-1\">\
+                  <div><label class=\"text-gray-400\">条件式</label> <input class=\"fn-cond-expr ml-1 w-full rounded bg-neutral-800/60 ring-2 ring-neutral-600 px-2 py-0.5 text-gray-100\" placeholder=\"x > 0\" value=\"${expr.replace(/\"/g,'&quot;')}\"/></div>\
+                  <div class=\"text-[11px] text-gray-500\">true の場合のみ次のノードに進みます</div>\
+                </div>`:`<div class=\"text-gray-400\">${expr}</div>`
               }
             }
-            body.innerHTML = `<div class=\"flex items-center gap-2\">${typeSel}${n.kind==='trigger' && n.type==='manual' && edit?'<span class=\"text-gray-400\">（クリックで実行）</span>':''}</div>${cfgHtml}`
+            body.innerHTML = `<div class=\"grid place-items-center gap-1\">${typeSel}${n.kind==='trigger' && n.type==='manual' && edit?'<span class=\"text-gray-300\">（クリックで実行）</span>':''}</div>${cfgHtml}`
           }
           return el
         }
@@ -4353,6 +4552,7 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
           const logEl = w.querySelector('.flow-log') as HTMLElement | null
           const appendLog = (s: string) => { if (logEl) { const p = document.createElement('div'); p.textContent = `[${new Date().toLocaleTimeString()}] ${s}`; logEl.appendChild(p); logEl.scrollTop = logEl.scrollHeight } }
           const repo = (root as HTMLElement).getAttribute('data-repo-full') || ''
+          const ctx: any = { repo, pid }
           const visit = async (nid: string, depth = 0, seen = new Set<string>()) => {
             if (depth > 64 || seen.has(nid)) return; seen.add(nid)
             const outs = g.edges.filter(e => e.from === nid)
@@ -4361,12 +4561,13 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
               if (n.kind === 'action') {
                 try {
                   if (n.type === 'notify') {
-                    const msg = String((n.cfg?.message) ?? '処理が完了しました')
+                    const raw = String((n.cfg?.message) ?? '処理が完了しました')
+                    const msg = flowTpl(raw, ctx)
                     appendLog(`通知: ${msg}`)
                   } else if (n.type === 'webhook') {
                     const url = String(n.cfg?.url || '')
                     const method = String(n.cfg?.method || 'POST').toUpperCase()
-                    const payload = String(n.cfg?.payload || '{}')
+                    const payload = flowTpl(String(n.cfg?.payload || '{}'), ctx)
                     if (!url) appendLog('Webhook URL未設定'); else {
                       try {
                         const init: RequestInit = { method }
@@ -4384,6 +4585,22 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
                       await apiFetch(`/projects/${pid}/issues`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ title, body, status, labels: [] }) })
                       appendLog('GitHub Issueを作成しました')
                     } catch { appendLog('GitHub Issue作成に失敗しました') }
+                  } else if (n.type === 'expr') {
+                    const src = String(n.cfg?.expr || '')
+                    const out = String(n.cfg?.out || '')
+                    const { ok, value, error } = safeEvalExpr(src, ctx)
+                    if (!ok) { appendLog(`式エラー: ${error || 'invalid'}`) }
+                    else {
+                      if (out) assignByPath(ctx, out, value)
+                      appendLog(`式: ${src} => ${formatLogVal(value)}`)
+                    }
+                  } else if (n.type === 'condition') {
+                    const src = String(n.cfg?.expr || '')
+                    const { ok, value, error } = safeEvalExpr(src, ctx)
+                    if (!ok) { appendLog(`条件エラー: ${error || 'invalid'}`); continue }
+                    const pass = !!value
+                    appendLog(`条件: ${src} => ${pass ? 'true' : 'false'}`)
+                    if (!pass) continue
                   }
                 } catch (er) { appendLog('アクション実行でエラー') }
               }
@@ -4396,24 +4613,31 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
           // drag nodes
           canvas.querySelectorAll('.flow-node').forEach((nEl) => {
             const el = nEl as HTMLElement
-            const head = el.querySelector('.fn-head') as HTMLElement | null
-            const idN = el.getAttribute('data-node') || ''
-            head?.addEventListener('mousedown', (ev) => {
-              ev.preventDefault()
-              const n = g.nodes.find(x => x.id === idN); if (!n) return
-              const base = box.getBoundingClientRect(); const r = el.getBoundingClientRect()
-              const offX = (ev as MouseEvent).clientX - r.left; const offY = (ev as MouseEvent).clientY - r.top
-              const onMove = (e: MouseEvent) => {
-                n.x = Math.max(0, Math.min(base.width - r.width, e.clientX - base.left - offX))
-                n.y = Math.max(0, Math.min(base.height - r.height, e.clientY - base.top - offY))
-                el.style.left = `${n.x}px`; el.style.top = `${n.y}px`
-                // redraw edges live
-                renderEdges()
-              }
-              const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); saveAndRefresh() }
-              window.addEventListener('mousemove', onMove)
-              window.addEventListener('mouseup', onUp)
-            })
+          const head = el.querySelector('.fn-bar') as HTMLElement | null
+          const idN = el.getAttribute('data-node') || ''
+          const startDragNode = (ev: MouseEvent) => {
+            ev.preventDefault()
+            const n = g.nodes.find(x => x.id === idN); if (!n) return
+            const base = box.getBoundingClientRect(); const r = el.getBoundingClientRect()
+            const offX = (ev as MouseEvent).clientX - r.left; const offY = (ev as MouseEvent).clientY - r.top
+            const onMove = (e: MouseEvent) => {
+              n.x = Math.max(0, Math.min(base.width - r.width, e.clientX - base.left - offX))
+              n.y = Math.max(0, Math.min(base.height - r.height, e.clientY - base.top - offY))
+              el.style.left = `${n.x}px`; el.style.top = `${n.y}px`
+              // redraw edges live
+              renderEdges()
+            }
+            const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); saveAndRefresh() }
+            window.addEventListener('mousemove', onMove)
+            window.addEventListener('mouseup', onUp)
+          }
+          head?.addEventListener('mousedown', (ev) => startDragNode(ev as MouseEvent))
+          // Fallback: drag by clicking body/shape (not ports or bar)
+          el.addEventListener('mousedown', (ev) => {
+            const t = ev.target as HTMLElement
+            if (t.closest('.port-in, .port-out, .fn-bar, .fn-body')) return
+            startDragNode(ev as MouseEvent)
+          })
             const del = el.querySelector('.fn-del') as HTMLElement | null
             del?.addEventListener('click', () => {
               const idx = g.nodes.findIndex(x => x.id === idN); if (idx >= 0) g.nodes.splice(idx, 1)
@@ -4431,6 +4655,8 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
                 if (node.kind === 'action' && node.type === 'notify') { node.cfg = { ...(node.cfg||{}), message: String(node.cfg?.message || '処理が完了しました') } }
                 if (node.kind === 'action' && node.type === 'webhook') { node.cfg = { ...(node.cfg||{}), url: String(node.cfg?.url || ''), method: String(node.cfg?.method || 'POST'), payload: String(node.cfg?.payload || '{"hello":"world"}') } }
                 if (node.kind === 'action' && node.type === 'github_issue') { node.cfg = { ...(node.cfg||{}), title: String(node.cfg?.title || 'New task'), body: String(node.cfg?.body || ''), status: String(node.cfg?.status || 'todo') } }
+                if (node.kind === 'action' && node.type === 'expr') { node.cfg = { ...(node.cfg||{}), expr: String(node.cfg?.expr || 'x + 1'), out: String(node.cfg?.out || 'result') } }
+                if (node.kind === 'action' && node.type === 'condition') { node.cfg = { ...(node.cfg||{}), expr: String(node.cfg?.expr || 'true') } }
                 saveAndRefresh()
               })
               const iv = el.querySelector('.fn-iv') as HTMLInputElement | null
@@ -4443,6 +4669,12 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
               url?.addEventListener('change', () => { const n = g.nodes.find(x => x.id === idN); if (!n) return; n.cfg = { ...(n.cfg||{}), url: url.value }; flowSave(pid, id, g) })
               method?.addEventListener('change', () => { const n = g.nodes.find(x => x.id === idN); if (!n) return; n.cfg = { ...(n.cfg||{}), method: method.value }; flowSave(pid, id, g) })
               pl?.addEventListener('change', () => { const n = g.nodes.find(x => x.id === idN); if (!n) return; n.cfg = { ...(n.cfg||{}), payload: pl.value }; flowSave(pid, id, g) })
+              const expr = el.querySelector('.fn-expr') as HTMLInputElement | null
+              const exprOut = el.querySelector('.fn-expr-out') as HTMLInputElement | null
+              expr?.addEventListener('change', () => { const n = g.nodes.find(x => x.id === idN); if (!n) return; n.cfg = { ...(n.cfg||{}), expr: expr.value }; flowSave(pid, id, g) })
+              exprOut?.addEventListener('change', () => { const n = g.nodes.find(x => x.id === idN); if (!n) return; n.cfg = { ...(n.cfg||{}), out: exprOut.value }; flowSave(pid, id, g) })
+              const condExpr = el.querySelector('.fn-cond-expr') as HTMLInputElement | null
+              condExpr?.addEventListener('change', () => { const n = g.nodes.find(x => x.id === idN); if (!n) return; n.cfg = { ...(n.cfg||{}), expr: condExpr.value }; flowSave(pid, id, g) })
               const giTitle = el.querySelector('.fn-gi-title') as HTMLInputElement | null
               const giBody = el.querySelector('.fn-gi-body') as HTMLTextAreaElement | null
               const giSt = el.querySelector('.fn-gi-status') as HTMLSelectElement | null
@@ -4453,13 +4685,86 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
             const runBtn = el.querySelector('.fn-run') as HTMLElement | null
             runBtn?.addEventListener('click', () => { runFrom(idN) })
           })
-          // connect by clicking out then in
+          // Drag-to-connect (rubber-band) + click fallback
           let pending: string | null = null
+          let tempPath: SVGPathElement | null = null
+          const startDragLink = (originPort: HTMLElement, e: MouseEvent) => {
+            const originEl = originPort.closest('.flow-node') as HTMLElement | null
+            pending = originEl?.getAttribute('data-node') || ''
+            if (!pending) return
+            if (tempPath) { try { tempPath.remove() } catch {} }
+            tempPath = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+            tempPath.setAttribute('stroke', '#f59e0b')
+            tempPath.setAttribute('stroke-width', '2')
+            tempPath.setAttribute('fill', 'none')
+            svg.appendChild(tempPath)
+            const base = box.getBoundingClientRect()
+            const startR = originPort.getBoundingClientRect()
+            const a = { x: startR.left - base.left + startR.width / 2, y: startR.top - base.top + startR.height / 2 }
+            const mk = (mx: number, my: number) => {
+              const dx = (mx - a.x) * 0.5
+              const c1x = a.x, c1y = a.y + Math.max(10, Math.abs(dx)) * 0.15
+              const c2x = mx, c2y = my - Math.max(10, Math.abs(dx)) * 0.15
+              return `M ${a.x} ${a.y} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${mx} ${my}`
+            }
+            const onMove = (ev: MouseEvent) => {
+              const mx = ev.clientX - base.left
+              const my = ev.clientY - base.top
+              tempPath!.setAttribute('d', mk(mx, my))
+            }
+            const onUp = (ev: MouseEvent) => {
+              window.removeEventListener('mousemove', onMove)
+              window.removeEventListener('mouseup', onUp)
+              try {
+                // Prefer direct hit on a port-in (under pointer)
+                let hitPort: HTMLElement | null = null
+                try { const els = document.elementsFromPoint(ev.clientX, ev.clientY) as HTMLElement[]; hitPort = (els.find(el => el.classList?.contains('port-in')) as HTMLElement) || null } catch {}
+                let targetEl: HTMLElement | null = null
+                if (hitPort) targetEl = hitPort
+                else {
+                  // Find nearest port-in within generous threshold
+                  const ports = Array.from(canvas.querySelectorAll('.port-in')) as HTMLElement[]
+                  const base2 = box.getBoundingClientRect()
+                  let best: { el: HTMLElement; d2: number } | null = null
+                  ports.forEach((pi) => {
+                    const r = pi.getBoundingClientRect()
+                    const cx = r.left - base2.left + r.width / 2
+                    const cy = r.top - base2.top + r.height / 2
+                    const dx = (ev.clientX - base2.left) - cx
+                    const dy = (ev.clientY - base2.top) - cy
+                    const d2 = dx*dx + dy*dy
+                    if (!best || d2 < best.d2) best = { el: pi, d2 }
+                  })
+                  const TH = 44
+                  if (best && Math.sqrt(best.d2) <= TH) targetEl = best.el
+                }
+                if (targetEl) {
+                  const to = (targetEl.closest('.flow-node') as HTMLElement | null)?.getAttribute('data-node') || ''
+                  if (to && to !== pending) {
+                    const dst = g.nodes.find(x => x.id === to)
+                    const src = g.nodes.find(x => x.id === pending)
+                    if (dst && src && dst.kind !== 'trigger') {
+                      if (!g.edges.find(e => e.from === pending && e.to === to)) g.edges.push({ from: pending, to })
+                      saveAndRefresh()
+                    }
+                  }
+                } else {
+                  // kick (small shake on origin)
+                  try { (originEl as HTMLElement).style.transition = 'transform .08s'; (originEl as HTMLElement).style.transform = 'translateX(-4px)'; setTimeout(()=>{ (originEl as HTMLElement).style.transform=''; }, 90) } catch {}
+                }
+              } finally {
+                try { tempPath?.remove() } catch {}
+                tempPath = null; pending = null
+              }
+            }
+            window.addEventListener('mousemove', onMove)
+            window.addEventListener('mouseup', onUp)
+          }
           canvas.querySelectorAll('.flow-node .port-out').forEach((po) => {
-            po.addEventListener('click', (e) => {
+            po.addEventListener('mousedown', (e) => { startDragLink(po as HTMLElement, e as MouseEvent) })
+            po.addEventListener('click', (e) => { // fallback click-to-connect
               const n = (po.closest('.flow-node') as HTMLElement | null)?.getAttribute('data-node') || ''
-              pending = n
-              e.stopPropagation()
+              pending = n; e.stopPropagation()
             })
           })
           canvas.querySelectorAll('.flow-node .port-in').forEach((pi) => {
@@ -4470,7 +4775,6 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
               const dst = g.nodes.find(x => x.id === to)
               const src = g.nodes.find(x => x.id === pending)
               if (!dst || !src || dst.kind === 'trigger') { pending = null; return }
-              // prevent duplicate
               if (!g.edges.find(e => e.from === pending && e.to === to)) g.edges.push({ from: pending, to })
               pending = null; saveAndRefresh()
             })
@@ -4485,12 +4789,20 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
           // palette actions
           const addTrigger = w.querySelector('.flow-add-tr') as HTMLElement | null
           const addAction = w.querySelector('.flow-add-ac') as HTMLElement | null
+          const addExpr = w.querySelector('.flow-add-expr') as HTMLElement | null
+          const addCond = w.querySelector('.flow-add-cond') as HTMLElement | null
           const clearBtn = w.querySelector('.flow-clear') as HTMLElement | null
           addTrigger?.addEventListener('click', () => {
             g.nodes.push({ id: `n-${Date.now()}`, kind: 'trigger', type: 'manual', x: 24, y: 24, label: 'Manual Trigger' }); saveAndRefresh()
           })
           addAction?.addEventListener('click', () => {
             g.nodes.push({ id: `n-${Date.now()}`, kind: 'action', type: 'notify', x: 220, y: 140, label: 'Notify' }); saveAndRefresh()
+          })
+          addExpr?.addEventListener('click', () => {
+            g.nodes.push({ id: `n-${Date.now()}`, kind: 'action', type: 'expr', x: 220, y: 220, label: 'Expr' }); saveAndRefresh()
+          })
+          addCond?.addEventListener('click', () => {
+            g.nodes.push({ id: `n-${Date.now()}`, kind: 'action', type: 'condition', x: 420, y: 220, label: 'Condition' }); saveAndRefresh()
           })
           clearBtn?.addEventListener('click', () => {
             g.nodes = []; g.edges = []; saveAndRefresh()
@@ -5077,9 +5389,195 @@ function flowLoad(pid: string, id: string): FlowGraph {
 }
 function flowSave(pid: string, id: string, g: FlowGraph): void { try { localStorage.setItem(flowKey(pid, id), JSON.stringify(g)) } catch {} }
 const flowTimers = new Map<string, Map<string, number>>()
+function flowModeKey(pid: string, id: string): string { return `pj-flow-mode-${pid}-${id}` }
+function flowModeGet(pid: string, id: string): 'logic'|'design' { try { const v = localStorage.getItem(flowModeKey(pid, id)) || 'logic'; return (v === 'design' ? 'design' : 'logic') } catch { return 'logic' } }
+function flowModeSet(pid: string, id: string, v: 'logic'|'design'): void { try { localStorage.setItem(flowModeKey(pid, id), v) } catch {} }
+
+// ---- Expression DSL (safe, tiny) ----
+type DslToken = { t: 'num'|'str'|'ident'|'op'|'lpar'|'rpar'|'comma'|'bool'|'null'|'eof'; v?: any }
+function dslTokens(src: string): DslToken[] {
+  const s = src || ''
+  const out: DslToken[] = []
+  let i = 0
+  const isWS = (c: string) => /\s/.test(c)
+  const isIdStart = (c: string) => /[A-Za-z_]/.test(c)
+  const isId = (c: string) => /[A-Za-z0-9_\.]/.test(c)
+  while (i < s.length) {
+    const c = s[i]
+    if (isWS(c)) { i++; continue }
+    if (c === '(') { out.push({ t:'lpar' }); i++; continue }
+    if (c === ')') { out.push({ t:'rpar' }); i++; continue }
+    if (c === ',') { out.push({ t:'comma' }); i++; continue }
+    // operators (longest first)
+    const two = s.slice(i, i+2)
+    if (['>=','<=','==','!=','&&','||'].includes(two)) { out.push({ t:'op', v: two }); i += 2; continue }
+    if ('+-*/%!><!'.includes(c)) { out.push({ t:'op', v: c }); i++; continue }
+    if (c === '"' || c === '\'') {
+      const q = c; i++
+      let str = ''
+      while (i < s.length) {
+        const ch = s[i++]
+        if (ch === q) break
+        if (ch === '\\') { const nx = s[i++] || ''; const map: any = { 'n':'\n', 't':'\t', '\\':'\\', '\'':'\'', '"':'"' }; str += (map[nx] ?? nx) }
+        else str += ch
+      }
+      out.push({ t: 'str', v: str })
+      continue
+    }
+    if (/[0-9]/.test(c)) {
+      let j = i+1; while (j < s.length && /[0-9_\.]/.test(s[j])) j++
+      const raw = s.slice(i, j).replace(/_/g,'')
+      out.push({ t:'num', v: Number(raw) })
+      i = j; continue
+    }
+    if (isIdStart(c)) {
+      let j = i+1; while (j < s.length && isId(s[j])) j++
+      const id = s.slice(i, j)
+      if (id === 'true' || id === 'false') out.push({ t:'bool', v: id === 'true' })
+      else if (id === 'null') out.push({ t:'null' })
+      else out.push({ t:'ident', v: id })
+      i = j; continue
+    }
+    // unknown char
+    out.push({ t:'op', v: c }); i++
+  }
+  out.push({ t:'eof' })
+  return out
+}
+type DNode = any
+function dslParse(src: string): DNode {
+  const tk = dslTokens(src)
+  let p = 0
+  const peek = () => tk[p]
+  const eat = () => tk[p++]
+  const expect = (t: DslToken['t']) => { const x = eat(); if (x.t !== t) throw new Error(`expected ${t}`); return x }
+  const parsePrimary = (): DNode => {
+    const t = peek()
+    if (t.t === 'num' || t.t === 'str' || t.t === 'bool' || t.t === 'null') { eat(); return { k:'lit', v: t.t === 'null' ? null : t.v } }
+    if (t.t === 'ident') {
+      const name = String(eat().v)
+      if (peek().t === 'lpar') {
+        eat() // (
+        const args: DNode[] = []
+        if (peek().t !== 'rpar') {
+          while (true) { args.push(parseExpr()); if (peek().t === 'comma') { eat(); continue } break }
+        }
+        expect('rpar')
+        return { k:'call', f: name, a: args }
+      }
+      return { k:'var', p: name }
+    }
+    if (t.t === 'lpar') { eat(); const e = parseExpr(); expect('rpar'); return e }
+    if (t.t === 'op' && (t.v === '-' || t.v === '!')) { const op = String(eat().v); const e = parsePrimary(); return { k:'un', o: op, e } }
+    throw new Error('syntax')
+  }
+  const prec = (op: string): number => ({ '||':1, '&&':2, '==':3, '!=':3, '>':4, '<':4, '>=':4, '<=':4, '+':5, '-':5, '*':6, '/':6, '%':6 }[op] ?? 0)
+  const parseBin = (lhs: DNode, minPrec: number): DNode => {
+    while (peek().t === 'op' && prec(String(peek().v)) >= minPrec) {
+      const op = String(eat().v)
+      let rhs = parsePrimary()
+      while (peek().t === 'op' && prec(String(peek().v)) > prec(op)) {
+        rhs = parseBin(rhs, prec(String(peek().v)))
+      }
+      lhs = { k:'bin', o: op, l: lhs, r: rhs }
+    }
+    return lhs
+  }
+  const parseExpr = (): DNode => parseBin(parsePrimary(), 1)
+  const ast = parseExpr()
+  if (peek().t !== 'eof') throw new Error('trailing')
+  return ast
+}
+function getByPath(obj: any, path: string): any {
+  const parts = (path || '').split('.')
+  let cur = obj
+  for (const k of parts) { if (cur == null) return undefined; cur = cur[k] }
+  return cur
+}
+function assignByPath(obj: any, path: string, value: any): void {
+  const parts = (path || '').split('.').filter(Boolean)
+  if (!parts.length) return
+  let cur = obj
+  for (let i=0;i<parts.length-1;i++) { const k = parts[i]; if (typeof cur[k] !== 'object' || cur[k] == null) cur[k] = {}; cur = cur[k] }
+  cur[parts[parts.length-1]] = value
+}
+function dslEval(ast: DNode, ctx: any): any {
+  const fns: Record<string, (...a:any[])=>any> = {
+    len: (x:any) => (x==null?0:(Array.isArray(x)||typeof x==='string'?x.length:Object.keys(x).length)),
+    lower: (s:any) => String(s||'').toLowerCase(),
+    upper: (s:any) => String(s||'').toUpperCase(),
+    trim: (s:any) => String(s||'').trim(),
+    contains: (h:any, n:any) => (String(h||'')).includes(String(n||'')),
+    startsWith: (s:any, p:any) => String(s||'').startsWith(String(p||'')),
+    endsWith: (s:any, p:any) => String(s||'').endsWith(String(p||'')),
+    now: () => Date.now(),
+    dateAdd: (t:any, unit:any, amt:any) => { const base = (t==null?Date.now(): (isNaN(Number(t))? Date.parse(String(t)) : Number(t))); const a = Number(amt||0); const d = new Date(base); const u = String(unit||'days'); if (u.startsWith('day')) d.setDate(d.getDate()+a); else if (u.startsWith('hour')) d.setHours(d.getHours()+a); else if (u.startsWith('min')) d.setMinutes(d.getMinutes()+a); else d.setSeconds(d.getSeconds()+a); return d.getTime() },
+    formatDate: (t:any, fmt:any) => { const d = new Date(isNaN(Number(t))? Date.parse(String(t)) : Number(t)); const z = (n:number,len=2)=>String(n).padStart(len,'0'); const map: Record<string,string> = { 'YYYY': String(d.getFullYear()), 'MM': z(d.getMonth()+1), 'DD': z(d.getDate()), 'HH': z(d.getHours()), 'mm': z(d.getMinutes()), 'ss': z(d.getSeconds()) }; return String(fmt||'YYYY-MM-DD').replace(/YYYY|MM|DD|HH|mm|ss/g, m=>map[m]) },
+    toNumber: (x:any) => Number(x), toString: (x:any) => String(x), toBool: (x:any) => !!x,
+    // Extra: arrays/math/json/condition/helpers
+    sum: (...args:any[]) => { const a = (args.length===1 && Array.isArray(args[0]))? args[0] : args; return a.map(Number).reduce((s:number,v:number)=>s+(isNaN(v)?0:v),0) },
+    avg: (arr:any) => { const a = Array.isArray(arr)? arr.map(Number) : []; const n=a.filter(v=>!isNaN(v)).length; return n? a.filter(v=>!isNaN(v)).reduce((s,v)=>s+v,0)/n : 0 },
+    minVal: (arr:any) => { const a=Array.isArray(arr)?arr.map(Number).filter(v=>!isNaN(v)):[]; return a.length? Math.min(...a) : 0 },
+    maxVal: (arr:any) => { const a=Array.isArray(arr)?arr.map(Number).filter(v=>!isNaN(v)):[]; return a.length? Math.max(...a) : 0 },
+    join: (arr:any, sep:any=',') => Array.isArray(arr)? arr.join(String(sep)) : '',
+    split: (s:any, sep:any=',') => String(s||'').split(String(sep)),
+    nth: (arr:any, i:any) => { const a=Array.isArray(arr)?arr:[]; const n=Number(i)||0; return (n>=0&&n<a.length)?a[n]:undefined },
+    jsonParse: (s:any) => { try { return JSON.parse(String(s||'')) } catch { return null } },
+    jsonStringify: (x:any) => { try { return JSON.stringify(x) } catch { return '' } },
+    coalesce: (a:any,b:any) => (a!=null && a!=='')? a : b,
+    iif: (cond:any, a:any, b:any) => (!!cond? a : b),
+    get: (path:any) => getByPath((globalThis as any).__flowCtx || {}, String(path||'')),
+  }
+  const ev = (node: DNode): any => {
+    switch (node?.k) {
+      case 'lit': return node.v
+      case 'var': return getByPath(ctx, node.p)
+      case 'call': {
+        const fn = fns[node.f]; if (!fn) throw new Error(`fn:${node.f}`)
+        try { (globalThis as any).__flowCtx = ctx } catch {}
+        return fn(...node.a.map(ev))
+      }
+      case 'un': { const v = ev(node.e); if (node.o === '-') return -Number(v); if (node.o === '!') return !v; throw new Error('op') }
+      case 'bin': {
+        const l = ev(node.l), r = ev(node.r)
+        switch (node.o) {
+          case '+': return Number(l) + Number(r)
+          case '-': return Number(l) - Number(r)
+          case '*': return Number(l) * Number(r)
+          case '/': return Number(l) / Number(r)
+          case '%': return Number(l) % Number(r)
+          case '>': return l > r
+          case '<': return l < r
+          case '>=': return l >= r
+          case '<=': return l <= r
+          case '==': return l == r
+          case '!=': return l != r
+          case '&&': return l && r
+          case '||': return l || r
+        }
+        throw new Error('op')
+      }
+      default: throw new Error('ast')
+    }
+  }
+  return ev(ast)
+}
+function safeEvalExpr(src: string, ctx: any): { ok: boolean; value?: any; error?: string } {
+  try { const ast = dslParse(src); const v = dslEval(ast, ctx); return { ok: true, value: v } } catch (e: any) { return { ok: false, error: String(e?.message||e) } }
+}
+function flowTpl(s: string, ctx: any): string {
+  // Expand ${...} with DSL
+  return String(s||'').replace(/\$\{([^}]+)\}/g, (_m, ex) => {
+    const { ok, value } = safeEvalExpr(String(ex), ctx)
+    return ok ? String(value) : ''
+  })
+}
+function formatLogVal(v: any): string { try { if (typeof v === 'object') return JSON.stringify(v); return String(v) } catch { return String(v) } }
 
 function widgetTitle(type: string): string {
   switch (type) {
+    case 'custom': return 'カスタム'
+    case 'flow': return 'フロー'
     case 'readme': return 'README'
     case 'overview': return 'Overview'
     case 'contrib': return 'Contributions'
@@ -5100,6 +5598,8 @@ function widgetTitle(type: string): string {
 
 function buildWidgetBody(type: string): string {
   switch (type) {
+    case 'custom':
+      return `<div class=\"h-full text-sm text-gray-200\"><div class=\"text-xs text-gray-400 mb-1\">Custom</div><div class=\"text-gray-200\">ここにコンテンツを追加できます</div></div>`
     case 'readme': return readmeSkeleton()
     case 'overview': return overviewSkeleton()
     case 'contrib': return contributionWidget()
@@ -5159,9 +5659,48 @@ function buildWidgetBody(type: string): string {
     case 'team': return `<div class=\"team-body text-sm text-gray-200\"><p class=\"text-gray-400\">読み込み中...</p></div>`
     case 'todo': return `<div class=\"todo-body text-sm text-gray-200\"></div><div class=\"mt-2 text-xs\"><button class=\"todo-add rounded ring-2 ring-neutral-600 px-2 py-0.5 hover:bg-neutral-800\">項目追加</button></div>`
     case 'clock-digital': return `<div class=\"clock-wrap relative h-full\"><div class=\"clock-body absolute inset-0 grid place-items-center text-gray-100\"></div></div>`
+    case 'flow': return flowWidget()
     case 'committers': return barSkeleton()
     default: return `<div class=\"h-40 grid place-items-center text-gray-400\">Mock</div>`
   }
+}
+
+function flowWidget(): string {
+  return `
+    <div class="flow-wrap relative h-full">
+      <div class="flow-body absolute inset-0">
+        <div class="flow-canvas absolute inset-0"></div>
+        <svg class="flow-svg absolute inset-0 w-full h-full pointer-events-none"></svg>
+      </div>
+      <div class="absolute top-1 left-1 right-1 flex items-center gap-2">
+        <div class="flow-mode edit-only bg-neutral-900/70 ring-1 ring-neutral-600 rounded px-1 py-1 inline-flex">
+          <button data-mode="logic" class="px-2 py-0.5 text-xs rounded bg-neutral-800/80 text-gray-100">機能</button>
+          <button data-mode="design" class="ml-1 px-2 py-0.5 text-xs rounded text-gray-300 hover:text-gray-100">見た目</button>
+        </div>
+        <div class="flow-palette ml-2 edit-only bg-neutral-900/70 ring-1 ring-neutral-600 rounded px-2 py-1 inline-flex items-center gap-2">
+          <button class="flow-add-tr text-xs rounded bg-emerald-700 hover:bg-emerald-600 text-white px-2 py-0.5">トリガー</button>
+          <button class="flow-add-ac text-xs rounded bg-sky-700 hover:bg-sky-600 text-white px-2 py-0.5">アクション</button>
+          <button class="flow-add-expr text-xs rounded bg-fuchsia-700 hover:bg-fuchsia-600 text-white px-2 py-0.5">式</button>
+          <button class="flow-add-cond text-xs rounded bg-amber-700 hover:bg-amber-600 text-white px-2 py-0.5">条件</button>
+          <button class="flow-clear text-xs rounded ring-1 ring-neutral-600 px-2 py-0.5 hover:bg-neutral-800">クリア</button>
+        </div>
+        <div class="flow-design ml-2 hidden edit-only bg-neutral-900/70 ring-1 ring-neutral-600 rounded px-2 py-1 inline-flex items-center gap-2">
+          <div class="text-xs text-gray-300">色</div>
+          <div id="fld-colors" class="inline-flex items-center gap-1.5"></div>
+          <label class="ml-2 text-xs text-gray-300">濃さ <input id="fld-alpha" type="range" min="0.20" max="0.70" step="0.02" value="0.38" class="align-middle ml-1"></label>
+          <div class="ml-2 text-xs text-gray-300">形</div>
+          <button id="fld-t1" class="text-xs rounded ring-1 ring-neutral-600 px-2 py-0.5 hover:bg-neutral-800">1</button>
+          <button id="fld-t3" class="text-xs rounded ring-1 ring-neutral-600 px-2 py-0.5 hover:bg-neutral-800">3</button>
+          <button id="fld-t4" class="text-xs rounded ring-1 ring-neutral-600 px-2 py-0.5 hover:bg-neutral-800">4</button>
+          <button id="fld-t7" class="text-xs rounded ring-1 ring-neutral-600 px-2 py-0.5 hover:bg-neutral-800">7</button>
+        </div>
+      </div>
+      <div class="absolute bottom-1 left-1 right-1 flex items-center gap-2">
+        <button class="flow-run rounded bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-medium px-3 py-1.5">実行</button>
+        <div class="flow-log flex-1 h-16 overflow-auto rounded bg-neutral-900/60 ring-1 ring-neutral-600 text-[11px] text-gray-300 px-2 py-1"></div>
+      </div>
+    </div>
+  `
 }
 
 // ------- Markdown widget -------
@@ -5251,6 +5790,383 @@ function openMarkdownModal(root: HTMLElement, pid: string, id: string): void {
   document.body.appendChild(overlay)
   const body = overlay.querySelector('#md-body') as HTMLElement
   body.innerHTML = mdRenderToHtml(text || 'ここにMarkdownを書いてください')
+}
+
+// ---- Experimental: Widget Creator Modal (Node flow + DSL placeholder) ----
+function openWidgetCreatorModal(root: HTMLElement, pid: string): void {
+  // Ensure single top-most creator is present
+  document.getElementById('wcModal')?.remove()
+  const overlay = document.createElement('div')
+  overlay.id = 'wcModal'
+  overlay.className = 'fixed inset-0 z-[70] bg-black/70 backdrop-blur-[2px] grid place-items-center fade-overlay'
+  overlay.innerHTML = `
+    <div class="relative w-[min(1200px,96vw)] h-[min(88vh,900px)] overflow-hidden rounded-xl bg-neutral-900 ring-2 ring-neutral-600 shadow-2xl text-gray-100 pop-modal modal-fixed">
+      <header class="h-12 flex items-center gap-3 px-5 border-b border-neutral-600">
+        <h3 class="text-lg font-semibold">ウィジェット作成</h3>
+        <div class="inline-flex items-center gap-1 bg-neutral-800/60 ring-1 ring-neutral-600 rounded">
+          <button data-tab="logic" class="px-3 py-1 text-sm rounded bg-neutral-800/80 text-gray-100">機能</button>
+          <button data-tab="design" class="px-3 py-1 text-sm rounded text-gray-300 hover:text-gray-100">見た目</button>
+        </div>
+        <input id="wc-name" class="ml-3 min-w-[200px] rounded bg-neutral-800/60 ring-2 ring-neutral-600 px-3 py-1.5 text-gray-100" placeholder="名前（任意）" />
+        <button id=\"wc-close\" class=\"ml-auto text-2xl text-neutral-300 hover:text-white\">×</button>
+      </header>
+      <div class="flex h-[calc(100%-3rem)]">
+        <aside class="w-72 shrink-0 border-r border-neutral-600 p-3 overflow-y-auto">
+          <div class="text-sm text-gray-300 mb-3">ノードパレット</div>
+          <div class="space-y-4">
+            <div>
+              <div class="text-[12px] text-gray-400 mb-1">Trigger</div>
+              <div class="grid grid-cols-2 gap-2">
+                <button class="px-2 py-1 text-left rounded bg-neutral-800/70 ring-1 ring-neutral-600 hover:bg-neutral-800" data-node="trigger:click">クリック</button>
+                <button class="px-2 py-1 text-left rounded bg-neutral-800/70 ring-1 ring-neutral-600 hover:bg-neutral-800" data-node="trigger:cron">スケジュール</button>
+              </div>
+            </div>
+            <div>
+              <div class="text-[12px] text-gray-400 mb-1">Transform</div>
+              <div class="grid grid-cols-2 gap-2">
+                <button class="px-2 py-1 text-left rounded bg-neutral-800/70 ring-1 ring-neutral-600 hover:bg-neutral-800" data-node="transform:map">マップ</button>
+                <button class="px-2 py-1 text-left rounded bg-neutral-800/70 ring-1 ring-neutral-600 hover:bg-neutral-800" data-node="transform:filter">フィルタ</button>
+                <button class="px-2 py-1 text-left rounded bg-neutral-800/70 ring-1 ring-neutral-600 hover:bg-neutral-800" data-node="transform:template">テンプレート</button>
+                <button class="px-2 py-1 text-left rounded bg-neutral-800/70 ring-1 ring-neutral-600 hover:bg-neutral-800" data-node="transform:datetime">日時計算</button>
+              </div>
+            </div>
+            <div>
+              <div class="text-[12px] text-gray-400 mb-1">Action</div>
+              <div class="grid grid-cols-2 gap-2">
+                <button class="px-2 py-1 text-left rounded bg-neutral-800/70 ring-1 ring-neutral-600 hover:bg-neutral-800" data-node="action:notify">通知</button>
+              </div>
+            </div>
+          </div>
+          
+        </aside>
+        <section class="flex-1 relative">
+          <div class="absolute inset-0 flex flex-col">
+            <div id="wc-design-bar" class="shrink-0 p-3 border-b border-neutral-700 flex items-center gap-3">
+              <div class="ml-auto flex items-center gap-2">
+                <div class="text-xs text-gray-300">色</div>
+                <div id="wc-colors" class="flex items-center gap-1.5"></div>
+                <label class="ml-3 text-xs text-gray-300">濃さ
+                  <input id="wc-alpha" type="range" min="0.20" max="0.70" step="0.02" value="0.38" class="align-middle ml-1">
+                </label>
+              </div>
+            </div>
+            <div class="flex-1 relative">
+              <div id="wc-board" class="absolute inset-0 overflow-hidden"></div>
+              <div id="wcl-wrap" class="absolute inset-0 hidden">
+                <div class="wcl-canvas absolute inset-0"></div>
+                <svg class="wcl-svg absolute inset-0 w-full h-full pointer-events-none"></svg>
+              </div>
+              <div id="wc-shape-tools" class="absolute left-3 bottom-3 flex items-center gap-2">
+                <button id="wc-clear" class="rounded bg-neutral-800/60 ring-2 ring-neutral-600 text-gray-200 text-xs font-medium px-2 py-1">クリア</button>
+                <button id="wc-t1" class="rounded bg-neutral-800/60 ring-2 ring-neutral-600 text-gray-200 text-xs font-medium px-2 py-1">1セル</button>
+                <button id="wc-t3" class="rounded bg-neutral-800/60 ring-2 ring-neutral-600 text-gray-200 text-xs font-medium px-2 py-1">3セル</button>
+                <button id="wc-t4" class="rounded bg-neutral-800/60 ring-2 ring-neutral-600 text-gray-200 text-xs font-medium px-2 py-1">4セル</button>
+                <button id="wc-t7" class="rounded bg-neutral-800/60 ring-2 ring-neutral-600 text-gray-200 text-xs font-medium px-2 py-1">7セル</button>
+              </div>
+              <div class="absolute right-3 bottom-3 flex items-center gap-2">
+                <button id="wc-save" class="inline-flex items-center gap-2 rounded-md bg-emerald-700 hover:bg-emerald-600 text-white text-sm font-medium px-3 py-2 disabled:opacity-60 disabled:cursor-not-allowed" disabled>保存して追加</button>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+  `
+  const close = () => { overlay.remove(); const c = +(document.body.getAttribute('data-lock') || '0'); const n = Math.max(0, c - 1); if (n === 0) { (document.body.style as any).overflow = ''; } document.body.setAttribute('data-lock', String(n)) }
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close() })
+  overlay.querySelector('#wc-close')?.addEventListener('click', close)
+  // Append + lock
+  const c = +(document.body.getAttribute('data-lock') || '0')
+  const n = c + 1
+  if (n === 1) { (document.body.style as any).overflow = 'hidden' }
+  document.body.setAttribute('data-lock', String(n))
+  document.body.appendChild(overlay)
+
+  // Tabs
+  const tabBtns = Array.from(overlay.querySelectorAll('[data-tab]')) as HTMLElement[]
+  const designBar = overlay.querySelector('#wc-design-bar') as HTMLElement | null
+  const boardWrap = overlay.querySelector('#wc-board') as HTMLElement | null
+  const shapeTools = overlay.querySelector('#wc-shape-tools') as HTMLElement | null
+  const logicWrap = overlay.querySelector('#wcl-wrap') as HTMLElement | null
+  const aside = overlay.querySelector('aside') as HTMLElement | null
+  const setTab = (tab: 'logic'|'design') => {
+    const onLogic = tab === 'logic'
+    aside?.classList.toggle('hidden', !onLogic)
+    designBar?.classList.toggle('hidden', onLogic)
+    boardWrap?.classList.toggle('hidden', onLogic)
+    shapeTools?.classList.toggle('hidden', onLogic)
+    logicWrap?.classList.toggle('hidden', !onLogic)
+    tabBtns.forEach((b) => {
+      const on = (b.getAttribute('data-tab') === tab)
+      b.classList.toggle('bg-neutral-800/80', on)
+      b.classList.toggle('text-gray-100', on)
+      b.classList.toggle('text-gray-300', !on)
+    })
+    // When switching to design, re-render to center the field with actual size
+    if (tab === 'design') {
+      try { requestAnimationFrame(() => { try { renderBoard() } catch {} }) } catch {}
+    }
+  }
+  setTab('logic')
+  tabBtns.forEach((b) => b.addEventListener('click', () => setTab((b.getAttribute('data-tab') as any)||'logic')))
+
+  // Interactive: hex board and color palette（デザインタブ）
+  const board = overlay.querySelector('#wc-board') as HTMLElement
+  const nameInput = overlay.querySelector('#wc-name') as HTMLInputElement
+  const saveBtn = overlay.querySelector('#wc-save') as HTMLButtonElement
+  const clearBtn = overlay.querySelector('#wc-clear') as HTMLButtonElement
+  const t1Btn = overlay.querySelector('#wc-t1') as HTMLButtonElement
+  const t3Btn = overlay.querySelector('#wc-t3') as HTMLButtonElement
+  const t4Btn = overlay.querySelector('#wc-t4') as HTMLButtonElement
+  const t7Btn = overlay.querySelector('#wc-t7') as HTMLButtonElement
+  const alphaInput = overlay.querySelector('#wc-alpha') as HTMLInputElement
+  const colorsWrap = overlay.querySelector('#wc-colors') as HTMLElement
+
+  const palette: Array<[number,number,number]> = [
+    [59,130,246],[16,185,129],[239,68,68],[168,85,247],[251,146,60],[234,179,8],[99,102,241],[20,184,166],[14,165,233]
+  ]
+  let colorIdx = 1 // emerald by default
+  const renderPalette = () => {
+    colorsWrap.innerHTML = ''
+    palette.forEach(([r,g,b], i) => {
+      const btt = document.createElement('button')
+      btt.type = 'button'
+      btt.title = `rgb(${r},${g},${b})`
+      btt.style.width = '22px'; btt.style.height = '22px'; btt.style.borderRadius = '9999px'
+      btt.style.border = i === colorIdx ? '2px solid #fff' : '2px solid rgba(255,255,255,.22)'
+      btt.style.background = `rgb(${r},${g},${b})`
+      btt.addEventListener('click', () => { colorIdx = i; renderPalette(); renderBoard() })
+      colorsWrap.appendChild(btt)
+    })
+  }
+  renderPalette()
+
+  const TILE = 46
+  const sx = Math.round(TILE * 0.75)
+  const sy = Math.round(TILE * 0.866)
+  const R = 4
+  const sel = new Set<string>()
+  const key = (ax: number, az: number) => `${ax},${az}`
+  sel.add('0,0')
+  function axialToOddqLocal(ax: number, az: number): { q: number; r: number } { return axialToOddq(ax, az) }
+  function oddqToAxialLocal(q: number, r: number): { x: number; z: number } { return oddqToAxial(q, r) }
+  const center = () => { const w = board.clientWidth, h = board.clientHeight; return { x: Math.round(w/2), y: Math.round(h/2) } }
+  const renderBoard = () => {
+    const cen = center()
+    board.innerHTML = ''
+    // compute bounding rect to center the grid roughly
+    const host = document.createElement('div')
+    host.style.position = 'absolute'
+    host.style.left = '0px'; host.style.top = '0px'
+    host.style.width = '100%'; host.style.height = '100%'
+    board.appendChild(host)
+    const put = (q: number, r: number, ax: number, az: number) => {
+      const x = q * sx
+      const y = Math.round((r + (q % 2 ? 0.5 : 0)) * sy)
+      const hex = document.createElement('div')
+      hex.className = 'hxw-hex'
+      hex.style.position = 'absolute'
+      hex.style.left = `${cen.x + x - TILE/2}px`
+      hex.style.top = `${cen.y + y - TILE/2}px`
+      hex.style.width = `${TILE}px`
+      hex.style.height = `${Math.round(TILE*0.866)}px`
+      const clip = document.createElement('div')
+      clip.className = 'hxw-clip'
+      const on = sel.has(key(ax, az))
+      const [r0,g0,b0] = palette[colorIdx]
+      clip.style.background = on ? `rgba(${r0},${g0},${b0}, ${parseFloat(alphaInput.value) || 0.38})` : 'rgba(255,255,255,0.08)'
+      clip.style.outline = on ? `2px solid rgba(${r0},${g0},${b0}, .85)` : '1px dashed rgba(255,255,255,.25)'
+      hex.appendChild(clip)
+      hex.setAttribute('tabindex', '0')
+      hex.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); const k = key(ax,az); if (sel.has(k)) sel.delete(k); else sel.add(k); renderBoard(); updateSave() })
+      host.appendChild(hex)
+    }
+    // draw range around 0,0 in axial space, converted to odd-q for layout
+    for (let az=-R; az<=R; az++) {
+      for (let ax=-R; ax<=R; ax++) {
+        const o = axialToOddqLocal(ax, az)
+        put(o.q, o.r, ax, az)
+      }
+    }
+  }
+  const setShape = (shape: Array<[number,number]>) => { sel.clear(); shape.forEach(([ax,az]) => sel.add(key(ax,az))); renderBoard(); updateSave() }
+  const updateSave = () => { const hasName = (nameInput?.value || '').trim().length > 0; saveBtn.disabled = (sel.size === 0) || !hasName }
+  renderBoard(); updateSave()
+  nameInput?.addEventListener('input', updateSave)
+  // Ensure centering after layout settles
+  try { requestAnimationFrame(() => { try { renderBoard() } catch {} }) } catch {}
+  try { const ro = new ResizeObserver(() => { try { renderBoard() } catch {} }); ro.observe(board) } catch {}
+
+  // Default name: ウィジェットN（Nはcustom/flow数+1）
+  try {
+    const meta = hxwGetMeta(pid)
+    let count = 0
+    Object.values(meta || {}).forEach((m: any) => { if (m && (m.type === 'custom' || m.type === 'flow')) count++ })
+    const def = `ウィジェット${count + 1}`
+    if (nameInput && !(nameInput.value || '').trim()) { nameInput.value = def; updateSave() }
+  } catch {}
+  clearBtn.addEventListener('click', () => { sel.clear(); renderBoard(); updateSave() })
+  t1Btn.addEventListener('click', () => setShape([[0,0]]))
+  t3Btn.addEventListener('click', () => setShape([[0,0],[1,0],[0,1]]))
+  t4Btn.addEventListener('click', () => setShape([[0,0],[1,0],[0,1],[1,1]]))
+  t7Btn.addEventListener('click', () => {
+    // small flower shape
+    setShape([[0,0],[1,0],[0,1],[-1,1],[-1,0],[0,-1],[1,-1]])
+  })
+  alphaInput.addEventListener('input', () => renderBoard())
+  window.addEventListener('resize', () => renderBoard())
+
+  // Logic minimal editor inside creator
+  type WcNode = { id: string; kind: 'trigger'|'action'; type: string; x: number; y: number; label?: string }
+  type WcEdge = { from: string; to: string }
+  const g: { nodes: WcNode[]; edges: WcEdge[] } = { nodes: [], edges: [] }
+  const lCanvas = overlay.querySelector('.wcl-canvas') as HTMLElement
+  const lSvg = overlay.querySelector('.wcl-svg') as SVGSVGElement
+  const addNode = (kind: 'trigger'|'action', type: string, x: number, y: number, label: string) => {
+    const id = `n-${Date.now()}-${Math.floor(Math.random()*999)}`
+    g.nodes.push({ id, kind, type, x, y, label }); drawNodes(); drawEdges()
+  }
+  const drawNodes = () => {
+    lCanvas.innerHTML = ''
+    const portSize = 8
+    g.nodes.forEach((n) => {
+      const el = document.createElement('div')
+      el.className = 'flow-node absolute select-none'
+      el.style.left = `${n.x}px`; el.style.top = `${n.y}px`; el.style.width = '200px'; el.style.height = '120px'
+      el.style.display = 'grid'; (el.style as any).placeItems = 'center'
+      el.style.background = 'transparent'
+      el.setAttribute('data-node', n.id)
+      const visualKind = (n.type === 'expr' || n.type === 'condition') ? 'transform' : (n.kind === 'trigger' ? 'trigger' : 'action')
+      const headCls = visualKind === 'trigger' ? 'bg-emerald-700' : (visualKind === 'transform' ? 'bg-fuchsia-700' : 'bg-sky-700')
+      const outline = visualKind === 'trigger' ? '#10b981' : (visualKind === 'transform' ? '#d946ef' : '#38bdf8')
+      let shapeStyle = `position:absolute; inset:0; background: rgba(38,38,38,.8);`
+      if (visualKind !== 'action') shapeStyle += ` box-shadow: 0 0 0 2px ${outline};`
+      if (visualKind === 'trigger') shapeStyle += ' clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%);'
+      else if (visualKind === 'transform') shapeStyle += ' clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);'
+      else shapeStyle += ' border-radius: 12px;'
+      el.innerHTML = `
+        <div class="fn-shape" style="${shapeStyle}"></div>
+        <div class="fn-bar absolute top-1 right-1" style="z-index:8">
+          <button class="fn-del text-rose-500 hover:text-rose-400 text-lg leading-none" title="削除">×</button>
+        </div>
+        <div class="fn-body text-xs text-gray-100 text-center" style="position:absolute; inset:0; display:grid; place-items:center; z-index:1; pointer-events:none;">
+          <div class="text-[13px] font-semibold">${n.label || n.type}</div>
+        </div>
+        <div class="fn-ports" style="position:absolute; inset:0; z-index:7; pointer-events:none;">
+          ${n.kind !== 'trigger' ? `<div class=\"port-in absolute left-1/2 -translate-x-1/2 rounded-full ring-2 ring-neutral-500\" style=\"top:2px;width:${portSize}px;height:${portSize}px;background:#38bdf8; pointer-events:auto;\"></div>` : ''}
+          <div class="port-out absolute left-1/2 -translate-x-1/2 rounded-full ring-2 ring-neutral-500" style="bottom:2px;width:${portSize}px; height:${portSize}px; background:#34d399; pointer-events:auto;"></div>
+        </div>`
+      lCanvas.appendChild(el)
+      // drag
+      const head = el.querySelector('.fn-bar') as HTMLElement | null
+      const startDragNode = (ev: MouseEvent) => {
+        ev.preventDefault()
+        const base = lCanvas.getBoundingClientRect(); const r = el.getBoundingClientRect()
+        const offX = (ev as MouseEvent).clientX - r.left; const offY = (ev as MouseEvent).clientY - r.top
+        const onMove = (e: MouseEvent) => {
+          n.x = Math.max(0, Math.min(base.width - r.width, e.clientX - base.left - offX))
+          n.y = Math.max(0, Math.min(base.height - r.height, e.clientY - base.top - offY))
+          el.style.left = `${n.x}px`; el.style.top = `${n.y}px`
+          drawEdges()
+        }
+        const onUp = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp) }
+        window.addEventListener('mousemove', onMove)
+        window.addEventListener('mouseup', onUp)
+      }
+      head?.addEventListener('mousedown', (ev) => startDragNode(ev as MouseEvent))
+      el.addEventListener('mousedown', (ev) => { const t = ev.target as HTMLElement; if (t.closest('.port-in, .port-out, .fn-bar')) return; startDragNode(ev as MouseEvent) })
+      // delete
+      el.querySelector('.fn-del')?.addEventListener('click', () => { g.nodes = g.nodes.filter(x => x.id !== n.id); g.edges = g.edges.filter(e => e.from!==n.id && e.to!==n.id); drawNodes(); drawEdges() })
+    })
+    // drag-to-connect + click fallback
+    let pending: string | null = null
+    let temp: SVGPathElement | null = null
+    const startDrag = (originPort: HTMLElement, e: MouseEvent) => {
+      const origin = originPort.closest('.flow-node') as HTMLElement | null
+      pending = origin?.getAttribute('data-node') || ''
+      if (!pending) return
+      if (temp) { try { temp.remove() } catch {} }
+      temp = document.createElementNS('http://www.w3.org/2000/svg','path')
+      temp.setAttribute('stroke','#f59e0b'); temp.setAttribute('stroke-width','2'); temp.setAttribute('fill','none')
+      lSvg.appendChild(temp)
+      const base = lCanvas.getBoundingClientRect(); const r0 = (originPort as HTMLElement).getBoundingClientRect()
+      const a = { x: r0.left - base.left + r0.width/2, y: r0.top - base.top + r0.height/2 }
+      const mk = (mx:number,my:number) => { const dx=(mx-a.x)*0.5; const c1x=a.x,c1y=a.y+Math.max(10,Math.abs(dx))*0.15; const c2x=mx,c2y=my-Math.max(10,Math.abs(dx))*0.15; return `M ${a.x} ${a.y} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${mx} ${my}` }
+      const onMove = (ev:MouseEvent) => { const mx=ev.clientX-base.left, my=ev.clientY-base.top; temp!.setAttribute('d', mk(mx,my)) }
+      const onUp = (ev:MouseEvent) => {
+        window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp)
+        try {
+          let target: HTMLElement | null = null
+          try { const els = document.elementsFromPoint(ev.clientX, ev.clientY) as HTMLElement[]; target = (els.find(el => el.classList?.contains('port-in')) as HTMLElement) || null } catch {}
+          if (!target) {
+            const ports = Array.from(lCanvas.querySelectorAll('.port-in')) as HTMLElement[]
+            const b = lCanvas.getBoundingClientRect()
+            let best: { el: HTMLElement; d2: number } | null = null
+            ports.forEach(pi => { const rr=pi.getBoundingClientRect(); const cx=rr.left-b.left+rr.width/2, cy=rr.top-b.top+rr.height/2; const dx=(ev.clientX-b.left)-cx, dy=(ev.clientY-b.top)-cy; const d2=dx*dx+dy*dy; if (!best||d2<best.d2) best={el:pi,d2} })
+            if (best && Math.sqrt(best.d2) <= 44) target = best.el
+          }
+          if (target) {
+            const to = (target.closest('.flow-node') as HTMLElement | null)?.getAttribute('data-node') || ''
+            if (to && to !== pending && !g.edges.find(e => e.from===pending && e.to===to)) { g.edges.push({ from: pending, to }); drawEdges() }
+          } else { try { (origin as HTMLElement).style.transition='transform .08s'; (origin as HTMLElement).style.transform='translateX(-4px)'; setTimeout(()=>{ (origin as HTMLElement).style.transform='' }, 90) } catch {} }
+        } finally { try { temp?.remove() } catch {}; temp=null; pending=null }
+      }
+      window.addEventListener('mousemove', onMove); window.addEventListener('mouseup', onUp)
+    }
+    lCanvas.querySelectorAll('.port-out').forEach((po) => {
+      po.addEventListener('mousedown', (e) => { startDrag(po as HTMLElement, e as MouseEvent) })
+      po.addEventListener('click', (e) => { const id = (po.closest('.flow-node') as HTMLElement | null)?.getAttribute('data-node') || ''; pending = id; e.stopPropagation() })
+    })
+    lCanvas.querySelectorAll('.port-in').forEach((pi) => { pi.addEventListener('click', () => { if (!pending) return; const to = (pi.closest('.flow-node') as HTMLElement | null)?.getAttribute('data-node') || ''; if (!to || to===pending) { pending=null; return } if (!g.edges.find(e=>e.from===pending && e.to===to)) g.edges.push({ from: pending, to }); pending=null; drawEdges() }) })
+  }
+  const drawEdges = () => {
+    lSvg.innerHTML = ''
+    const base = lCanvas.getBoundingClientRect()
+    const getCenter = (id: string, which: 'in'|'out') => {
+      const nodeEl = lCanvas.querySelector(`[data-node="${id}"]`) as HTMLElement | null
+      if (!nodeEl) return null
+      const r = nodeEl.getBoundingClientRect()
+      if (which === 'out') return { x: r.left - base.left + r.width / 2, y: r.top - base.top + r.height }
+      return { x: r.left - base.left + r.width / 2, y: r.top - base.top }
+    }
+    const mkPath = (a:{x:number;y:number}, b:{x:number;y:number}) => { const dx=(b.x-a.x)*0.5; const c1x=a.x, c1y=a.y+Math.max(10,Math.abs(dx))*0.15; const c2x=b.x, c2y=b.y-Math.max(10,Math.abs(dx))*0.15; return `M ${a.x} ${a.y} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${b.x} ${b.y}` }
+    g.edges.forEach(e => { const a = getCenter(e.from,'out'); const b = getCenter(e.to,'in'); if (!a||!b) return; const p = document.createElementNS('http://www.w3.org/2000/svg','path'); p.setAttribute('d', mkPath(a,b)); p.setAttribute('stroke','#34d399'); p.setAttribute('stroke-width','2'); p.setAttribute('fill','none'); lSvg.appendChild(p) })
+  }
+  // Add from left palette
+  overlay.querySelectorAll('[data-node]')?.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const val = (btn as HTMLElement).getAttribute('data-node') || ''
+      const add = (k:'trigger'|'action', t:string, label:string) => addNode(k, t, k==='trigger'?24:220, k==='trigger'?24:140, label)
+      if (val.startsWith('trigger:')) {
+        const t = val.split(':')[1]
+        if (t === 'click') add('trigger','manual','Manual')
+        else if (t === 'cron') add('trigger','timer','Timer')
+      } else if (val.startsWith('action:')) {
+        const t = val.split(':')[1]
+        if (t === 'notify' || t === 'ui' || t === 'db') add('action','notify','Notify')
+      } else if (val.startsWith('transform:')) {
+        const t = val.split(':')[1]
+        if (t === 'map' || t === 'filter' || t === 'template' || t === 'datetime') add('action','expr','Expr')
+      }
+    })
+  })
+  drawNodes(); drawEdges()
+
+  saveBtn.addEventListener('click', (e) => {
+    e.preventDefault()
+    if (sel.size === 0) return
+    const shape: Array<[number,number]> = Array.from(sel).map(s => s.split(',').map(n => parseInt(n,10)) as [number,number])
+    const rgb = palette[colorIdx]
+    const alpha = parseFloat(alphaInput.value) || 0.38
+    const name = (nameInput?.value || '').trim()
+    const wantFlow = g.nodes.length > 0
+    const entry: LibEntry = { id: `lib-${Date.now()}`, type: wantFlow ? 'flow' : 'custom', name, shape, rgb: [rgb[0], rgb[1], rgb[2]], alpha, flowGraph: wantFlow ? { nodes: g.nodes, edges: g.edges } : undefined }
+    try { const list = wpLibGet(pid); list.push(entry); wpLibSet(pid, list) } catch {}
+    try { close() } catch {}
+    // Refresh the picker overlay to show honeycomb shape entries
+    try { (document.getElementById('wp-close') as HTMLButtonElement | null)?.click() } catch {}
+    try { setTimeout(() => { try { openWidgetPickerModal(root, pid) } catch {} }, 0) } catch {}
+  })
 }
 
 // ---------- Fallback dummy detail ----------
@@ -6596,6 +7512,82 @@ function hxwSetMeta(pid: string, meta: Record<string, { type: string; q: number;
   localStorage.setItem(hxwKey(pid), JSON.stringify(meta))
 }
 
+// ---- Picker library for saved custom/flow widgets ----
+type LibEntry = { id: string; type: 'custom'|'flow'; name: string; shape: Array<[number,number]>; rgb?: [number,number,number]; alpha?: number; flowGraph?: any }
+function wpLibKey(pid: string): string { return `pj-wp-lib-${pid}` }
+function wpLibGet(pid: string): LibEntry[] { try { const v = JSON.parse(localStorage.getItem(wpLibKey(pid))||'[]') as LibEntry[]; return Array.isArray(v)? v: [] } catch { return [] } }
+function wpLibSet(pid: string, list: LibEntry[]): void { try { localStorage.setItem(wpLibKey(pid), JSON.stringify(list)) } catch {} }
+function renderPickerLibrary(pid: string): void {
+  const field = document.querySelector('#wp-field') as HTMLElement | null
+  if (!field) return
+  let wrap = field.querySelector('#wp-lib') as HTMLElement | null
+  if (!wrap) { wrap = document.createElement('div'); wrap.id = 'wp-lib'; field.appendChild(wrap) }
+  wrap.style.position = 'absolute'; wrap.style.left = '8px'; wrap.style.right = '8px'; wrap.style.bottom = '8px'
+  wrap.style.display = 'flex'; wrap.style.gap = '8px'; wrap.style.flexWrap = 'wrap'
+  wrap.style.zIndex = '20'
+  const list = wpLibGet(pid)
+  wrap.innerHTML = ''
+  list.forEach((en) => {
+    const item = document.createElement('div')
+    item.style.display = 'inline-flex'
+    item.style.alignItems = 'center'
+    item.style.gap = '6px'
+    const btn = document.createElement('button')
+    btn.className = 'wp-lib-item'
+    btn.title = en.name || (en.type === 'flow' ? 'フロー' : 'カスタム')
+    btn.style.padding = '4px 8px'
+    btn.style.borderRadius = '8px'
+    btn.style.background = 'rgba(24,24,24,.85)'
+    btn.style.border = '1px solid rgba(96,96,96,.8)'
+    btn.style.color = '#e5e7eb'
+    btn.style.fontSize = '12px'
+    btn.textContent = en.name || (en.type === 'flow' ? 'フロー' : 'カスタム')
+    btn.addEventListener('click', () => {
+      ;(window as any)._hxwPending = { shape: en.shape, rgb: en.rgb, alpha: en.alpha, name: en.name, flowGraph: en.flowGraph }
+      const root = (window as any)._hxwPickerRoot as HTMLElement | null
+      const pid2 = (window as any)._hxwPickerPid as string | null
+      if (root && pid2) { try { hxwStartPlacement(root, pid2, en.type) } catch {} }
+    })
+    const del = document.createElement('button')
+    del.title = '削除'
+    del.textContent = '×'
+    del.style.color = '#f43f5e' // rose-500
+    del.style.background = 'transparent'
+    del.style.border = 'none'
+    del.style.fontSize = '14px'
+    del.style.lineHeight = '1'
+    del.style.padding = '0 2px'
+    del.addEventListener('click', (ev) => {
+      ev.stopPropagation()
+      const next = wpLibGet(pid).filter(x => x.id !== en.id)
+      wpLibSet(pid, next)
+      // Reopen picker to rebuild field honeycomb with lib items removed
+      try { (document.getElementById('wp-close') as HTMLButtonElement | null)?.click() } catch {}
+      try { const root = (window as any)._hxwPickerRoot as HTMLElement | null; const pid2 = (window as any)._hxwPickerPid as string | null; if (root && pid2) setTimeout(()=>openWidgetPickerModal(root, pid2!),0) } catch {}
+    })
+    item.appendChild(btn)
+    item.appendChild(del)
+    wrap.appendChild(item)
+  })
+}
+
+// ---- Hex widgets: per-widget custom config (shape/color/name) ----
+type HexCustomConf = { shape?: Array<[number, number]>; rgb?: [number, number, number]; alpha?: number; name?: string }
+function hxwCustomKey(pid: string): string { return `pj-hxw-custom-${pid}` }
+function hxwCustomAll(pid: string): Record<string, HexCustomConf> {
+  try { return JSON.parse(localStorage.getItem(hxwCustomKey(pid)) || '{}') as Record<string, HexCustomConf> } catch { return {} }
+}
+function hxwCustomSave(pid: string, map: Record<string, HexCustomConf>): void { try { localStorage.setItem(hxwCustomKey(pid), JSON.stringify(map)) } catch {} }
+function hxwCustomGet(pid: string, id: string): HexCustomConf | undefined { const m = hxwCustomAll(pid); return m[id] }
+function hxwCustomSet(pid: string, id: string, conf: HexCustomConf): void { const m = hxwCustomAll(pid); m[id] = conf; hxwCustomSave(pid, m) }
+function hxwCustomDelete(pid: string, id: string): void { const m = hxwCustomAll(pid); if (id in m) { delete m[id]; hxwCustomSave(pid, m) } }
+// Resolve relative hex shape (axial offsets) for a widget, allowing per-id override
+function hxwRelFor(pid: string, id: string, type: string): Array<[number, number]> {
+  const conf = hxwCustomGet(pid, id)
+  if (conf && Array.isArray(conf.shape) && conf.shape.length) return conf.shape as Array<[number, number]>
+  return hxwShapeFor(type)
+}
+
 // ---- Shortcuts (hex widgets) ----
 function scKey(pid: string): string { return `pj-hxw-sc-${pid}` }
 function scGet(pid: string): string[] {
@@ -6804,6 +7796,8 @@ function axGrow(count: number): Array<[number, number]> {
 }
 function hxwShapeFor(type: string): Array<[number, number]> {
   switch (type) {
+    case 'custom': return [[0,0]] as any
+    case 'flow': return axGrow(7)
     case 'clock': return axGrow(7)
     // Digital clock: compact tri-hex layout (left hour, top-right month/day, bottom-right minute)
     case 'clock-digital': return [[0,0],[1,0],[1,-1]] as any
@@ -7376,7 +8370,7 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
     const dr = grabR - startAnchorR
     const q = at.q - dq
     const r = at.r - dr
-    const shape = hxwShapeFor(draggingWid.getAttribute('data-type') || 'mock')
+    const shape = (function(){ const id = draggingWid.getAttribute('data-widget') || ''; const t = draggingWid.getAttribute('data-type') || 'mock'; const pid2 = canvas.getAttribute('data-pid') || '0'; return hxwRelFor(pid2, id, t) })()
     const sx = stepX(), sy = stepY()
     const anc = oddqToAxial(q, r)
     const relCells = shape.map(([ax, az]) => axialToOddq(anc.x + ax, anc.z + az))
@@ -7402,7 +8396,7 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
     const q = at.q - dq
     const r = at.r - dr
     const type = el.getAttribute('data-type') || 'mock'
-    const shape = hxwShapeFor(type)
+    const shape = (function(){ const id = el.getAttribute('data-widget') || ''; const pid2 = canvas.getAttribute('data-pid') || '0'; return hxwRelFor(pid2, id, type) })()
     const sx = stepX(), sy = stepY()
     const anc = oddqToAxial(q, r)
     const relCells = shape.map(([ax, az]) => axialToOddq(anc.x + ax, anc.z + az))
@@ -7415,6 +8409,7 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
     const meta = hxwGetMeta(pid)
     if (outside) {
       try { delete meta[dragId] } catch {}
+      try { hxwCustomDelete(pid, dragId) } catch {}
       try { hxwSetMeta(pid, meta) } catch {}
       hxwPlaceWidgets(root, pid, st)
       try { refreshDynamicWidgets(root, pid) } catch {}
@@ -7625,7 +8620,7 @@ function hxwPlaceWidgets(root: HTMLElement, pid: string, st: HexWLayout): void {
     existing.set((el as HTMLElement).getAttribute('data-widget') || '', el as HTMLElement)
   })
   const upsertOne = (id: string, type: string, q: number, r: number) => {
-    const relAx = hxwShapeFor(type)
+    const relAx = hxwRelFor(pid, id, type)
     const anc = oddqToAxial(q, r)
     const cells = relAx.map(([ax, az]) => axialToOddq(anc.x + ax, anc.z + az))
     cells.forEach(c => occ.add(`${c.q},${c.r}`))
@@ -7760,10 +8755,13 @@ function hxwPlaceWidgets(root: HTMLElement, pid: string, st: HexWLayout): void {
       const hsh = (s: string) => { let h = 0; for (let i=0;i<s.length;i++){ h = ((h<<5)-h) + s.charCodeAt(i); h|=0 } return Math.abs(h) }
       const idx = hsh(id + ':' + type) % palette.length
       const base = palette[idx]
-      const fillFlat = `rgba(${base[0]},${base[1]},${base[2]}, ${lightBg ? 0.42 : 0.38})`
+      const conf = hxwCustomGet(pid, id)
+      const rgb = (conf && Array.isArray(conf.rgb) && conf.rgb.length === 3) ? (conf.rgb as [number,number,number]) : base
+      const alpha = (conf && typeof conf.alpha === 'number') ? Math.max(0, Math.min(1, conf.alpha)) : (lightBg ? 0.42 : 0.38)
+      const fillFlat = `rgba(${rgb[0]},${rgb[1]},${rgb[2]}, ${alpha})`
       host!.style.setProperty('--hxw-fill', fillFlat)
       // annotate each cell with base rgb so minimap can color-match
-      try { Array.from(host!.querySelectorAll('.hxw-hex.hxw-filled')).forEach((n) => (n as HTMLElement).setAttribute('data-rgb', `${base[0]},${base[1]},${base[2]}`)) } catch {}
+      try { Array.from(host!.querySelectorAll('.hxw-hex.hxw-filled')).forEach((n) => (n as HTMLElement).setAttribute('data-rgb', `${rgb[0]},${rgb[1]},${rgb[2]}`)) } catch {}
       let bgFlat = host!.querySelector('.hxw-bg') as HTMLElement | null
       if (!bgFlat) { bgFlat = document.createElement('div'); bgFlat.className = 'hxw-bg'; host!.insertBefore(bgFlat, body) }
       bgFlat.style.left = '0px'
@@ -7774,6 +8772,15 @@ function hxwPlaceWidgets(root: HTMLElement, pid: string, st: HexWLayout): void {
       ;(bgFlat.style as any).clipPath = `url(#${cid})`
       ;(bgFlat.style as any).webkitClipPath = `url(#${cid})`
     }
+
+    // Apply custom name label (small floating chip) if configured
+    try {
+      const conf = hxwCustomGet(pid, id)
+      const name = (conf && typeof conf.name === 'string' && conf.name.trim()) ? conf.name.trim() : ''
+      let chip = host!.querySelector('.hxw-name') as HTMLElement | null
+      if (!chip && name) { chip = document.createElement('div'); chip.className = 'hxw-name'; chip.style.position = 'absolute'; chip.style.left = '50%'; chip.style.top = '6px'; chip.style.transform = 'translateX(-50%)'; chip.style.zIndex = '5'; chip.style.pointerEvents = 'none'; chip.style.fontSize = '12px'; chip.style.fontWeight = '600'; chip.style.color = 'white'; chip.style.textShadow = '0 1px 2px rgba(0,0,0,.3)'; host!.appendChild(chip) }
+      if (chip) { chip.textContent = name || ''; chip.style.display = name ? '' : 'none' }
+    } catch {}
 
     // Build per-cell slots container for hex-packed layout (above bg, below body)
     let cellsWrap = host!.querySelector('.hxw-cells') as HTMLElement | null
@@ -7899,9 +8906,9 @@ export function renderHexWidgets(root: HTMLElement, pid: string): void {
   // ensure grid also covers current widgets footprint
   const metaAll = hxwGetMeta(pid)
   let usedMinQ = 0, usedMaxQ = 0, usedMinR = 0, usedMaxR = 0, hasUse = false
-  Object.entries(metaAll).forEach(([_, m]: any) => {
+  Object.entries(metaAll).forEach(([id, m]: any) => {
     const anc = oddqToAxial(m.q, m.r)
-    const rel = hxwShapeFor(m.type || 'mock')
+    const rel = hxwRelFor(pid, id, m.type || 'mock')
     rel.forEach(([ax, az]) => {
       const o = axialToOddq(anc.x + ax, anc.z + az)
       if (!hasUse) { usedMinQ = usedMaxQ = o.q; usedMinR = usedMaxR = o.r; hasUse = true }
@@ -7924,9 +8931,9 @@ export function renderHexWidgets(root: HTMLElement, pid: string): void {
     }
     const centerAx = oddqToAxial(R_STRICT, R_STRICT)
     let need = 0
-    Object.entries(metaAll).forEach(([_, m]: any) => {
+    Object.entries(metaAll).forEach(([id, m]: any) => {
       const anc = oddqToAxial(m.q, m.r)
-      const rel = hxwShapeFor(m.type || 'mock')
+      const rel = hxwRelFor(pid, id, m.type || 'mock')
       for (const [ax, az] of rel) {
         const d = hexDist({ x: anc.x + ax, z: anc.z + az }, centerAx)
         if (d > need) need = d
@@ -7997,7 +9004,7 @@ export function renderHexWidgets(root: HTMLElement, pid: string): void {
     const inMask = (q: number, r: number) => mask.has(`${q},${r}`)
     Object.entries(meta).forEach(([id, m]: any) => {
       const anc = oddqToAxial(m.q, m.r)
-      const rel = hxwShapeFor(m.type || 'mock')
+      const rel = hxwRelFor(pid, id, m.type || 'mock')
       let ok = true
       for (const [ax, az] of rel) {
         const o = axialToOddq(anc.x + ax, anc.z + az)
@@ -8177,7 +9184,8 @@ function hxwStartPlacement(root: HTMLElement, pid: string, type: string): void {
     const anc = toCell(pos.x, pos.y)
     if (last && last.q === anc.q && last.r === anc.r) return
     last = anc
-    const rel = hxwShapeFor(type)
+    const pendingAny = (window as any)._hxwPending as (undefined | { shape?: Array<[number,number]>; type?: string })
+    const rel = (pendingAny && Array.isArray((pendingAny as any).shape) && (pendingAny as any).shape.length) ? ((pendingAny as any).shape as Array<[number,number]>) : hxwShapeFor(type)
     const cellsOdd = rel.map(([ax, az]) => axialToOddq(oddqToAxial(anc.q, anc.r).x + ax, oddqToAxial(anc.q, anc.r).z + az))
     const ok = canPlace(cellsOdd)
     const cellsPx = cellsOdd.map(c => ({ x: c.q * sx, y: Math.round((c.r + (c.q % 2 ? 0.5 : 0)) * sy) }))
@@ -8188,7 +9196,8 @@ function hxwStartPlacement(root: HTMLElement, pid: string, type: string): void {
     e.preventDefault(); e.stopPropagation()
     const pos = toCanvasXY(e.clientX, e.clientY)
     const anc = toCell(pos.x, pos.y)
-    const rel = hxwShapeFor(type)
+    const pending = (window as any)._hxwPending as (undefined | { shape?: Array<[number,number]>; rgb?: [number,number,number]; alpha?: number; name?: string; type?: string; flowGraph?: any })
+    const rel = (pending && Array.isArray(pending.shape) && pending.shape.length) ? (pending.shape as Array<[number,number]>) : hxwShapeFor(type)
     const cellsOdd = rel.map(([ax, az]) => axialToOddq(oddqToAxial(anc.q, anc.r).x + ax, oddqToAxial(anc.q, anc.r).z + az))
     if (!canPlace(cellsOdd)) return
     // place
@@ -8196,6 +9205,13 @@ function hxwStartPlacement(root: HTMLElement, pid: string, type: string): void {
     const id = `w-${type}-${Date.now()}`
     meta[id] = { type, q: anc.q, r: anc.r }
     hxwSetMeta(pid, meta)
+    // Persist custom config (shape/color/name) and flow graph if provided
+    if (pending) {
+      try { hxwCustomSet(pid, id, { shape: pending.shape || undefined, rgb: pending.rgb || undefined, alpha: pending.alpha, name: pending.name }) } catch {}
+      try { if (pending.name) scNameSet(pid, id, pending.name) } catch {}
+      try { if (type === 'flow' && pending.flowGraph) flowSave(pid, id, pending.flowGraph) } catch {}
+      try { (window as any)._hxwPending = undefined } catch {}
+    }
     hxwPlaceWidgets(root, pid, st)
     try { refreshDynamicWidgets(root, pid) } catch {}
     try { hxwRehydrate(root, pid) } catch {}
