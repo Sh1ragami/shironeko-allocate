@@ -2430,6 +2430,8 @@ function enableDragAndDrop(root: HTMLElement): void {
     })
     // Toggle elements that are explicitly edit-only
     grid.querySelectorAll('.edit-only').forEach((el) => (el as HTMLElement).classList.toggle('hidden', !on))
+    // Disable inner content interactions while editing (buttons/links inside widgets)
+    grid.querySelectorAll('.widget .wg-content').forEach((cnt) => { (cnt as HTMLElement).style.pointerEvents = on ? 'none' : '' })
     // no reorder on toggle (reverted)
     // Sync markdown widgets' editor/preview visibility to edit state
     try { setTimeout(() => { try { (syncMdWidgets as any)(on) } catch { } }, 0) } catch { }
@@ -2476,6 +2478,14 @@ function enableDragAndDrop(root: HTMLElement): void {
 
   // Add widget button (grid context): use picker to add into this grid
   grid.querySelector('#addWidget')?.addEventListener('click', () => openWidgetPickerModal(root, pid, (type) => addWidget(root, pid, type)))
+
+  // In edit mode, swallow clicks in grid so inner buttons/links won't act
+  grid.addEventListener('click', (e) => {
+    if (!isEdit()) return
+    const t = e.target as HTMLElement
+    if (t.closest('#addWidget')) return
+    e.stopPropagation(); e.preventDefault()
+  }, true)
 
   // Resize: edges and corners (handles with .wg-rz [data-rz])
   // Helper: detect resize direction from pointer proximity to widget edges
@@ -3685,6 +3695,8 @@ function addWidget(root: HTMLElement, pid: string, type: string): void {
           const btn = body.querySelector('button') as HTMLButtonElement | null
           btn?.addEventListener('click', (e) => {
             e.stopPropagation()
+            const gridEl = card.closest('#widgetGrid') as HTMLElement | null
+            if (gridEl?.getAttribute('data-edit') === '1') return
             try { openWidgetRunModal(root, pid, id, 'custom', pickedName) } catch {}
           })
         }
@@ -6484,6 +6496,21 @@ function detailLayout(ctx: { id: number; name: string; fullName: string; owner: 
               <div id="hxwCap" class="hxw-cap hidden"></div>
               <!-- Minimap (top-right) -->
               <div class="hxw-mini"><canvas id="hxwMini" width="120" height="120"></canvas></div>
+              <!-- Info panel (right side, edit mode only) -->
+              <aside id="hxwInfo" class="fixed right-3 top-20 z-[18] hidden">
+                <div class="w-[min(320px,92vw)] rounded-xl ring-2 ring-neutral-600 bg-neutral-900/80 backdrop-blur p-3 text-gray-100 shadow-xl">
+                  <div class="flex items-center gap-2 mb-2">
+                    <div class="text-sm font-semibold">選択中のウィジェット</div>
+                    <button id="hxwInfoClose" class="ml-auto text-xl leading-none text-neutral-300 hover:text-white">×</button>
+                  </div>
+                  <div id="hxwInfoBody" class="text-sm space-y-1">
+                    <div class="text-gray-400">ウィジェットをクリックで選択</div>
+                  </div>
+                  <div class="mt-3 flex items-center justify-end gap-2">
+                    <button id="hxwDel" class="hidden rounded bg-rose-700 hover:bg-rose-600 text-white text-xs font-medium px-3 py-1">削除</button>
+                  </div>
+                </div>
+              </aside>
               <!-- Hexagon Actions (bottom-right) -->
               <div class="hxw-hex-ctl" aria-label="Actions">
                 <!-- 3D toggle (purple) -->
@@ -8179,6 +8206,65 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
   let draggingStage = false, sx = 0, sy = 0, sox = 0, soy = 0, activePid: number | null = null
   let widgetDragging = false
   const DRAG_TOL = 4
+  // Selection state (edit mode)
+  let selId: string | null = null
+  const getInfoEl = () => document.getElementById('hxwInfo') as HTMLElement | null
+  const infoShow = (pid: string, id: string) => {
+    const panel = getInfoEl(); if (!panel) return
+    const body = panel.querySelector('#hxwInfoBody') as HTMLElement | null
+    const del = panel.querySelector('#hxwDel') as HTMLButtonElement | null
+    const meta = hxwGetMeta(pid)
+    const m = meta[id]
+    if (!m) { infoHide(); return }
+    const rel = hxwRelFor(pid, id, m.type || 'mock')
+    let name = ''
+    try { const c = hxwCustomGet(pid, id); name = (c?.name || '') as string } catch {}
+    const rows = [
+      `<div><span class=\"text-gray-400\">ID:</span> ${id}</div>`,
+      `<div><span class=\"text-gray-400\">Type:</span> ${m.type}</div>`,
+      name ? `<div><span class=\"text-gray-400\">Name:</span> ${name}</div>` : '',
+      `<div><span class=\"text-gray-400\">Anchor:</span> q=${m.q}, r=${m.r}</div>`,
+      `<div><span class=\"text-gray-400\">Cells:</span> ${rel.length}</div>`
+    ].filter(Boolean).join('')
+    if (body) body.innerHTML = rows
+    if (del) {
+      del.classList.remove('hidden')
+      del.onclick = () => {
+        const ok = confirm('このウィジェットを削除しますか？')
+        if (!ok) return
+        try { delete meta[id]; hxwSetMeta(pid, meta); try { hxwCustomDelete(pid, id) } catch {} } catch {}
+        selId = null; infoHide(); hxwPlaceWidgets(root, pid, st); try { refreshDynamicWidgets(root, pid) } catch {}; try { hxwRehydrate(root, pid) } catch {}
+      }
+    }
+    panel.classList.remove('hidden')
+    panel.querySelector('#hxwInfoClose')?.addEventListener('click', () => infoHide(), { once: true })
+  }
+  const infoHide = () => { const panel = getInfoEl(); if (panel) panel.classList.add('hidden') }
+  const setSelected = (pid: string, id: string | null) => {
+    // Clear previous highlight (revert bg effects)
+    Array.from(canvas.querySelectorAll('.hxw-widget.hxw-selected')).forEach((el) => {
+      (el as HTMLElement).classList.remove('hxw-selected')
+      const bg = el.querySelector('.hxw-bg') as HTMLElement | null
+      if (bg) { bg.style.filter = ''; bg.style.boxShadow = '' }
+    })
+    selId = id
+    if (id) {
+      const host = canvas.querySelector(`.hxw-widget[data-widget="${id}"]`) as HTMLElement | null
+      if (host) {
+        host.classList.add('hxw-selected')
+        const bg = host.querySelector('.hxw-bg') as HTMLElement | null
+        if (bg) {
+          // Stronger color change: increase saturation/brightness/contrast and slight hue shift
+          bg.style.filter = 'saturate(1.85) brightness(1.38) contrast(1.18) hue-rotate(8deg)'
+          // Emphasize with brighter outer glow (no outline line)
+          bg.style.boxShadow = '0 0 42px rgba(255,200,120,.62)'
+        }
+      }
+      infoShow(pid, id)
+    } else {
+      infoHide()
+    }
+  }
   wrap.addEventListener('pointerdown', (e) => {
     if ((wrap as any)._placing) return
     // Do not start background panning when grabbing a widget in edit mode
@@ -8338,6 +8424,28 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
       // Rehydrate dynamic contents (e.g., committers slots) after layout rebuild
       try { hxwRehydrate(root, pid) } catch { }
     } catch {}
+    // Disable inner content interactions while editing (buttons/links/forms inside widgets)
+    try {
+      canvas.querySelectorAll('.hxw-widget .wg-content, .hxw-widget .hxw-body, .hxw-widget .slot-inner, .hxw-widget .hxw-cells').forEach((el) => {
+        (el as HTMLElement).style.pointerEvents = on ? 'none' : ''
+      })
+    } catch {}
+    // Route pointer events in edit mode so only hex body (.hxw-bg) receives clicks (precise hit testing)
+    try {
+      Array.from(canvas.querySelectorAll('.hxw-widget')).forEach((el) => {
+        const host = el as HTMLElement
+        const bg = host.querySelector('.hxw-bg') as HTMLElement | null
+        if (on) {
+          host.style.pointerEvents = 'none'
+          if (bg) bg.style.pointerEvents = 'auto'
+        } else {
+          host.style.pointerEvents = ''
+          if (bg) bg.style.pointerEvents = ''
+        }
+      })
+    } catch {}
+    // Clear selection and hide info when leaving edit mode
+    if (!on) { selId = null; try { setSelected(canvas.getAttribute('data-pid') || '0', null) } catch {} }
     // toggle edit-only elements inside hex widgets
     // ただし、links/cal のフォームはハニカムでは常に非表示（ポップで編集）
     try {
@@ -8351,6 +8459,19 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
     // (Shortcut icons removed; use contextual menu instead)
   }
   ; (canvas as any)._setEdit = setEdit
+
+  // In edit mode, handle selection on capture-click and swallow inner events
+  canvas.addEventListener('click', (e) => {
+    if (!editOn) return
+    const host = (e.target as HTMLElement).closest('.hxw-widget') as HTMLElement | null
+    const bg = (e.target as HTMLElement).closest('.hxw-bg') as HTMLElement | null
+    if (host && bg) {
+      const pidCur = canvas.getAttribute('data-pid') || '0'
+      const id = host.getAttribute('data-widget') || ''
+      if (id) setSelected(pidCur, id)
+    }
+    e.stopPropagation(); e.preventDefault()
+  }, true)
 
   const stepX = () => Math.round((st.tile || 200) * 0.75)
   const stepY = () => Math.round((st.tile || 200) * 0.866)
@@ -8428,7 +8549,17 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
   let startAnchorQ = 0, startAnchorR = 0
   canvas.addEventListener('pointerdown', (e) => {
     const el = (e.target as HTMLElement).closest('.hxw-widget') as HTMLElement | null
-    if (!el || !editOn) return
+    if (!el) return
+    // Select only when clicking inside the hex area to improve hit-testing
+    if (editOn) {
+      const bg = (e.target as HTMLElement).closest('.hxw-bg') as HTMLElement | null
+      if (!bg || !el.contains(bg)) return
+      e.preventDefault(); e.stopPropagation()
+      const pidCur = canvas.getAttribute('data-pid') || '0'
+      const id = el.getAttribute('data-widget') || ''
+      if (id) setSelected(pidCur, id)
+    }
+    if (!editOn) return
     // Avoid starting drag from interactive controls
     const t = e.target as HTMLElement
     if (t.closest('input, textarea, select, button, a, [contenteditable], .lnk-form, .cal-form')) return
@@ -8527,6 +8658,12 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
     didDrag = false
   })
   window.addEventListener('resize', () => hxwApplyTransform(wrap, canvas, st))
+  // Click on empty area clears selection in edit mode
+  wrap.addEventListener('click', (e) => {
+    if (!editOn) return
+    const t = e.target as HTMLElement
+    if (!t.closest('.hxw-widget')) { setSelected(canvas.getAttribute('data-pid') || '0', null) }
+  })
 
   // Delegated clicks for widgets inside hex field (links/calendar forms/custom/flow runner)
   canvas.addEventListener('click', (e) => {
@@ -8898,14 +9035,7 @@ function hxwPlaceWidgets(root: HTMLElement, pid: string, st: HexWLayout): void {
       bgFlat.style.background = fillFlat
       ;(bgFlat.style as any).clipPath = `url(#${cid})`
       ;(bgFlat.style as any).webkitClipPath = `url(#${cid})`
-      // Route pointer events to the hex body only (not the whole rectangular host)
-      try {
-        const tpe = (host!.getAttribute('data-type') || '').toLowerCase()
-        if (tpe === 'custom' || tpe === 'flow') {
-          host!.style.pointerEvents = 'none'
-          bgFlat.style.pointerEvents = 'auto'
-        }
-      } catch {}
+      // Keep default pointer events; edit-mode routing is handled in setEdit
     }
 
     // Apply custom name label (small floating chip) if configured
@@ -8931,8 +9061,18 @@ function hxwPlaceWidgets(root: HTMLElement, pid: string, st: HexWLayout): void {
           const bg = host!.querySelector('.hxw-bg') as HTMLElement | null
           if (!bg) return
           bg.style.transition = 'transform .12s ease, filter .12s ease, box-shadow .12s ease'
-          if (on) { bg.style.filter = 'brightness(1.07)'; (bg.style as any).boxShadow = '0 10px 24px rgba(0,0,0,0.28)' }
-          else { bg.style.filter = ''; (bg.style as any).boxShadow = '' }
+          if (on) {
+            bg.style.filter = 'brightness(1.07)'
+            ;(bg.style as any).boxShadow = '0 10px 24px rgba(0,0,0,0.28)'
+          } else {
+            if (host!.classList.contains('hxw-selected')) {
+              bg.style.filter = 'saturate(1.85) brightness(1.38) contrast(1.18) hue-rotate(8deg)'
+              bg.style.boxShadow = '0 0 42px rgba(255,200,120,.62)'
+            } else {
+              bg.style.filter = ''
+              ;(bg.style as any).boxShadow = ''
+            }
+          }
         }
         const bgEl = host!.querySelector('.hxw-bg') as HTMLElement | null
         if (bgEl) {
@@ -8982,10 +9122,10 @@ function hxwPlaceWidgets(root: HTMLElement, pid: string, st: HexWLayout): void {
       const noSlots = t === 'flow' || t === 'custom'
       if (noSlots && cellsWrap) { cellsWrap.remove(); cellsWrap = null as any }
     } catch {}
-    // Hide rectangular body for compact or simple widgets (invite/account/tabnew/skin/clock-digital/readme/markdown/custom/flow)
+    // Hide rectangular body only for compact slot-driven widgets (invite/account/tabnew/skin/clock-digital)
     try {
       const t = (host!.getAttribute('data-type') || '').toLowerCase()
-      if (t === 'invite' || t === 'account' || t === 'tabnew' || t === 'skin' || t === 'clock-digital' || t === 'readme' || t === 'markdown' || t === 'custom' || t === 'flow') {
+      if (t === 'invite' || t === 'account' || t === 'tabnew' || t === 'skin' || t === 'clock-digital') {
         const body2 = host!.querySelector('.hxw-body') as HTMLElement | null
         if (body2) body2.style.display = 'none'
       }
@@ -9032,7 +9172,7 @@ function hxwPlaceWidgets(root: HTMLElement, pid: string, st: HexWLayout): void {
         outline = document.createElementNS('http://www.w3.org/2000/svg', 'svg') as SVGSVGElement
         outline.classList.add('hxw-outline')
         outline.style.position = 'absolute'; outline.style.left = '0'; outline.style.top = '0'
-        outline.style.width = '100%'; outline.style.height = '100%'; outline.style.pointerEvents = 'none'
+        outline.style.width = '100%'; outline.style.height = '100%'; outline.style.pointerEvents = 'none'; outline.style.zIndex = '6'
         host!.appendChild(outline)
       }
       outline.setAttribute('viewBox', `0 0 ${boxW} ${boxH}`)
@@ -9043,8 +9183,10 @@ function hxwPlaceWidgets(root: HTMLElement, pid: string, st: HexWLayout): void {
       path.setAttribute('d', segs.join(' '))
       const col = fillFlat
       path.setAttribute('fill', 'none')
-      path.setAttribute('stroke', col)
-      path.setAttribute('stroke-width', '1.2')
+      // Hide outline stroke by default (selection is indicated via color change, not stroke)
+      path.setAttribute('stroke', 'none')
+      path.setAttribute('data-stk', col)
+      path.setAttribute('stroke-width', '0')
       path.setAttribute('stroke-linejoin', 'round')
       path.setAttribute('stroke-linecap', 'round')
       outline.appendChild(path)
@@ -9368,7 +9510,7 @@ function hxwStartPlacement(root: HTMLElement, pid: string, type: string): void {
     const pending = (window as any)._hxwPending as (undefined | { shape?: Array<[number,number]>; rgb?: [number,number,number]; alpha?: number; name?: string; type?: string; flowGraph?: any })
     const rel = (pending && Array.isArray(pending.shape) && pending.shape.length) ? (pending.shape as Array<[number,number]>) : hxwShapeFor(type)
     const cellsOdd = rel.map(([ax, az]) => axialToOddq(oddqToAxial(anc.q, anc.r).x + ax, oddqToAxial(anc.q, anc.r).z + az))
-    if (!canPlace(cellsOdd)) return
+    if (!canPlace(cellsOdd)) { cleanup(); try { alert('配置範囲外のためキャンセルしました') } catch {}; return }
     // place
     const meta = hxwGetMeta(pid)
     const id = `w-${type}-${Date.now()}`
