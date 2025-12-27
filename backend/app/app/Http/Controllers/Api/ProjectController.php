@@ -39,20 +39,11 @@ class ProjectController extends Controller
     public function index(Request $request)
     {
         $uid = $request->user()?->id;
-        // When DB table exists, merge DB rows and JSON fallback, dedupe by id
+        // When DB table exists, import any JSON-fallback projects for this user into DB,
+        // then return DB rows only (hides non-existent/stale entries by definition)
         if (Schema::hasTable('projects')) {
-            $rows = Project::query()->where('user_id', $uid)->orderByDesc('id')->get()->toArray();
-            $db = array_map(function ($p) {
-                $p['start'] = $p['start_date'] ?? null;
-                $p['end'] = $p['end_date'] ?? null;
-                return $p;
-            }, $rows);
-            // JSON fallback (legacy or when DB insert failed)
-            $json = array_values(array_filter($this->readAll(), function ($p) use ($uid) {
-                return (($p['user_id'] ?? null) === $uid);
-            }));
-            // Merge with preference to DB, dedupe by link_repo or name (normalized)
-            $byKey = [];
+            // Current DB rows for user (keyed by repo/name/id)
+            $rows = Project::query()->where('user_id', $uid)->orderByDesc('id')->get();
             $makeKey = function ($p) {
                 $link = is_array($p) ? ($p['link_repo'] ?? null) : ($p->link_repo ?? null);
                 $name = is_array($p) ? ($p['name'] ?? null) : ($p->name ?? null);
@@ -60,18 +51,62 @@ class ProjectController extends Controller
                 if (is_string($name) && trim($name) !== '') return 'name:'.mb_strtolower(trim($name));
                 return 'id:'.(string)(is_array($p) ? ($p['id'] ?? '') : ($p->id ?? ''));
             };
-            foreach ($json as $p) { $byKey[$makeKey($p)] = $p; }
-            foreach ($db as $p) { $byKey[$makeKey($p)] = $p; }
-            $merged = array_values($byKey);
-            // Filter out invalid entries
-            $merged = array_values(array_filter($merged, function ($p) {
-                $name = is_array($p) ? ($p['name'] ?? null) : ($p->name ?? null);
-                $id = is_array($p) ? ($p['id'] ?? null) : ($p->id ?? null);
-                return is_numeric($id) && (int)$id > 0 && is_string($name) && trim($name) !== '';
+            $dbByKey = [];
+            foreach ($rows as $p) { $dbByKey[$makeKey($p)] = true; }
+
+            // Read JSON fallback (legacy) only for this user
+            $json = array_values(array_filter($this->readAll(), function ($p) use ($uid) {
+                return (($p['user_id'] ?? null) === $uid);
             }));
-            // Sort by id desc as a simple heuristic
-            usort($merged, fn($a, $b) => (int)($b['id'] ?? 0) <=> (int)($a['id'] ?? 0));
-            return response()->json($merged);
+            $jsonByKey = [];
+            foreach ($json as $p) { $jsonByKey[$makeKey($p)] = $p; }
+
+            // Import any JSON-only entries into DB once
+            $toImportKeys = array_diff(array_keys($jsonByKey), array_keys($dbByKey));
+            if (count($toImportKeys) > 0) {
+                foreach ($toImportKeys as $k) {
+                    $p = $jsonByKey[$k];
+                    try {
+                        $project = new Project();
+                        $project->user_id = $uid;
+                        $project->name = (string)($p['name'] ?? '');
+                        $project->description = $p['description'] ?? null;
+                        $project->visibility = (in_array(($p['visibility'] ?? 'public'), ['public','private']) ? $p['visibility'] : 'public');
+                        $project->start_date = $p['start_date'] ?? ($p['start'] ?? null);
+                        $project->end_date = $p['end_date'] ?? ($p['end'] ?? null);
+                        $project->skills = is_array($p['skills'] ?? null) ? $p['skills'] : [];
+                        $project->link_repo = $p['link_repo'] ?? null;
+                        $meta = $p['github_meta'] ?? [];
+                        if (!is_array($meta)) $meta = [];
+                        // Ensure UI section exists (alias/color)
+                        if (!isset($meta['ui']) || !is_array($meta['ui'])) {
+                            $alias = (string)($p['name'] ?? '');
+                            $meta['ui'] = ['alias' => $alias, 'color' => $this->randomColor()];
+                        }
+                        $project->github_meta = $meta;
+                        $project->save();
+                    } catch (\Throwable $e) {
+                        // Ignore a single import error, continue with others
+                    }
+                }
+                // After import, remove migrated entries from JSON store for this user
+                try {
+                    $all = $this->readAll();
+                    $filtered = [];
+                    foreach ($all as $p) {
+                        if (($p['user_id'] ?? null) !== $uid) { $filtered[] = $p; continue; }
+                        $key = $makeKey($p);
+                        if (in_array($key, $toImportKeys, true)) continue; // drop imported
+                        $filtered[] = $p;
+                    }
+                    $this->writeAll($filtered);
+                } catch (\Throwable $e) { /* ignore JSON cleanup errors */ }
+                // Refresh DB rows after import
+                $rows = Project::query()->where('user_id', $uid)->orderByDesc('id')->get();
+            }
+
+            // Return DB rows only
+            return response()->json($rows->values()->toArray());
         }
 
         // No DB table: return JSON store only

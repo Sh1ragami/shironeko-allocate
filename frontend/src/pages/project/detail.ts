@@ -9035,7 +9035,25 @@ function hxwPlaceWidgets(root: HTMLElement, pid: string, st: HexWLayout): void {
       bgFlat.style.background = fillFlat
       ;(bgFlat.style as any).clipPath = `url(#${cid})`
       ;(bgFlat.style as any).webkitClipPath = `url(#${cid})`
-      // Keep default pointer events; edit-mode routing is handled in setEdit
+      // Ensure pointer-event routing remains correct even after re-building during edit mode:
+      // when editing, clicks should go to the hex background only (for selection/move),
+      // and inner rectangular content should not intercept clicks.
+      const editing = canvas.getAttribute('data-edit') === '1'
+      try {
+        if (editing) {
+          // Route events to background layer only
+          bgFlat.style.pointerEvents = 'auto'
+          body.style.pointerEvents = 'none'
+          const cellsWrapNow = host!.querySelector('.hxw-cells') as HTMLElement | null
+          if (cellsWrapNow) cellsWrapNow.style.pointerEvents = 'none'
+        } else {
+          // Restore defaults when not editing
+          bgFlat.style.pointerEvents = ''
+          body.style.pointerEvents = ''
+          const cellsWrapNow = host!.querySelector('.hxw-cells') as HTMLElement | null
+          if (cellsWrapNow) cellsWrapNow.style.pointerEvents = ''
+        }
+      } catch { /* ignore */ }
     }
 
     // Apply custom name label (small floating chip) if configured
@@ -9114,6 +9132,11 @@ function hxwPlaceWidgets(root: HTMLElement, pid: string, st: HexWLayout): void {
       slot.appendChild(clip)
       cellsWrap!.appendChild(slot)
     })
+    // While editing, ensure per-cell layer does not intercept clicks (selection should hit bg layer)
+    try {
+      const editing = canvas.getAttribute('data-edit') === '1'
+      if (cellsWrap) cellsWrap.style.pointerEvents = editing ? 'none' : ''
+    } catch {}
     // For widgets that should not use cell slots (inputs等)、スロット要素自体を除去して本体を優先
     try {
       const t = (host!.getAttribute('data-type') || '').toLowerCase()
