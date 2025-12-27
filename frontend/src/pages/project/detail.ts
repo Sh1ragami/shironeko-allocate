@@ -6521,12 +6521,14 @@ function detailLayout(ctx: { id: number; name: string; fullName: string; owner: 
                       <div class="text-sm font-semibold">選択中のウィジェット</div>
                       <button id="hxwInfoClose" class="ml-auto text-xl leading-none text-neutral-300 hover:text-white">×</button>
                     </div>
-                    <div id="hxwInfoBody" class="text-sm leading-tight space-y-1">
-                      <div class="text-gray-400">ウィジェットをクリックで選択</div>
-                    </div>
-                    <div class="mt-2 flex items-center justify-end gap-2">
-                      <button id="hxwDel" class="hidden rounded bg-rose-700 hover:bg-rose-600 text-white text-xs font-medium px-3 py-1">削除</button>
-                    </div>
+                  <div id="hxwInfoBody" class="text-sm leading-tight space-y-1">
+                    <div class="text-gray-400">ウィジェットをクリックで選択</div>
+                  </div>
+                  <!-- Shortcuts control -->
+                  <div id="hxwScCtl" class="mt-2 flex items-center gap-2"></div>
+                  <div class="mt-2 flex items-center justify-end gap-2">
+                    <button id="hxwDel" class="hidden rounded bg-rose-700 hover:bg-rose-600 text-white text-xs font-medium px-3 py-1">削除</button>
+                  </div>
                   </div>
                 </div>
               </aside>
@@ -8234,6 +8236,7 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
     const panel = getInfoEl(); if (!panel) return
     const body = panel.querySelector('#hxwInfoBody') as HTMLElement | null
     const del = panel.querySelector('#hxwDel') as HTMLButtonElement | null
+    const scCtl = panel.querySelector('#hxwScCtl') as HTMLElement | null
     const meta = hxwGetMeta(pid)
     const m = meta[id]
     if (!m) { infoHide(); return }
@@ -8248,6 +8251,36 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
       `<div><span class=\"text-gray-400\">Cells:</span> ${rel.length}</div>`
     ].filter(Boolean).join('')
     if (body) body.innerHTML = rows
+    // Shortcuts control (add/remove + optional name)
+    if (scCtl) {
+      const inSc = scGet(pid).includes(id)
+      const curName = (function(){ try { return scNameGet(pid, id) || name || '' } catch { return name || '' } })()
+      scCtl.innerHTML = inSc
+        ? `<input id="hxwScName" class="flex-1 min-w-[120px] max-w-[60%] rounded bg-neutral-800/60 ring-2 ring-neutral-600 px-2 py-1 text-gray-100 text-xs" placeholder="ショートカット名（任意）" value="${(curName || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/\"/g,'&quot;')}" />
+            <button id="hxwScSave" class="rounded bg-sky-700 hover:bg-sky-600 text-white text-xs font-medium px-3 py-1">名前を保存</button>
+            <button id="hxwScDel" class="rounded ring-1 ring-neutral-600 hover:bg-neutral-800 text-xs px-3 py-1">ショートカットから削除</button>`
+        : `<input id="hxwScName" class="flex-1 min-w-[120px] max-w-[60%] rounded bg-neutral-800/60 ring-2 ring-neutral-600 px-2 py-1 text-gray-100 text-xs" placeholder="ショートカット名（任意）" value="${(curName || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/\"/g,'&quot;')}" />
+            <button id="hxwScAdd" class="rounded bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-medium px-3 py-1">ショートカットに追加</button>`
+      const nameInput = panel.querySelector('#hxwScName') as HTMLInputElement | null
+      const addBtn = panel.querySelector('#hxwScAdd') as HTMLButtonElement | null
+      const delBtn = panel.querySelector('#hxwScDel') as HTMLButtonElement | null
+      const saveBtn = panel.querySelector('#hxwScSave') as HTMLButtonElement | null
+      addBtn?.addEventListener('click', () => {
+        try { scAdd(pid, id); const v = (nameInput?.value || '').trim(); if (v) scNameSet(pid, id, v) } catch {}
+        try { hxwRenderShortcuts(root, pid) } catch {}
+        // re-render panel UI to reflect new state
+        infoShow(pid, id)
+      })
+      saveBtn?.addEventListener('click', () => {
+        try { const v = (nameInput?.value || '').trim(); scNameSet(pid, id, v) } catch {}
+        try { hxwRenderShortcuts(root, pid) } catch {}
+      })
+      delBtn?.addEventListener('click', () => {
+        try { scRemove(pid, id) } catch {}
+        try { hxwRenderShortcuts(root, pid) } catch {}
+        infoShow(pid, id)
+      })
+    }
     if (del) {
       del.classList.remove('hidden')
       del.onclick = () => {
@@ -8269,20 +8302,53 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
           if (!cont || !handle) return
           handle.setAttribute('aria-expanded', on ? 'false' : 'true')
           handle.title = on ? '展開' : 'しまう'
-          cont.style.display = on ? 'none' : ''
-          ;(panel as HTMLElement).style.height = on ? '56px' : ''
-          if (on) panel.setAttribute('data-collapsed', '1'); else panel.removeAttribute('data-collapsed')
+          if (on) {
+            // collapse with animation
+            const h = cont.scrollHeight
+            cont.style.maxHeight = h + 'px' // set current
+            // force reflow before collapsing to 0
+            void cont.offsetHeight
+            cont.style.maxHeight = '0px'
+            cont.style.opacity = '0'
+            cont.style.transform = 'translateY(8px)'
+            cont.style.pointerEvents = 'none'
+            panel.setAttribute('data-collapsed', '1')
+          } else {
+            // expand with animation to measured height
+            const target = cont.scrollHeight || 1
+            cont.style.maxHeight = target + 'px'
+            cont.style.opacity = '1'
+            cont.style.transform = 'translateY(0)'
+            cont.style.pointerEvents = ''
+            panel.removeAttribute('data-collapsed')
+          }
         } catch {}
       }
       handle?.addEventListener('click', () => {
         const collapsed = panel.getAttribute('data-collapsed') === '1'
         applyCollapsed(!collapsed)
       })
-      // default: expanded when first shown
-      applyCollapsed(false)
+      // default: expanded when first shown (animate from 0)
+      try {
+        cont!.style.maxHeight = '0px'
+        cont!.style.opacity = '0'
+        cont!.style.transform = 'translateY(8px)'
+        cont!.style.pointerEvents = 'none'
+      } catch {}
+      requestAnimationFrame(() => applyCollapsed(false))
+      ;(panel as any)._infoCollapse = applyCollapsed
+      }
     }
+  const infoHide = () => {
+    const panel = getInfoEl(); if (!panel) return
+    try {
+      const collapse = (panel as any)._infoCollapse as (on: boolean) => void | undefined
+      if (collapse) {
+        collapse(true)
+        setTimeout(() => panel.classList.add('hidden'), 300)
+      } else panel.classList.add('hidden')
+    } catch { panel.classList.add('hidden') }
   }
-  const infoHide = () => { const panel = getInfoEl(); if (panel) panel.classList.add('hidden') }
   const setSelected = (pid: string, id: string | null) => {
     // Clear previous highlight (revert bg effects)
     Array.from(canvas.querySelectorAll('.hxw-widget.hxw-selected')).forEach((el) => {

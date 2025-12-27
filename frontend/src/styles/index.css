@@ -870,6 +870,8 @@ body[data-lock]:not([data-lock="0"]) .hxw-wrap { pointer-events: none; }
 #hxwInfoHandle[aria-expanded="true"] .chev2 { animation: ihPulseDown 1.8s ease-in-out infinite .18s; }
 #hxwInfoHandle[aria-expanded="false"] .chev1 { animation: ihPulseUp 1.8s ease-in-out infinite; }
 #hxwInfoHandle[aria-expanded="false"] .chev2 { animation: ihPulseUp 1.8s ease-in-out infinite .18s; }
+/* Smooth open/close for info panel */
+#hxwInfoPanel { overflow: hidden; transition: max-height .28s ease, opacity .24s ease, transform .28s ease; will-change: max-height, opacity, transform; }
 @keyframes ihPulseUp {
   0% { transform: translateY(1.2px); opacity: .8 }
   50% { transform: translateY(0); opacity: 1 }
