@@ -42,6 +42,23 @@ class ProjectController extends Controller
         // When DB table exists, import any JSON-fallback projects for this user into DB,
         // then return DB rows only (hides non-existent/stale entries by definition)
         if (Schema::hasTable('projects')) {
+            // If unauthenticated (no user id), the DB schema cannot store NULL user_id rows
+            // and store() falls back to JSON. In this case, prefer JSON store directly
+            // so newly created projects (guest scope) are visible in the list.
+            if ($uid === null) {
+                $result = [];
+                foreach ($this->readAll() as $p) {
+                    if (($p['user_id'] ?? null) !== null) continue; // only guest-owned entries
+                    $result[] = $p;
+                }
+                $result = array_values(array_filter($result, function ($p) {
+                    $name = is_array($p) ? ($p['name'] ?? null) : ($p->name ?? null);
+                    $id = is_array($p) ? ($p['id'] ?? null) : ($p->id ?? null);
+                    return is_numeric($id) && (int)$id > 0 && is_string($name) && trim($name) !== '';
+                }));
+                usort($result, fn($a, $b) => (int)($b['id'] ?? 0) <=> (int)($a['id'] ?? 0));
+                return response()->json($result);
+            }
             // Current DB rows for user (keyed by repo/name/id)
             $rows = Project::query()->where('user_id', $uid)->orderByDesc('id')->get();
             $makeKey = function ($p) {
@@ -105,8 +122,22 @@ class ProjectController extends Controller
                 $rows = Project::query()->where('user_id', $uid)->orderByDesc('id')->get();
             }
 
-            // Return DB rows only
-            return response()->json($rows->values()->toArray());
+            // Return DB rows only when present; if none, fall back to JSON store for this user
+            if ($rows->count() > 0) {
+                return response()->json($rows->values()->toArray());
+            }
+            $result = [];
+            foreach ($this->readAll() as $p) {
+                if (($p['user_id'] ?? null) !== $uid) continue;
+                $result[] = $p;
+            }
+            $result = array_values(array_filter($result, function ($p) {
+                $name = is_array($p) ? ($p['name'] ?? null) : ($p->name ?? null);
+                $id = is_array($p) ? ($p['id'] ?? null) : ($p->id ?? null);
+                return is_numeric($id) && (int)$id > 0 && is_string($name) && trim($name) !== '';
+            }));
+            usort($result, fn($a, $b) => (int)($b['id'] ?? 0) <=> (int)($a['id'] ?? 0));
+            return response()->json($result);
         }
 
         // No DB table: return JSON store only

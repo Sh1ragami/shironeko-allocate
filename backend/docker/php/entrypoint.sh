@@ -51,5 +51,21 @@ PHP
   chown -R www-data:www-data "$APP_DIR"
 fi
 
+# Ensure vendor is installed (in case the mapped volume lacks it)
+if [ -f "$APP_DIR/composer.json" ] && [ ! -d "$APP_DIR/vendor" ]; then
+  echo "[php] Installing composer dependencies..."
+  composer install --no-interaction --prefer-dist --optimize-autoloader || true
+fi
+
+# Run migrations automatically when DB is configured (dev docker-compose)
+if [ -f "$APP_DIR/artisan" ]; then
+  if [ -n "${DB_CONNECTION:-}" ]; then
+    echo "[php] Running database migrations (connection=${DB_CONNECTION})..."
+    php "$APP_DIR/artisan" migrate --force || true
+  fi
+  # Ensure storage/cache are writable
+  chown -R www-data:www-data "$APP_DIR/storage" "$APP_DIR/bootstrap/cache" || true
+fi
+
 echo "[php] Starting php-fpm..."
 exec php-fpm -F
