@@ -536,6 +536,18 @@ body[data-lock]:not([data-lock="0"]) .hx-wrap { pointer-events: none; }
 .hx-info.hx-plain { background: transparent !important; }
 .hx-tile:hover .hx-info.hx-plain { background: transparent !important; }
 
+/* Native list->detail transition (actual area moves) */
+#pageDimmer {
+  position: fixed; inset: 0; opacity: 0; transition: opacity .5s ease; pointer-events: none; z-index: 70;
+  /* Edge-only shading to avoid full black frame */
+  background:
+    linear-gradient(to left, rgba(0,0,0,.35), rgba(0,0,0,0) 28%),
+    linear-gradient(to right, rgba(0,0,0,.35), rgba(0,0,0,0) 28%);
+}
+.hx-wrap.transition-out { transition: transform 1.2s cubic-bezier(.2,.8,.2,1); will-change: transform; }
+.hx-wrap.transition-out.to-left { transform: translateX(-120vw); }
+.hx-wrap.transition-out.to-right { transform: translateX(120vw); }
+
 /* Minimap */
 .hx-mini { position: fixed; right: 14px; top: 16px; width: 140px; height: 140px; border-radius: 50%; background: rgba(0,0,0,.32); backdrop-filter: blur(4px) saturate(120%); border: 1px solid var(--gh-border); display: grid; place-items: center; z-index: 11; }
 :root[data-theme="warm"] .hx-mini, :root[data-theme="sakura"] .hx-mini { background: rgba(255,255,255,.45); }
@@ -684,6 +696,8 @@ body[data-lock]:not([data-lock="0"]) .hxw-wrap { pointer-events: none; }
 /* Route loading overlay */
 .route-loading { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; background: var(--gh-canvas); overflow: hidden; }
 .route-loading[data-style="single"] { background: var(--gh-canvas); }
+.route-loading[data-style="seamless"] { background: transparent; pointer-events: none; }
+.route-loading[data-style="seamless"] .rl-backdrop { position: absolute; inset: 0; background: #000; opacity: 0; }
 /* Center label for single-hex mode */
 .route-loading .rl-one-label { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
   font-weight: 900; font-size: clamp(22px, 4.4vw, 46px); color: #ffffff; text-align: center; letter-spacing: .02em;
@@ -692,6 +706,7 @@ body[data-lock]:not([data-lock="0"]) .hxw-wrap { pointer-events: none; }
 }
 /* Stage layout */
 .route-loading .rl-stage { position: relative; width: 100%; height: 100%; }
+.route-loading .rl-seam { position: absolute; }
 .route-loading .rl-name { position: absolute; left: 50%; top: 46%; transform: translate(-50%, -50%); font-weight: 800; font-size: clamp(26px, 5vw, 52px); color: var(--gh-contrast); opacity: 0; filter: drop-shadow(0 6px 22px rgba(0,0,0,.45)); animation: rlName .5s ease forwards .1s; text-align: center; letter-spacing: .01em }
 .route-loading .rl-bar { position: absolute; left: 50%; top: 66%; transform: translateX(-50%); width: min(24vw, 260px); height: 6px; border-radius: 9999px; background: rgba(255,255,255,.12); overflow: hidden }
 .route-loading .rl-bar .rl-bar-fill { height: 100%; width: 0%; background: rgba(255,255,255,.9); animation: rlFill var(--rl-dur, 2000ms) linear forwards }

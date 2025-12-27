@@ -2,7 +2,7 @@ import { apiFetch, ApiError } from '../../utils/api'
 import { openTaskModal, openTaskModalGh } from './task-modal'
 import { renderNotFound } from '../not-found/not-found'
 import { getTheme, setTheme } from '../../utils/theme'
-import { hideRouteLoading, showRouteLoading } from '../../utils/route-loading'
+import { hideRouteLoading, showRouteLoading, finishSeamless } from '../../utils/route-loading'
 import { consumePrefetchedProject } from '../../utils/prefetch'
 // (no component-level imports; keep in-page implementations)
 // Account modal helpers (duplicated to open over current page)
@@ -1013,6 +1013,39 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
 
   // Render the full layout once with all available data
   container.innerHTML = detailLayout({ id: project.id, name: project.name, fullName, owner, repo: repoName })
+  // If coming from list with native transition, slide in actual detail honeycomb and fade dimmer
+  try {
+    const dir = sessionStorage.getItem('proj-entry-dir')
+    if (dir === 'left' || dir === 'right') {
+      const hx = container.querySelector('#hxwWrap') as HTMLElement | null
+      if (hx) {
+        const fromX = dir === 'left' ? '-120vw' : '120vw'
+        hx.style.transform = `translateX(${fromX})`
+        hx.style.opacity = '0'
+        hx.style.transition = 'transform 1.2s cubic-bezier(.2,.9,.24,1), opacity 1s ease'
+        const cleanup = () => {
+          try {
+            hx.style.transition = ''
+            hx.style.transform = ''
+            hx.style.opacity = ''
+            hx.removeEventListener('transitionend', cleanup)
+          } catch {}
+        }
+        hx.addEventListener('transitionend', cleanup, { once: true })
+        requestAnimationFrame(() => {
+          hx!.style.transform = 'translateX(0)'
+          hx!.style.opacity = '1'
+        })
+      }
+      // Fade out and remove pageDimmer
+      const dim = document.getElementById('pageDimmer') as HTMLElement | null
+      if (dim) {
+        setTimeout(() => { dim.style.opacity = '0'; setTimeout(() => dim.remove(), 180) }, 10)
+      }
+      // Clear flag
+      sessionStorage.removeItem('proj-entry-dir')
+    }
+  } catch {}
   // Intercept breadcrumb click to add a back animation to project list
   try {
     const bc = container.querySelector('#topPathUser') as HTMLAnchorElement | null
@@ -1029,8 +1062,8 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
   // Persist back color so browser back/gesture also uses vivid color
   try { sessionStorage.setItem('pj-back-color', String(project.color || 'blue')) } catch {}
   if (fullName) (container as HTMLElement).setAttribute('data-repo-full', fullName)
-  // Hide route-loading once base layout is mounted; hydration continues in background
-  try { hideRouteLoading() } catch {}
+  // For seamless transition: complete final move (from offscreen to center) then fade out overlay
+  try { finishSeamless() } catch { try { hideRouteLoading() } catch {} }
 
   // Store user data if fetched
   if (me) {
@@ -1362,7 +1395,15 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
     const url = `https://avatars.githubusercontent.com/u/${me.github_id}?s=96`
     if (accImg) { accImg.src = url; accImg.classList.remove('hidden') }
   }
-  try { hideRouteLoading() } catch {}
+  try {
+    const ov = document.getElementById('routeLoading') as HTMLElement | null
+    if (!ov) { /* already closed */ }
+    else if (ov.getAttribute('data-style') === 'seamless') {
+      // Let finishSeamless control close timing; do nothing here
+    } else {
+      hideRouteLoading()
+    }
+  } catch {}
 }
 
 // ---------- Widgets helpers ----------

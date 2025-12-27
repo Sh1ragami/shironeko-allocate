@@ -419,8 +419,37 @@ function renderHoneycomb(root: HTMLElement, projects: Project[]): void {
           sessionStorage.setItem('proj-center-gid', gid)
         } catch {}
         try { prefetchProjectDetail(p.id) } catch {}
-        try { showRouteLoading(title, p.color) } catch {}
-        window.location.hash = `#/project/detail?id=${p.id}`
+        // Native transition: move actual list honeycomb off-screen with dim
+        try {
+          const wrap = root.querySelector('#honeyWrap') as HTMLElement | null
+          if (wrap) {
+            // Fixed direction for consistency: list moves left, detail enters from right
+            try { sessionStorage.setItem('proj-entry-dir', 'right') } catch {}
+            // Dimmer
+            let dim = document.getElementById('pageDimmer') as HTMLElement | null
+            if (!dim) {
+              dim = document.createElement('div')
+              dim.id = 'pageDimmer'
+              document.body.appendChild(dim)
+            }
+            // Fade in dimmer late in the slide to shorten visible black time
+            ;(dim as HTMLElement).offsetHeight
+            setTimeout(() => { dim!.style.opacity = '0.25' }, 400)
+            // Move honeycomb
+            wrap.classList.add('transition-out')
+            wrap.classList.add('to-left')
+            let sent = false
+            const go = () => { if (sent) return; sent = true; window.location.hash = `#/project/detail?id=${p.id}` }
+            // Fire navigate when the list edge is likely off-screen (about half duration)
+            setTimeout(go, 700)
+            const onEnd = () => { wrap.removeEventListener('transitionend', onEnd); setTimeout(go, 50) }
+            wrap.addEventListener('transitionend', onEnd, { once: true } as any)
+            // Fallback timeout
+            setTimeout(go, 1600)
+          } else {
+            window.location.hash = `#/project/detail?id=${p.id}`
+          }
+        } catch { window.location.hash = `#/project/detail?id=${p.id}` }
       })
       // Hover/touch prefetch for snappier transition
       const doPrefetch = () => { try { prefetchProjectDetail(p.id) } catch {} }

@@ -35,10 +35,11 @@ export class Router {
       try { showRouteLoading('プロジェクト一覧', (bc as any), { style: 'single', spinMs: 950 }) } catch {}
     }
     this.cleanupFloatingUI()
-    // Clear route-loading unless single-hex animation is controlling its own end
+    // Clear route-loading unless an animation is controlling its own end (single / seamless)
     try {
       const rl = document.getElementById('routeLoading') as HTMLElement | null
-      const controlled = !!rl && rl.getAttribute('data-style') === 'single'
+      const mode = rl?.getAttribute('data-style') || ''
+      const controlled = !!rl && (mode === 'single' || mode === 'seamless')
       if (!controlled) hideRouteLoading()
     } catch {}
     // Auth guard: allow only public paths when not logged in
