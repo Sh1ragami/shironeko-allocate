@@ -849,6 +849,38 @@ body[data-lock]:not([data-lock="0"]) .hxw-wrap { pointer-events: none; }
 .hxw-cap .cap-fill { height: 100%; width: 0%; background: linear-gradient(90deg, var(--cap-a, #10b981), var(--cap-b, #84cc16)); box-shadow: inset 0 0 0 1px rgba(255,255,255,.08); transition: width .25s ease; }
 .hxw-cap .cap-text { margin-bottom: 6px; font-size: 12px; color: var(--gh-contrast); opacity: .9; font-weight: 600; letter-spacing: .01em; }
 
+/* ---- Info handle (collapse/expand) ---- */
+#hxwInfoHandle.info-handle {
+  width: 88px; height: 40px; border-radius: 9999px; cursor: pointer;
+  background: transparent; border: 0; box-shadow: none;
+  color: #93c5fd; /* triangles' stroke color via currentColor */
+  display: grid; place-items: center;
+}
+#hxwInfoHandle.info-handle:hover { filter: brightness(1.1) saturate(1.05); }
+#hxwInfoHandle.info-handle:active { transform: translateY(1px); }
+#hxwInfoHandle .ih-ico { display: inline-grid; place-items: center; width: 48px; height: 28px; }
+#hxwInfoHandle svg { display: block; width: 100%; height: 100%; }
+#hxwInfoHandle .up { display: none; }
+#hxwInfoHandle[aria-expanded="true"] .up { display: none; }
+#hxwInfoHandle[aria-expanded="true"] .down { display: block; }
+#hxwInfoHandle[aria-expanded="false"] .up { display: block; }
+#hxwInfoHandle[aria-expanded="false"] .down { display: none; }
+#hxwInfoHandle .chev1, #hxwInfoHandle .chev2 { stroke: #ffffff; }
+#hxwInfoHandle[aria-expanded="true"] .chev1 { animation: ihPulseDown 1.8s ease-in-out infinite; }
+#hxwInfoHandle[aria-expanded="true"] .chev2 { animation: ihPulseDown 1.8s ease-in-out infinite .18s; }
+#hxwInfoHandle[aria-expanded="false"] .chev1 { animation: ihPulseUp 1.8s ease-in-out infinite; }
+#hxwInfoHandle[aria-expanded="false"] .chev2 { animation: ihPulseUp 1.8s ease-in-out infinite .18s; }
+@keyframes ihPulseUp {
+  0% { transform: translateY(1.2px); opacity: .8 }
+  50% { transform: translateY(0); opacity: 1 }
+  100% { transform: translateY(1.2px); opacity: .8 }
+}
+@keyframes ihPulseDown {
+  0% { transform: translateY(-1.2px); opacity: .8 }
+  50% { transform: translateY(0); opacity: 1 }
+  100% { transform: translateY(-1.2px); opacity: .8 }
+}
+
 /* ---- Bottom-right unified actions ---- */
 /* ---- Bottom-right hex action cluster ---- */
 .hxw-hex-ctl {

@@ -6496,18 +6496,37 @@ function detailLayout(ctx: { id: number; name: string; fullName: string; owner: 
               <div id="hxwCap" class="hxw-cap hidden"></div>
               <!-- Minimap (top-right) -->
               <div class="hxw-mini"><canvas id="hxwMini" width="120" height="120"></canvas></div>
-              <!-- Info panel (right side, edit mode only) -->
-              <aside id="hxwInfo" class="fixed right-3 top-20 z-[18] hidden">
-                <div class="w-[min(320px,92vw)] rounded-xl ring-2 ring-neutral-600 bg-neutral-900/80 backdrop-blur p-3 text-gray-100 shadow-xl">
-                  <div class="flex items-center gap-2 mb-2">
-                    <div class="text-sm font-semibold">選択中のウィジェット</div>
-                    <button id="hxwInfoClose" class="ml-auto text-xl leading-none text-neutral-300 hover:text-white">×</button>
-                  </div>
-                  <div id="hxwInfoBody" class="text-sm space-y-1">
-                    <div class="text-gray-400">ウィジェットをクリックで選択</div>
-                  </div>
-                  <div class="mt-3 flex items-center justify-end gap-2">
-                    <button id="hxwDel" class="hidden rounded bg-rose-700 hover:bg-rose-600 text-white text-xs font-medium px-3 py-1">削除</button>
+              <!-- Info panel (bottom, edit mode only) -->
+              <aside id="hxwInfo" class="fixed inset-x-0 bottom-0 z-[18] hidden">
+                <div class="mx-auto w-[min(560px,94vw)]">
+                  <!-- Collapse handle (prominent, animated chevrons) -->
+                  <button id="hxwInfoHandle" class="block mx-auto info-handle mb-1" aria-expanded="true" title="しまう">
+                    <span class="ih-ico" aria-hidden="true">
+                      <svg width="48" height="28" viewBox="0 0 24 16" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">
+                        <g class="up">
+                          <!-- two upward chevrons with wider spacing -->
+                          <polyline class="chev1" points="3,7 12,3 21,7" />
+                          <polyline class="chev2" points="3,13 12,9 21,13" />
+                        </g>
+                        <g class="down">
+                          <!-- two downward chevrons with wider spacing -->
+                          <polyline class="chev1" points="3,3 12,7 21,3" />
+                          <polyline class="chev2" points="3,9 12,13 21,9" />
+                        </g>
+                      </svg>
+                    </span>
+                  </button>
+                  <div id="hxwInfoPanel" class="rounded-t-xl rounded-b-none border-2 border-neutral-600 border-b-0 bg-neutral-950/70 backdrop-blur px-4 py-2 text-gray-100 shadow-xl">
+                    <div class="flex items-center gap-2 mb-1">
+                      <div class="text-sm font-semibold">選択中のウィジェット</div>
+                      <button id="hxwInfoClose" class="ml-auto text-xl leading-none text-neutral-300 hover:text-white">×</button>
+                    </div>
+                    <div id="hxwInfoBody" class="text-sm leading-tight space-y-1">
+                      <div class="text-gray-400">ウィジェットをクリックで選択</div>
+                    </div>
+                    <div class="mt-2 flex items-center justify-end gap-2">
+                      <button id="hxwDel" class="hidden rounded bg-rose-700 hover:bg-rose-600 text-white text-xs font-medium px-3 py-1">削除</button>
+                    </div>
                   </div>
                 </div>
               </aside>
@@ -6521,8 +6540,8 @@ function detailLayout(ctx: { id: number; name: string; fullName: string; owner: 
                 <button id="wgEditToggle" class="ctl-hex ctl-hex-orange ctl-pos-edit" title="編集モード" aria-label="編集モード">
                   <span class="ctl-label">編集</span>
                 </button>
-                <!-- Add widget (green single) -->
-                <button id="hxwFab" class="ctl-hex ctl-hex-green ctl-pos-add" title="ウィジェットを追加" aria-label="ウィジェットを追加">
+                <!-- Add widget (green single) - shown only in edit mode -->
+                <button id="hxwFab" class="ctl-hex ctl-hex-green ctl-pos-add" style="display:none" title="ウィジェットを追加" aria-label="ウィジェットを追加">
                   <span class="ctl-label plus">＋</span>
                 </button>
               </div>
@@ -7859,7 +7878,7 @@ function hxwRenderShortcuts(root: HTMLElement, pid: string): void {
   })
 }
 
-// Capacity bar (remaining hex cells vs total)
+// Capacity bar (usage fill: used/total)
 function hxwRenderCapacityBar(root: HTMLElement, pid: string): void {
   const wrap = root.querySelector('#hxwWrap') as HTMLElement | null
   const barHost = root.querySelector('#hxwCap') as HTMLElement | null
@@ -7881,17 +7900,19 @@ function hxwRenderCapacityBar(root: HTMLElement, pid: string): void {
     wrapEl.appendChild(fillEl)
     barHost.appendChild(wrapEl)
   }
-  const pct = total > 0 ? remain / total : 0
+  // Invert to show usage growing towards full instead of remaining like HP
+  const usedPct = total > 0 ? used / total : 0
   const fill = barHost.querySelector('.cap-fill') as HTMLElement | null
   const text = barHost.querySelector('.cap-text') as HTMLElement | null
   if (fill) {
-    fill.style.width = `${Math.round(pct * 100)}%`
+    fill.style.width = `${Math.round(usedPct * 100)}%`
     const setGrad = (a: string, b: string) => { try { fill!.style.setProperty('--cap-a', a); fill!.style.setProperty('--cap-b', b) } catch {} }
-    if (pct >= 0.6) setGrad('#10b981', '#84cc16') // green
-    else if (pct >= 0.3) setGrad('#f59e0b', '#f97316') // amber
+    // Color thresholds by usage: <= 1/3 green, <= 2/3 orange, > 2/3 red
+    if (usedPct <= (1/3)) setGrad('#10b981', '#84cc16') // green
+    else if (usedPct <= (2/3)) setGrad('#f59e0b', '#f97316') // amber
     else setGrad('#ef4444', '#f43f5e') // red
   }
-  if (text) text.textContent = `残り ${remain} / ${total}`
+  if (text) text.textContent = `現在 ${used} / ${total}`
 }
 
 // Parity-independent shapes using axial coordinates
@@ -8238,6 +8259,28 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
     }
     panel.classList.remove('hidden')
     panel.querySelector('#hxwInfoClose')?.addEventListener('click', () => infoHide(), { once: true })
+    // Bind collapse/expand handle once
+    if (!(panel as any)._infoBarBound) {
+      (panel as any)._infoBarBound = true
+      const handle = panel.querySelector('#hxwInfoHandle') as HTMLButtonElement | null
+      const cont = panel.querySelector('#hxwInfoPanel') as HTMLElement | null
+      const applyCollapsed = (on: boolean) => {
+        try {
+          if (!cont || !handle) return
+          handle.setAttribute('aria-expanded', on ? 'false' : 'true')
+          handle.title = on ? '展開' : 'しまう'
+          cont.style.display = on ? 'none' : ''
+          ;(panel as HTMLElement).style.height = on ? '56px' : ''
+          if (on) panel.setAttribute('data-collapsed', '1'); else panel.removeAttribute('data-collapsed')
+        } catch {}
+      }
+      handle?.addEventListener('click', () => {
+        const collapsed = panel.getAttribute('data-collapsed') === '1'
+        applyCollapsed(!collapsed)
+      })
+      // default: expanded when first shown
+      applyCollapsed(false)
+    }
   }
   const infoHide = () => { const panel = getInfoEl(); if (panel) panel.classList.add('hidden') }
   const setSelected = (pid: string, id: string | null) => {
@@ -8406,8 +8449,9 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
   const setEdit = (on: boolean) => {
     editOn = on
     canvas.setAttribute('data-edit', on ? '1' : '0')
-    // Toggle capacity bar visibility with edit mode
+    // Toggle capacity bar and add (FAB) visibility with edit mode
     try { (root.querySelector('#hxwCap') as HTMLElement | null)?.classList.toggle('hidden', !on) } catch {}
+    try { const fab = root.querySelector('#hxwFab') as HTMLElement | null; if (fab) fab.style.display = on ? '' : 'none' } catch {}
     const btn = root.querySelector('#wgEditToggle') as HTMLElement | null
     if (btn) {
       btn.setAttribute('aria-pressed', on ? 'true' : 'false')
@@ -8460,17 +8504,18 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
   }
   ; (canvas as any)._setEdit = setEdit
 
-  // In edit mode, handle selection on capture-click and swallow inner events
+  // In edit mode, handle selection on capture-click.
+  // - Click inside any widget: select and show info (stop propagation so it isn't cleared elsewhere)
+  // - Click outside: allow event to bubble to wrap's handler which clears selection
   canvas.addEventListener('click', (e) => {
     if (!editOn) return
     const host = (e.target as HTMLElement).closest('.hxw-widget') as HTMLElement | null
-    const bg = (e.target as HTMLElement).closest('.hxw-bg') as HTMLElement | null
-    if (host && bg) {
+    if (host) {
       const pidCur = canvas.getAttribute('data-pid') || '0'
       const id = host.getAttribute('data-widget') || ''
       if (id) setSelected(pidCur, id)
+      e.stopPropagation(); e.preventDefault()
     }
-    e.stopPropagation(); e.preventDefault()
   }, true)
 
   const stepX = () => Math.round((st.tile || 200) * 0.75)
@@ -8640,6 +8685,8 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
       try { delete meta[dragId] } catch {}
       try { hxwCustomDelete(pid, dragId) } catch {}
       try { hxwSetMeta(pid, meta) } catch {}
+      // If the deleted widget was selected, clear selection and close info
+      try { if (selId && selId === dragId) setSelected(pid, null) } catch {}
       hxwPlaceWidgets(root, pid, st)
       try { refreshDynamicWidgets(root, pid) } catch {}
       try { hxwRehydrate(root, pid) } catch { }
