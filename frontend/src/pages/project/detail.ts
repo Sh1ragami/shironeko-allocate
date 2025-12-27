@@ -2157,12 +2157,12 @@ function enableDragAndDrop(root: HTMLElement): void {
   document.addEventListener('mouseup', () => { dragAllowed = false })
   grid.addEventListener('mousedown', (e) => {
     if (!isEdit()) return
+    const widget = (e.target as HTMLElement).closest('.widget') as HTMLElement | null
     const onHandle = (e.target as HTMLElement).closest('.wg-move') as HTMLElement | null
-    dragAllowed = !!onHandle
-    if (onHandle) {
-      const w = onHandle.closest('.widget') as HTMLElement | null
-      if (w) w.setAttribute('draggable', 'true')
-    }
+    const locked = widget?.getAttribute('data-locked') === '1'
+    // Locked custom widgets can start drag from anywhere; others require the move handle
+    dragAllowed = locked ? true : !!onHandle
+    if (widget && dragAllowed) widget.setAttribute('draggable', 'true')
   })
 
   grid.addEventListener('dragstart', (e) => {
@@ -2359,6 +2359,7 @@ function enableDragAndDrop(root: HTMLElement): void {
     if (!isEdit()) return
     const widget = (e.target as HTMLElement).closest('.widget') as HTMLElement | null
     if (!widget) return
+    if (widget.getAttribute('data-locked') === '1') return
     e.preventDefault()
     openBgMenu((e as MouseEvent).clientX, (e as MouseEvent).clientY, widget)
   })
@@ -2380,7 +2381,9 @@ function enableDragAndDrop(root: HTMLElement): void {
   // Edit mode toggle
   const setEdit = (on: boolean) => {
     grid.setAttribute('data-edit', on ? '1' : '0')
-    grid.querySelectorAll('.widget').forEach((w) => (w as HTMLElement).setAttribute('draggable', on ? 'true' : 'false'))
+    grid.querySelectorAll('.widget').forEach((w) => {
+      ;(w as HTMLElement).setAttribute('draggable', on ? 'true' : 'false')
+    })
     const btn = root.querySelector('#wgEditToggle') as HTMLElement | null
     if (btn) {
       btn.setAttribute('aria-pressed', on ? 'true' : 'false')
@@ -2414,15 +2417,16 @@ function enableDragAndDrop(root: HTMLElement): void {
     grid.querySelectorAll('.widget').forEach((w) => {
       const el = w as HTMLElement
       // ドラッグを示すカーソルはハンドル側にのみ付与
-      el.classList.toggle('border', on)
-      el.classList.toggle('border-dashed', on)
-      el.classList.toggle('border-amber-500/40', on)
+      const locked = el.getAttribute('data-locked') === '1'
+      el.classList.toggle('border', on && !locked)
+      el.classList.toggle('border-dashed', on && !locked)
+      el.classList.toggle('border-amber-500/40', on && !locked)
       const delBtn = el.querySelector('.w-del') as HTMLElement | null
       const resHandles = el.querySelectorAll('.wg-rz') as NodeListOf<HTMLElement>
       const move = el.querySelector('.wg-move') as HTMLElement | null
-      if (delBtn) delBtn.classList.toggle('hidden', !on)
-      resHandles.forEach(h => h.classList.toggle('hidden', !on))
-      if (move) move.classList.toggle('hidden', !on)
+      if (delBtn) delBtn.classList.toggle('hidden', !on || locked)
+      resHandles.forEach(h => h.classList.toggle('hidden', !on || locked))
+      if (move) move.classList.toggle('hidden', !on || locked)
     })
     // Toggle elements that are explicitly edit-only
     grid.querySelectorAll('.edit-only').forEach((el) => (el as HTMLElement).classList.toggle('hidden', !on))
@@ -2508,6 +2512,7 @@ function enableDragAndDrop(root: HTMLElement): void {
     let widget = handle?.closest('.widget') as HTMLElement | null
     if (!widget) widget = (e.target as HTMLElement).closest('.widget') as HTMLElement | null
     if (!widget) return
+    if (widget.getAttribute('data-locked') === '1') return
     // If user grabbed the move handle, do not treat as resize
     if ((e.target as HTMLElement).closest('.wg-move')) return
     // no-op (reverted reorder)
@@ -3442,6 +3447,7 @@ function openWidgetPickerModal(root: HTMLElement, pid: string, onPick?: (type: s
         // If picker was opened with an onPick callback, we're in a grid panel.
         // Grid cannot use hex placement; fallback to adding a simple "custom" widget card.
         if (onPick) {
+          try { (window as any)._wpPickedLibName = it.lib.name || '' } catch {}
           close()
           setTimeout(() => { try { onPick('custom') } catch {} }, 0)
           return
@@ -3665,6 +3671,39 @@ function addWidget(root: HTMLElement, pid: string, type: string): void {
     }
     // Toggle any edit-only bits in this widget to match current edit mode
     ; (el as HTMLElement).querySelectorAll('.edit-only').forEach((n) => (n as HTMLElement).classList.toggle('hidden', !on))
+    // If this custom widget came from user's library in grid context, lock it and show its name. Whole widget acts as a button.
+    if (type === 'custom') {
+      let pickedName = ''
+      try { pickedName = String((window as any)._wpPickedLibName || '') } catch {}
+      if (pickedName) {
+        const card = el as HTMLElement
+        card.setAttribute('data-locked', '1')
+        card.setAttribute('data-name', pickedName)
+        const body = card.querySelector('.wg-content') as HTMLElement | null
+        if (body) {
+          body.innerHTML = `<button class="w-full h-full grid place-items-center text-center px-2 py-1 rounded bg-neutral-900/40 ring-2 ring-neutral-600 hover:bg-neutral-900/60 text-gray-100 transition shadow-sm hover:shadow-md hover:brightness-110" style="min-height:64px">${escapeHtml(pickedName)}</button>`
+          const btn = body.querySelector('button') as HTMLButtonElement | null
+          btn?.addEventListener('click', (e) => {
+            e.stopPropagation()
+            try { openWidgetRunModal(root, pid, id, 'custom', pickedName) } catch {}
+          })
+        }
+        // Make the whole card act as a button in view mode
+        card.addEventListener('click', (e) => {
+          const gridEl = card.closest('#widgetGrid') as HTMLElement | null
+          if (gridEl?.getAttribute('data-edit') === '1') return
+          e.stopPropagation()
+          try { openWidgetRunModal(root, pid, id, 'custom', pickedName) } catch {}
+        })
+        // Note: ホバー効果は内側ボタンにのみ適用（カード全体には適用しない）
+        // Hide edit affordances for locked card
+        ;(card.querySelector('.w-del') as HTMLElement | null)?.classList.add('hidden')
+        card.querySelectorAll('.wg-rz').forEach((n) => (n as HTMLElement).classList.add('hidden'))
+        ;(card.querySelector('.wg-move') as HTMLElement | null)?.classList.add('hidden')
+        // Clear the global hint to avoid affecting later additions
+        try { (window as any)._wpPickedLibName = '' } catch {}
+      }
+    }
     // markdown: popup mode → 初期同期は不要
     // If this is a contributions widget, hydrate from cache/network
     if (type === 'contrib') {
@@ -4360,6 +4399,7 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
       const canvas = w.querySelector('.flow-canvas') as HTMLElement | null
       const svg = w.querySelector('.flow-svg') as SVGSVGElement | null
       if (box && canvas && svg) {
+        const isHex = !!w.closest('.hxw-widget')
         const gridEl = w.closest('#widgetGrid') as HTMLElement | null
         const edit = gridEl?.getAttribute('data-edit') === '1'
         const g = flowLoad(pid, id)
@@ -4368,6 +4408,12 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
         const designWrap = (w.querySelector('.flow-design') as HTMLElement | null)
         const modeBtns = Array.from(w.querySelectorAll('.flow-mode [data-mode]')) as HTMLElement[]
         const applyMode = (md: 'logic'|'design') => {
+          if (isHex) {
+            if (paletteWrap) paletteWrap.classList.add('hidden')
+            if (designWrap) designWrap.classList.add('hidden')
+            if (box) box.classList.add('hidden')
+            return
+          }
           if (paletteWrap) paletteWrap.classList.toggle('hidden', md !== 'logic')
           if (designWrap) designWrap.classList.toggle('hidden', md !== 'design')
           if (box) box.classList.toggle('hidden', md !== 'logic')
@@ -4380,7 +4426,7 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
         }
         const currentMode = flowModeGet(pid, id)
         applyMode(currentMode)
-        modeBtns.forEach(btn => btn.addEventListener('click', () => { const md = (btn.getAttribute('data-mode') as any) || 'logic'; flowModeSet(pid, id, md); applyMode(md) }))
+        if (!isHex) modeBtns.forEach(btn => btn.addEventListener('click', () => { const md = (btn.getAttribute('data-mode') as any) || 'logic'; flowModeSet(pid, id, md); applyMode(md) }))
         // Design panel (color/alpha + shape presets)
         const applyDesignUpdate = (conf: { rgb?: [number,number,number]; alpha?: number; shape?: Array<[number,number]> }) => {
           const cur = hxwCustomGet(pid, id) || {}
@@ -4396,7 +4442,11 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
         }
         const colorsWrap = (w.querySelector('#fld-colors') as HTMLElement | null)
         const alphaInput = (w.querySelector('#fld-alpha') as HTMLInputElement | null)
-        if (colorsWrap) {
+        if (isHex) {
+          if (paletteWrap) paletteWrap.classList.add('hidden')
+          if (designWrap) designWrap.classList.add('hidden')
+        }
+        if (colorsWrap && !isHex) {
           const palette: Array<[number,number,number]> = [[59,130,246],[16,185,129],[239,68,68],[168,85,247],[251,146,60],[234,179,8],[99,102,241],[20,184,166],[14,165,233]]
           const cur = hxwCustomGet(pid, id)
           let pick = 1
@@ -4416,16 +4466,18 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
             colorsWrap.appendChild(btt)
           })
         }
-        if (alphaInput) {
+        if (alphaInput && !isHex) {
           const cur = hxwCustomGet(pid, id)
           alphaInput.value = String(typeof cur?.alpha === 'number' ? cur!.alpha : 0.38)
           alphaInput.addEventListener('input', () => { const a = Math.max(0, Math.min(1, parseFloat(alphaInput.value)||0.38)); applyDesignUpdate({ alpha: a }) })
         }
-        const setShapePreset = (shape: Array<[number,number]>) => applyDesignUpdate({ shape })
-        ;(w.querySelector('#fld-t1') as HTMLElement | null)?.addEventListener('click', () => setShapePreset([[0,0]]))
-        ;(w.querySelector('#fld-t3') as HTMLElement | null)?.addEventListener('click', () => setShapePreset([[0,0],[1,0],[0,1]]))
-        ;(w.querySelector('#fld-t4') as HTMLElement | null)?.addEventListener('click', () => setShapePreset([[0,0],[1,0],[0,1],[1,1]]))
-        ;(w.querySelector('#fld-t7') as HTMLElement | null)?.addEventListener('click', () => setShapePreset([[0,0],[1,0],[0,1],[-1,1],[-1,0],[0,-1],[1,-1]]))
+        if (!isHex) {
+          const setShapePreset = (shape: Array<[number,number]>) => applyDesignUpdate({ shape })
+          ;(w.querySelector('#fld-t1') as HTMLElement | null)?.addEventListener('click', () => setShapePreset([[0,0]]))
+          ;(w.querySelector('#fld-t3') as HTMLElement | null)?.addEventListener('click', () => setShapePreset([[0,0],[1,0],[0,1]]))
+          ;(w.querySelector('#fld-t4') as HTMLElement | null)?.addEventListener('click', () => setShapePreset([[0,0],[1,0],[0,1],[1,1]]))
+          ;(w.querySelector('#fld-t7') as HTMLElement | null)?.addEventListener('click', () => setShapePreset([[0,0],[1,0],[0,1],[-1,1],[-1,0],[0,-1],[1,-1]]))
+        }
         // Hex-packed rendering if slots exist
         const slotsWrap = w.querySelector('.hxw-cells') as HTMLElement | null
         if (slotsWrap) { (slotsWrap as HTMLElement).style.display = 'none' }
@@ -4820,6 +4872,16 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
         // run (view or edit both allowed)
         const logEl = w.querySelector('.flow-log') as HTMLElement | null
         const runBtn = w.querySelector('.flow-run') as HTMLElement | null
+        // In hex field, keep flow simple: hide internal UI (nodes/edges view, run button, log).
+        try {
+          const isHex = !!w.closest('.hxw-widget')
+          if (isHex) {
+            const bodyWrap = w.querySelector('.flow-body') as HTMLElement | null
+            if (bodyWrap) bodyWrap.style.display = 'none'
+            if (runBtn) runBtn.style.display = 'none'
+            if (logEl) logEl.style.display = 'none'
+          }
+        } catch {}
         const appendLog = (s: string) => { if (logEl) { const p = document.createElement('div'); p.textContent = `[${new Date().toLocaleTimeString()}] ${s}`; logEl.appendChild(p); logEl.scrollTop = logEl.scrollHeight } }
         runBtn?.addEventListener('click', async () => {
           const triggers = g.nodes.filter(n => n.kind === 'trigger')
@@ -5799,6 +5861,33 @@ function openMarkdownModal(root: HTMLElement, pid: string, id: string): void {
   document.body.appendChild(overlay)
   const body = overlay.querySelector('#md-body') as HTMLElement
   body.innerHTML = mdRenderToHtml(text || 'ここにMarkdownを書いてください')
+}
+
+// ---- Simple runner modal for custom/flow widgets ----
+function openWidgetRunModal(root: HTMLElement, pid: string, id: string, type: string, name?: string): void {
+  document.getElementById('wrModal')?.remove()
+  const overlay = document.createElement('div')
+  overlay.id = 'wrModal'
+  overlay.className = 'fixed inset-0 z-[86] bg-black/60 backdrop-blur-[1px] grid place-items-center fade-overlay'
+  const title = name && name.trim() ? name.trim() : (type === 'flow' ? 'フロー' : 'カスタム')
+  overlay.innerHTML = `
+    <div class="relative w-[min(620px,92vw)] max-h-[86vh] overflow-hidden rounded-xl bg-neutral-900 ring-2 ring-neutral-600 text-gray-100 pop-modal modal-fixed flex flex-col">
+      <header class="h-11 flex items-center px-4 border-b border-neutral-600">
+        <div class="text-sm font-medium">${title}</div>
+        <button class="ml-auto text-2xl text-neutral-300 hover:text-white" data-close>×</button>
+      </header>
+      <section class="flex-1 overflow-auto p-4 text-sm" id="wr-body">
+        <div class="text-gray-300">実行を開始しました。</div>
+        <div class="text-xs text-gray-400 mt-1">ウィジェットID: ${id}</div>
+      </section>
+      <footer class="h-11 border-t border-neutral-600 px-4 py-2 flex items-center justify-end gap-2">
+        <button class="rounded ring-2 ring-neutral-600 px-3 py-1 hover:bg-neutral-800" data-close>閉じる</button>
+      </footer>
+    </div>`
+  const close = () => overlay.remove()
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close() })
+  overlay.querySelectorAll('[data-close]')?.forEach((el) => el.addEventListener('click', close))
+  document.body.appendChild(overlay)
 }
 
 // ---- Experimental: Widget Creator Modal (Node flow + DSL placeholder) ----
@@ -8254,8 +8343,8 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
     try {
       canvas.querySelectorAll('.edit-only').forEach((el) => {
         const w = (el as HTMLElement).closest('.hxw-widget') as HTMLElement | null
-        const t = w?.getAttribute('data-type') || ''
-        if (t === 'links' || t === 'calendar') { (el as HTMLElement).classList.add('hidden'); return }
+        const t = (w?.getAttribute('data-type') || '').toLowerCase()
+        if (t === 'links' || t === 'calendar' || t === 'custom' || t === 'flow') { (el as HTMLElement).classList.add('hidden'); return }
         (el as HTMLElement).classList.toggle('hidden', !on)
       })
     } catch {}
@@ -8439,10 +8528,39 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
   })
   window.addEventListener('resize', () => hxwApplyTransform(wrap, canvas, st))
 
-  // Delegated clicks for widgets inside hex field (links/calendar forms)
+  // Delegated clicks for widgets inside hex field (links/calendar forms/custom/flow runner)
+  canvas.addEventListener('click', (e) => {
+    const host = (e.target as HTMLElement).closest('.hxw-widget') as HTMLElement | null
+    if (!host) return
+    const type = (host.getAttribute('data-type') || '').toLowerCase()
+    // Make custom/flow act as a big button; do nothing else.
+    if (type === 'custom' || type === 'flow') {
+      // In edit mode, clicking should not invoke
+      if (canvas.getAttribute('data-edit') === '1') return
+      // Only react when clicking inside the hex area (bg layer)
+      const inBg = (e.target as HTMLElement).closest('.hxw-bg') as HTMLElement | null
+      if (!inBg || !host.contains(inBg)) return
+      e.stopPropagation()
+      // Prefer running flow via existing button if present; then show a simple result modal
+      if (type === 'flow') {
+        const btn = host.querySelector('.flow-run') as HTMLButtonElement | null
+        if (btn) { try { btn.click() } catch {} }
+        const pid2 = canvas.getAttribute('data-pid') || '0'
+        const wid = host.getAttribute('data-widget') || ''
+        try { openWidgetRunModal(root, pid2, wid, 'flow') } catch {}
+      } else {
+        const pid2 = canvas.getAttribute('data-pid') || '0'
+        const wid = host.getAttribute('data-widget') || ''
+        const name = (function(){ try { const c = hxwCustomGet(pid2, wid); return (c?.name || scNameGet(pid2, wid) || '') } catch { return '' } })()
+        try { openWidgetRunModal(root, pid2, wid, 'custom', name) } catch {}
+      }
+    }
+  })
   canvas.addEventListener('contextmenu', (e) => {
     const hostHx = (e.target as HTMLElement).closest('.hxw-widget') as HTMLElement | null
     if (!hostHx) return
+    // Disable context menu for custom/flow (non-editable)
+    try { const t = (hostHx.getAttribute('data-type') || '').toLowerCase(); if (t === 'custom' || t === 'flow') return } catch {}
     try { (e as any).stopImmediatePropagation?.() } catch {}
     e.preventDefault(); e.stopPropagation()
     const pid2 = canvas.getAttribute('data-pid') || '0'
@@ -8780,6 +8898,14 @@ function hxwPlaceWidgets(root: HTMLElement, pid: string, st: HexWLayout): void {
       bgFlat.style.background = fillFlat
       ;(bgFlat.style as any).clipPath = `url(#${cid})`
       ;(bgFlat.style as any).webkitClipPath = `url(#${cid})`
+      // Route pointer events to the hex body only (not the whole rectangular host)
+      try {
+        const tpe = (host!.getAttribute('data-type') || '').toLowerCase()
+        if (tpe === 'custom' || tpe === 'flow') {
+          host!.style.pointerEvents = 'none'
+          bgFlat.style.pointerEvents = 'auto'
+        }
+      } catch {}
     }
 
     // Apply custom name label (small floating chip) if configured
@@ -8789,6 +8915,39 @@ function hxwPlaceWidgets(root: HTMLElement, pid: string, st: HexWLayout): void {
       let chip = host!.querySelector('.hxw-name') as HTMLElement | null
       if (!chip && name) { chip = document.createElement('div'); chip.className = 'hxw-name'; chip.style.position = 'absolute'; chip.style.left = '50%'; chip.style.top = '6px'; chip.style.transform = 'translateX(-50%)'; chip.style.zIndex = '5'; chip.style.pointerEvents = 'none'; chip.style.fontSize = '12px'; chip.style.fontWeight = '600'; chip.style.color = 'white'; chip.style.textShadow = '0 1px 2px rgba(0,0,0,.3)'; host!.appendChild(chip) }
       if (chip) { chip.textContent = name || ''; chip.style.display = name ? '' : 'none' }
+    } catch {}
+
+    // Make custom/flow widgets act like a single big button
+    try {
+      const t = (host!.getAttribute('data-type') || '').toLowerCase()
+      if (t === 'custom' || t === 'flow') {
+        host!.style.cursor = 'pointer'
+        host!.setAttribute('role', 'button')
+        host!.setAttribute('tabindex', '0')
+        // Hover/press feedback when not editing (apply only to hex area via bg layer)
+        const applyHover = (on: boolean) => {
+          const editing = canvas.getAttribute('data-edit') === '1'
+          if (editing) return
+          const bg = host!.querySelector('.hxw-bg') as HTMLElement | null
+          if (!bg) return
+          bg.style.transition = 'transform .12s ease, filter .12s ease, box-shadow .12s ease'
+          if (on) { bg.style.filter = 'brightness(1.07)'; (bg.style as any).boxShadow = '0 10px 24px rgba(0,0,0,0.28)' }
+          else { bg.style.filter = ''; (bg.style as any).boxShadow = '' }
+        }
+        const bgEl = host!.querySelector('.hxw-bg') as HTMLElement | null
+        if (bgEl) {
+          bgEl.addEventListener('mouseenter', () => applyHover(true))
+          bgEl.addEventListener('mouseleave', () => applyHover(false))
+          bgEl.addEventListener('mousedown', () => {
+            if (canvas.getAttribute('data-edit') === '1') return
+            bgEl.style.transform = 'scale(0.997)'
+          })
+          bgEl.addEventListener('mouseup', () => {
+            if (canvas.getAttribute('data-edit') === '1') return
+            bgEl.style.transform = ''
+          })
+        }
+      }
     } catch {}
 
     // Build per-cell slots container for hex-packed layout (above bg, below body)
@@ -8819,13 +8978,14 @@ function hxwPlaceWidgets(root: HTMLElement, pid: string, st: HexWLayout): void {
     try {
       const t = (host!.getAttribute('data-type') || '').toLowerCase()
       // NOTE: Links/Calendar/README/Markdown are slot-driven (popup buttons)
-      const noSlots = t === 'flow'
+      // Custom/Flow are simple buttons after placement → remove per-cell slots
+      const noSlots = t === 'flow' || t === 'custom'
       if (noSlots && cellsWrap) { cellsWrap.remove(); cellsWrap = null as any }
     } catch {}
-    // Hide rectangular body for compact slot-driven widgets (invite/account/tabnew/skin/clock-digital/readme/markdown)
+    // Hide rectangular body for compact or simple widgets (invite/account/tabnew/skin/clock-digital/readme/markdown/custom/flow)
     try {
       const t = (host!.getAttribute('data-type') || '').toLowerCase()
-      if (t === 'invite' || t === 'account' || t === 'tabnew' || t === 'skin' || t === 'clock-digital' || t === 'readme' || t === 'markdown') {
+      if (t === 'invite' || t === 'account' || t === 'tabnew' || t === 'skin' || t === 'clock-digital' || t === 'readme' || t === 'markdown' || t === 'custom' || t === 'flow') {
         const body2 = host!.querySelector('.hxw-body') as HTMLElement | null
         if (body2) body2.style.display = 'none'
       }
