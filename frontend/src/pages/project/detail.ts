@@ -6804,7 +6804,6 @@ function detailLayout(ctx: { id: number; name: string; fullName: string; owner?:
                   <div id="hxwInfoPanel" class="rounded-t-xl rounded-b-none border-2 border-neutral-600 border-b-0 bg-neutral-950/70 backdrop-blur px-4 py-2 text-gray-100 shadow-xl">
                     <div class="flex items-center gap-2 mb-1">
                       <div class="text-sm font-semibold">選択中のウィジェット</div>
-                      <button id="hxwInfoClose" class="ml-auto text-xl leading-none text-neutral-300 hover:text-white">×</button>
                     </div>
                   <div id="hxwInfoBody" class="text-sm leading-tight space-y-1">
                     <div class="text-gray-400">ウィジェットをクリックで選択</div>
@@ -8630,7 +8629,6 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
       }
     }
     panel.classList.remove('hidden')
-    panel.querySelector('#hxwInfoClose')?.addEventListener('click', () => infoHide(), { once: true })
     // Bind collapse/expand handle once
     if (!(panel as any)._infoBarBound) {
       (panel as any)._infoBarBound = true
