@@ -3,6 +3,7 @@ import { openTaskModal, openTaskModalGh } from './task-modal'
 import { renderNotFound } from '../not-found/not-found'
 import { getTheme, setTheme } from '../../utils/theme'
 import { hideRouteLoading, showRouteLoading, finishSeamless } from '../../utils/route-loading'
+import { honeyHexEmptySvg, honeyHexFilledSvg } from '../../utils/honeycomb'
 import { consumePrefetchedProject } from '../../utils/prefetch'
 // (no component-level imports; keep in-page implementations)
 // Account modal helpers (duplicated to open over current page)
@@ -31,6 +32,21 @@ function tintHex(hex: string, pct = 0.2): string {
   g = Math.min(255, Math.round(g + (255 - g) * pct))
   b = Math.min(255, Math.round(b + (255 - b) * pct))
   return `rgb(${r}, ${g}, ${b})`
+}
+// Derive darker side and lighter highlight from a base rgba()/rgb() color
+function deriveFacets(main: string): { side: string; hi: string } {
+  const m = main.match(/^rgba?\((\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([0-9.]+))?\)$/)
+  if (!m) return { side: main, hi: main }
+  const r = parseInt(m[1], 10), g = parseInt(m[2], 10), b = parseInt(m[3], 10)
+  const a = m[4] != null ? Math.max(0, Math.min(1, parseFloat(m[4]))) : 1
+  const clamp = (x: number) => Math.max(0, Math.min(255, Math.round(x)))
+  const sr = clamp(r * 0.35), sg = clamp(g * 0.35), sb = clamp(b * 0.35)
+  const sa = Math.max(0.65, Math.min(0.9, a + 0.30))
+  const hr = clamp(r + (255 - r) * 0.12)
+  const hg = clamp(g + (255 - g) * 0.12)
+  const hb = clamp(b + (255 - b) * 0.12)
+  const ha = Math.max(0.16, Math.min(0.3, a + 0.06))
+  return { side: `rgba(${sr},${sg},${sb},${sa})`, hi: `rgba(${hr},${hg},${hb},${ha})` }
 }
 const ICON_BELL = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="36" height="36" fill="currentColor" aria-hidden="true"><path d="M12 22a2 2 0 002-2h-4a2 2 0 002 2zm6-6v-5a6 6 0 00-4.5-5.82V4a1.5 1.5 0 10-3 0v1.18A6 6 0 006 11v5l-2 2v1h16v-1l-2-2z"/></svg>'
 const ICON_PALETTE = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="36" height="36" fill="currentColor" aria-hidden="true"><path d="M12 3a9 9 0 100 18h1a2 2 0 002-2 2 2 0 012-2h1a4 4 0 100-8h-1a1 1 0 01-1-1 4 4 0 00-4-4zm-5.5 8A1.5 1.5 0 118 9.5 1.5 1.5 0 016.5 11zm3 3A1.5 1.5 0 1111 12.5 1.5 1.5 0 019.5 14zm5-6A1.5 1.5 0 1116 6.5 1.5 1.5 0 0114.5 8zm2 4A1.5 1.5 0 1118 10.5 1.5 1.5 0 0116.5 12z"/></svg>'
@@ -3631,8 +3647,11 @@ function openWidgetPickerModal(root: HTMLElement, pid: string, onPick?: (type: s
       cell.style.width = `${W}px`
       cell.style.height = `${H}px`
       const clip = document.createElement('div')
-      clip.className = 'hxw-clip'
-      clip.style.background = col.flat
+      clip.className = 'hxw-clip hx-svgclip'
+      // use selected color for currentColor; derive side/highlight numerically
+      clip.style.color = col.flat
+      { const f = deriveFacets(col.flat); (clip.style as any).setProperty('--hx-side', f.side); (clip.style as any).setProperty('--hx-hi', f.hi); (clip.style as any).setProperty('--hx-edge', f.side) }
+        clip.innerHTML = honeyHexFilledSvg()
       cell.appendChild(clip)
       host.appendChild(cell)
     })
@@ -9283,10 +9302,10 @@ function hxwPlaceWidgets(root: HTMLElement, pid: string, st: HexWLayout): void {
       ]
       // Stable per-widget color pick to increase variety
       const hsh = (s: string) => { let h = 0; for (let i=0;i<s.length;i++){ h = ((h<<5)-h) + s.charCodeAt(i); h|=0 } return Math.abs(h) }
-      const idx = hsh(id + ':' + type) % palette.length
-      const base = palette[idx]
       const conf = hxwCustomGet(pid, id)
-      const rgb = (conf && Array.isArray(conf.rgb) && conf.rgb.length === 3) ? (conf.rgb as [number,number,number]) : base
+      const rgb: [number,number,number] = (conf && Array.isArray(conf.rgb) && conf.rgb.length === 3)
+        ? (conf.rgb as [number,number,number])
+        : palette[hsh(type) % palette.length]
       const alpha = (conf && typeof conf.alpha === 'number') ? Math.max(0, Math.min(1, conf.alpha)) : (lightBg ? 0.42 : 0.38)
       const fillFlat = `rgba(${rgb[0]},${rgb[1]},${rgb[2]}, ${alpha})`
       host!.style.setProperty('--hxw-fill', fillFlat)
@@ -9565,6 +9584,29 @@ export function renderHexWidgets(root: HTMLElement, pid: string): void {
   // build background nodes
   const nodes: Array<{ q: number; r: number; x: number; y: number }> = []
   canvas.innerHTML = ''
+  // Tones: occupied cells follow project color; empty cells use black-ish neutral
+  const pjColor = ((root as HTMLElement).getAttribute('data-pj-color') || 'blue') as string
+  const themeId = (document.documentElement.getAttribute('data-theme') || 'dark')
+  const isLightTheme = themeId === 'warm' || themeId === 'sakura'
+  const toneFor = (c: string): string => {
+    const alpha = isLightTheme ? 0.42 : 0.38
+    switch (c) {
+      case 'red': return `rgba(239,68,68,${alpha})`
+      case 'green': return `rgba(16,185,129,${alpha})`
+      case 'purple': return `rgba(168,85,247,${alpha})`
+      case 'orange': return `rgba(251,146,60,${alpha})`
+      case 'yellow': return `rgba(234,179,8,${alpha})`
+      case 'gray': return isLightTheme ? 'rgba(120,120,128,0.38)' : 'rgba(120,120,128,0.35)'
+      case 'black': return isLightTheme ? 'rgba(0,0,0,0.45)' : 'rgba(0,0,0,0.55)'
+      case 'white': return isLightTheme ? 'rgba(255,255,255,0.65)' : 'rgba(255,255,255,0.10)'
+      default: /* blue */ return `rgba(59,130,246,${alpha})`
+    }
+  }
+  const occTone = toneFor(pjColor)
+  const facetsOcc = deriveFacets(occTone)
+  // Empty tiles: medium gray, less opaque to avoid harsh black
+  const emptyTone = isLightTheme ? 'rgba(120,120,128,0.26)' : 'rgba(120,120,128,0.22)'
+  const facetsEmpty = deriveFacets(emptyTone)
   // Build a rounded hex mask so the field extends in a beehive-like shape (not a rectangle)
   const mask = new Set<string>()
   // シルエット位置は固定（中央基準）
@@ -9597,7 +9639,13 @@ export function renderHexWidgets(root: HTMLElement, pid: string): void {
         el.style.width = `${W}px`
         el.style.height = `${H}px`
         const clip = document.createElement('div')
-        clip.className = 'hxw-clip'
+        clip.className = 'hxw-clip hx-svgclip'
+        // initialize as empty-tone; occupied cells recolor later
+        clip.style.color = emptyTone
+        ;(clip.style as any).setProperty('--hx-side', facetsEmpty.side)
+        ;(clip.style as any).setProperty('--hx-hi',   facetsEmpty.hi)
+        ;(clip.style as any).setProperty('--hx-edge', facetsEmpty.side)
+        clip.innerHTML = honeyHexEmptySvg()
         el.appendChild(clip)
         canvas.appendChild(el)
       }
@@ -9699,6 +9747,47 @@ export function renderHexWidgets(root: HTMLElement, pid: string): void {
 
   // place widgets
   hxwPlaceWidgets(root, pid, st)
+  // After widgets are placed, recolor background cells: use empty design for unoccupied cells
+  try {
+    const occ: Set<string> = (wrap as any)._hxwOcc || new Set<string>()
+    const bgHexes = Array.from(canvas.querySelectorAll('.hxw-hex[data-kind="bg"]')) as HTMLElement[]
+    bgHexes.forEach((el) => {
+      const q = parseInt(el.getAttribute('data-q') || '-1', 10)
+      const r = parseInt(el.getAttribute('data-r') || '-1', 10)
+      const k = `${q},${r}`
+      const clip = el.querySelector('.hxw-clip') as HTMLElement | null
+      if (!clip) return
+      if (occ.has(k)) {
+        // Occupied: match widget picker palette per widget (id/type or custom RGB)
+        const marker = canvas.querySelector(`.hxw-hex.hxw-filled[data-kr="${q},${r}"]`) as HTMLElement | null
+        let col = occTone
+        if (marker) {
+          const host = marker.closest('.hxw-widget') as HTMLElement | null
+          const id = host?.getAttribute('data-widget') || ''
+          // Prefer explicit RGB from marker annotation
+          const rgbStr = marker.getAttribute('data-rgb') || ''
+          let a = isLightTheme ? 0.42 : 0.38
+          try { const c = hxwCustomGet(pid, id); if (c && typeof (c as any).alpha === 'number') a = Math.max(0, Math.min(1, (c as any).alpha)) } catch {}
+          if (rgbStr) {
+            const [rr,gg,bb] = rgbStr.split(',').map((n)=>parseInt(n,10))
+            if (Number.isFinite(rr) && Number.isFinite(gg) && Number.isFinite(bb)) col = `rgba(${rr},${gg},${bb}, ${a})`
+          }
+        }
+        const f = deriveFacets(col)
+        clip.innerHTML = honeyHexFilledSvg()
+        clip.style.color = col
+        ;(clip.style as any).setProperty('--hx-side', f.side)
+        ;(clip.style as any).setProperty('--hx-hi',   f.hi)
+        ;(clip.style as any).setProperty('--hx-edge', f.side)
+      } else {
+        clip.innerHTML = honeyHexEmptySvg()
+        clip.style.color = emptyTone
+        ;(clip.style as any).setProperty('--hx-side', facetsEmpty.side)
+        ;(clip.style as any).setProperty('--hx-hi',   facetsEmpty.hi)
+        ;(clip.style as any).setProperty('--hx-edge', facetsEmpty.side)
+      }
+    })
+  } catch { /* non-fatal */ }
   // bind interactions and minimap
   hxwBindInteractions(root, wrap, canvas, st)
   // center initial view (skip during entry animation or if already inited)

@@ -3,6 +3,7 @@ import { getTheme, setTheme } from '../../utils/theme'
 import { showRouteLoading, hideRouteLoading } from '../../utils/route-loading'
 import { prefetchProjectDetail, prefetchProjectDetailDeep } from '../../utils/prefetch'
 import { openAccountModal as openDetailAccountModal } from './detail'
+import { honeyHexFilledSvg, honeyHexEmptySvg } from '../../utils/honeycomb'
 
 type Project = {
   id: number
@@ -452,8 +453,10 @@ function renderHoneycomb(root: HTMLElement, projects: Project[]): void {
       // Use group color for filled tiles to unify honeycomb color by group
       const gcol = colorForGroupId(groups, gid)
       const tone = hexTone(gcol)
+      const facets = deriveFacets(tone.bg)
       tile.innerHTML = `
-        <div class="hx-clip hx-plain" style="background:${tone.bg}; border-color:${tone.border}">
+        <div class="hx-clip hx-plain hx-svgclip" style="color:${tone.bg}; --hx-side:${facets.side}; --hx-hi:${facets.hi}; --hx-edge:${facets.side}">
+          ${honeyHexFilledSvg()}
           <div class="hx-info hx-plain"><div>${escapeHtml(title)}</div></div>
         </div>`
       // Start deeper prefetch at the earliest selection moment
@@ -572,8 +575,10 @@ function renderHoneycomb(root: HTMLElement, projects: Project[]): void {
         if (h) {
           const label = h.label
           const sub = h.sub
+          const facets = deriveFacets(tone.bg)
           tile.innerHTML = `
-            <div class="hx-clip hx-plain" style="background:${tone.bg}; border-color:${tone.border}">
+            <div class="hx-clip hx-plain hx-svgclip" style="color:${tone.bg}; --hx-side:${facets.side}; --hx-hi:${facets.hi}; --hx-edge:${facets.side}">
+              ${honeyHexFilledSvg()}
               <div class="hx-info hx-plain"><div>${escapeHtml(label)}</div><div class="text-[10px] opacity-80 mt-0.5">${escapeHtml(sub)}</div></div>
             </div>`
           tile.addEventListener('click', () => {
@@ -581,7 +586,11 @@ function renderHoneycomb(root: HTMLElement, projects: Project[]): void {
             window.location.hash = h.route
           })
         } else {
-          tile.innerHTML = `<div class="hx-clip hx-plain" style="background:${tone.bg}; border-color:${tone.border}"></div>`
+          const theme = (document.documentElement.getAttribute('data-theme') || 'dark')
+          const light = theme === 'warm' || theme === 'sakura'
+          const emptyTone = light ? 'rgba(120,120,128,0.26)' : 'rgba(120,120,128,0.22)'
+          const f = deriveFacets(emptyTone)
+          tile.innerHTML = `<div class="hx-clip hx-plain hx-svgclip" style="color:${emptyTone}; --hx-side:${f.side}; --hx-hi:${f.hi}">${honeyHexEmptySvg()}</div>`
         }
         canvas.appendChild(tile)
         return
@@ -605,17 +614,27 @@ function renderHoneycomb(root: HTMLElement, projects: Project[]): void {
       if (makeCreate) {
         createdSpot.add(gid)
         tile.classList.add('hx-create')
-        tile.innerHTML = `<div class="hx-clip"><div class="hx-info"><div class="text-xs">プロジェクト追加</div><div class="plus">＋</div></div></div>`
+        // Use occupied-tile SVG for create button as requested
+        const theme = (document.documentElement.getAttribute('data-theme') || 'dark')
+        const light = theme === 'warm' || theme === 'sakura'
+        const base = light ? 'rgba(120,120,128,0.26)' : 'rgba(120,120,128,0.22)'
+        const facets = deriveFacets(base)
+        tile.innerHTML = `
+          <div class="hx-clip hx-svgclip" style="color:${base}; --hx-side:${facets.side}; --hx-hi:${facets.hi}; --hx-edge:${facets.side}">
+            ${honeyHexFilledSvg()}
+            <div class="hx-info"><div class="text-xs">プロジェクト追加</div><div class="plus">＋</div></div>
+          </div>`
         tile.addEventListener('click', () => {
           try { localStorage.setItem('createTargetGroup', gid) } catch {}
           openCreateProjectModal(root)
         })
       } else {
-        // Group-tinted empty cell for visible boundaries (no .hx-empty to avoid neutral override)
+        // Empty cells in list should be tinted per area/group (keep area differentiation)
         const gcol = colorForGroupId(groups, gid)
         const gt = groupTone(gcol)
+        const f = deriveFacets(gt.bg)
         tile.setAttribute('data-group', gid)
-        tile.innerHTML = `<div class="hx-clip hx-plain" style="background:${gt.bg}; border-color:${gt.border}"></div>`
+        tile.innerHTML = `<div class="hx-clip hx-plain hx-svgclip" style="color:${gt.bg}; --hx-side:${f.side}; --hx-hi:${f.hi}">${honeyHexEmptySvg()}</div>`
       }
     }
     canvas.appendChild(tile)
@@ -648,6 +667,25 @@ function hexTone(color?: Project['color']): { bg: string; border: string; textur
     case 'white': return { bg: rgba(255, 255, 255, light ? 0.65 : 0.10), border, texture }
     default: /* blue */ return { bg: rgba(59, 130, 246, alpha), border, texture }
   }
+}
+
+// Derive darker side and lighter highlight from a base rgba() color string
+function deriveFacets(main: string): { side: string; hi: string } {
+  // expect rgba(r,g,b,a) or rgb(r,g,b)
+  let m = main.match(/^rgba?\((\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([0-9.]+))?\)$/)
+  if (!m) return { side: main, hi: main }
+  const r = parseInt(m[1], 10), g = parseInt(m[2], 10), b = parseInt(m[3], 10)
+  const a = m[4] != null ? Math.max(0, Math.min(1, parseFloat(m[4]))) : 1
+  const clamp = (x: number) => Math.max(0, Math.min(255, Math.round(x)))
+  // side: darker, black-mix strong
+  const sr = clamp(r * 0.35), sg = clamp(g * 0.35), sb = clamp(b * 0.35)
+  const sa = Math.max(0.65, Math.min(0.9, a + 0.30))
+  // hi: subtle white-mix to avoid wash-out
+  const hr = clamp(r + (255 - r) * 0.12)
+  const hg = clamp(g + (255 - g) * 0.12)
+  const hb = clamp(b + (255 - b) * 0.12)
+  const ha = Math.max(0.16, Math.min(0.3, a + 0.06))
+  return { side: `rgba(${sr},${sg},${sb},${sa})`, hi: `rgba(${hr},${hg},${hb},${ha})` }
 }
 
 function clampOffsets(wrap: HTMLElement, st: HexLayout): void {

@@ -463,6 +463,8 @@ body[data-lock]:not([data-lock="0"]) .hx-wrap { pointer-events: none; }
 .hx-tile { position: absolute; cursor: pointer; transition: transform .15s ease, filter .15s ease; }
 .hx-clip { width: 100%; height: 100%; clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%); background: var(--gh-canvas-subtle); border: 1px solid var(--gh-border); border-radius: 8px; box-shadow: var(--shadow-card, none); overflow: hidden; position: relative; }
 .hx-clip::before { content: ''; position: absolute; inset: 0; background: radial-gradient(120% 80% at 10% 0%, rgba(255,255,255,0.06), transparent 60%), radial-gradient(140% 100% at 100% 100%, rgba(0,0,0,0.06), transparent 60%); opacity: .8; }
+.hx-clip.hx-svgclip { background: transparent !important; border: none !important; }
+.hx-clip .hx-svgel { position: absolute; inset: 0; width: 100%; height: 100%; display: block; pointer-events: none; }
 .hx-info { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; padding: 6px; opacity: 1; transition: opacity .15s ease, background .15s ease; backdrop-filter: saturate(120%) brightness(1.03); color: var(--gh-contrast); font-weight: 600; text-shadow: 0 1px 2px rgba(0,0,0,.18); background: rgba(0,0,0,.14); }
 .hx-tile:hover { filter: brightness(1.05); transform: translateY(-2px); }
 .hx-tile:hover .hx-info { background: rgba(0,0,0,.22); }
@@ -485,9 +487,9 @@ body[data-lock]:not([data-lock="0"]) .hx-wrap { pointer-events: none; }
 /* Create-project tile visual */
 /* Emphasized Create tile (black-ish, clear CTA) */
 .hx-create .hx-clip {
-  background: linear-gradient(135deg, rgba(10,10,10,.90), rgba(36,36,36,.95)) !important;
-  border-color: rgba(255,255,255,.55) !important;
-  border-style: dashed !important;
+  /* Use SVG-based honeycomb; remove dashed outline */
+  background: transparent !important;
+  border: none !important;
   box-shadow: 0 0 0 2px rgba(0,0,0,.6), 0 12px 30px rgba(0,0,0,.55);
 }
 .hx-create .hx-clip::before { opacity: .15; }
@@ -570,6 +572,8 @@ body[data-lock]:not([data-lock="0"]) .hxw-wrap { pointer-events: none; }
 /* 元のタイル形状（pointy-topに最適化されていた値へ戻す） */
 .hxw-clip { width: 100%; height: 100%; clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%); background: var(--gh-canvas-subtle); border: 1px solid var(--gh-border); border-radius: 8px; overflow: hidden; }
 .hxw-clip::before { content: ''; position: absolute; inset: 0; background: radial-gradient(120% 80% at 10% 0%, rgba(255,255,255,0.06), transparent 60%), radial-gradient(140% 100% at 100% 100%, rgba(0,0,0,0.06), transparent 60%); opacity: .8; }
+.hxw-clip.hx-svgclip { background: transparent !important; border: none !important; }
+.hxw-clip .hx-svgel { position: absolute; inset: 0; width: 100%; height: 100%; display: block; pointer-events: none; }
 .hxw-widget .hxw-clip { border: none !important; } /* 内部の区切り線は非表示（外周は別SVGで描画） */
 .hxw-bg { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
 .hxw-ghost .hxw-clip { border: 2px dashed rgba(251,191,36,0.9); background: rgba(251,191,36,0.08); }
