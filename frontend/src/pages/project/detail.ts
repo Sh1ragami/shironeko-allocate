@@ -6512,10 +6512,10 @@ function openWidgetCreatorModal(root: HTMLElement, pid: string): void {
   }
   renderPalette()
 
-  const TILE = 46
+  // Larger tiles for better visibility in design tab
+  const TILE = 76
   const sx = Math.round(TILE * 0.75)
   const sy = Math.round(TILE * 0.866)
-  const R = 4
   const sel = new Set<string>()
   const key = (ax: number, az: number) => `${ax},${az}`
   sel.add('0,0')
@@ -6531,7 +6531,7 @@ function openWidgetCreatorModal(root: HTMLElement, pid: string): void {
     host.style.left = '0px'; host.style.top = '0px'
     host.style.width = '100%'; host.style.height = '100%'
     board.appendChild(host)
-    const put = (q: number, r: number, ax: number, az: number) => {
+    const put = (q: number, r: number, ax: number, az: number, kind: 'sel'|'hint') => {
       const x = q * sx
       const y = Math.round((r + (q % 2 ? 0.5 : 0)) * sy)
       const hex = document.createElement('div')
@@ -6542,23 +6542,94 @@ function openWidgetCreatorModal(root: HTMLElement, pid: string): void {
       hex.style.width = `${TILE}px`
       hex.style.height = `${Math.round(TILE*0.866)}px`
       const clip = document.createElement('div')
-      clip.className = 'hxw-clip'
-      const on = sel.has(key(ax, az))
+      clip.className = 'hxw-clip hx-svgclip'
       const [r0,g0,b0] = palette[colorIdx]
-      clip.style.background = on ? `rgba(${r0},${g0},${b0}, ${parseFloat(alphaInput.value) || 0.38})` : 'rgba(255,255,255,0.08)'
-      clip.style.outline = on ? `2px solid rgba(${r0},${g0},${b0}, .85)` : '1px dashed rgba(255,255,255,.25)'
+      const a = Math.max(0, Math.min(1, parseFloat(alphaInput.value) || 0.38))
+      if (kind === 'sel') {
+        const col = `rgba(${r0},${g0},${b0}, ${a})`
+        const f = deriveFacets(col)
+        clip.style.color = col
+        ;(clip.style as any).setProperty('--hx-side', f.side)
+        ;(clip.style as any).setProperty('--hx-hi',   f.hi)
+        ;(clip.style as any).setProperty('--hx-edge', f.side)
+        clip.innerHTML = honeyHexFilledSvg()
+        // Allow removal only if it keeps the shape contiguous and is not the center (0,0)
+        const canRemove = (() => {
+          const k = key(ax, az)
+          if (k === '0,0') return false
+          if (!sel.has(k)) return false
+          // Check connectivity after removing k
+          const nbrs: Array<[number,number]> = [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]]
+          const rest = new Set<string>(Array.from(sel))
+          rest.delete(k)
+          if (!rest.size) return false
+          // BFS from center 0,0 (must exist)
+          if (!rest.has('0,0')) return false
+          const q: Array<[number,number]> = [[0,0]]
+          const seen = new Set<string>(['0,0'])
+          while (q.length) {
+            const [x,z] = q.shift() as [number,number]
+            for (const [dx,dz] of nbrs) {
+              const nk = key(x+dx, z+dz)
+              if (!rest.has(nk) || seen.has(nk)) continue
+              seen.add(nk); q.push([x+dx, z+dz])
+            }
+          }
+          return seen.size === rest.size
+        })()
+        if (canRemove) {
+          // Central delete button
+          const del = document.createElement('button')
+          del.type = 'button'
+          del.title = '削除'
+          del.textContent = '×'
+          del.style.position = 'absolute'
+          del.style.inset = '0'
+          del.style.display = 'grid'
+          ;(del.style as any).placeItems = 'center'
+          // transparent background to avoid overlaying a semi-transparent rectangle look
+          del.style.background = 'transparent'
+          del.style.border = 'none'
+          del.style.borderRadius = '6px'
+          del.style.color = 'rgba(255,255,255,0.95)'
+          del.style.fontSize = `${Math.round(TILE*0.38)}px`
+          del.style.lineHeight = '1'
+          del.style.cursor = 'pointer'
+          del.style.zIndex = '3'
+          // ensure click lands on the button and not the hex container
+          del.addEventListener('mousedown', (e) => { e.stopPropagation() })
+          del.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); sel.delete(key(ax,az)); renderBoard(); updateSave() })
+          hex.appendChild(del)
+        }
+      } else {
+        // Hint tile: use the empty SVG look, grayscale and very transparent
+        const light = (document.documentElement.getAttribute('data-theme') || 'dark') !== 'dark'
+        const hint = light ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.12)'
+        const f = deriveFacets(hint)
+        clip.style.color = hint
+        ;(clip.style as any).setProperty('--hx-side', f.side)
+        ;(clip.style as any).setProperty('--hx-hi',   f.hi)
+        ;(clip.style as any).setProperty('--hx-edge', f.side)
+        clip.innerHTML = honeyHexEmptySvg()
+        const plus = document.createElement('div')
+        plus.textContent = '＋'
+        plus.style.position = 'absolute'; plus.style.inset = '0'; plus.style.display = 'grid'; (plus.style as any).placeItems = 'center'
+        plus.style.color = light ? 'rgba(0,0,0,0.35)' : 'rgba(255,255,255,0.35)'
+        plus.style.fontSize = `${Math.round(TILE*0.28)}px`
+        plus.style.pointerEvents = 'none'
+        hex.appendChild(plus)
+        hex.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); sel.add(key(ax,az)); renderBoard(); updateSave() })
+      }
       hex.appendChild(clip)
-      hex.setAttribute('tabindex', '0')
-      hex.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); const k = key(ax,az); if (sel.has(k)) sel.delete(k); else sel.add(k); renderBoard(); updateSave() })
       host.appendChild(hex)
     }
-    // draw range around 0,0 in axial space, converted to odd-q for layout
-    for (let az=-R; az<=R; az++) {
-      for (let ax=-R; ax<=R; ax++) {
-        const o = axialToOddqLocal(ax, az)
-        put(o.q, o.r, ax, az)
-      }
-    }
+    // Draw current selection and only the valid neighbor positions as hints
+    const selCells: Array<[number,number]> = Array.from(sel).map(s => { const [ax,az] = s.split(',').map(Number); return [ax,az] as [number,number] })
+    const nbrs: Array<[number,number]> = [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]]
+    selCells.forEach(([ax,az]) => { const o = axialToOddqLocal(ax, az); put(o.q, o.r, ax, az, 'sel') })
+    const hints = new Set<string>()
+    selCells.forEach(([ax,az]) => { nbrs.forEach(([dx,dz]) => { const k2 = key(ax+dx, az+dz); if (!sel.has(k2)) hints.add(k2) }) })
+    hints.forEach((k2) => { const [ax,az] = k2.split(',').map(Number); const o = axialToOddqLocal(ax, az); put(o.q, o.r, ax, az, 'hint') })
   }
   const setShape = (shape: Array<[number,number]>) => { sel.clear(); shape.forEach(([ax,az]) => sel.add(key(ax,az))); renderBoard(); updateSave() }
   const updateSave = () => { const hasName = (nameInput?.value || '').trim().length > 0; saveBtn.disabled = (sel.size === 0) || !hasName }
