@@ -1164,15 +1164,75 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
       setTimeout(startArrival, 0)
     }
   } catch {}
-  // Intercept breadcrumb click to add a back animation to project list
+  // Intercept breadcrumb click to run a reverse transition back to list (shrink then slide right)
   try {
     const bc = container.querySelector('#topPathUser') as HTMLAnchorElement | null
     bc?.addEventListener('click', (ev) => {
       ev.preventDefault()
+      const wrap = container.querySelector('#hxwWrap') as HTMLElement | null
+      const canvas = container.querySelector('#hxwCanvas') as HTMLElement | null
+      const st: any = (wrap as any)?._hxw
+      // Set flags for list arrival and suppress toasts during transition
       try { sessionStorage.setItem('pj-back-anim', '1') } catch {}
       try { sessionStorage.setItem('pj-back-color', String(project.color || '')) } catch {}
-      try { showRouteLoading('プロジェクト一覧', project.color as any, { style: 'single', spinMs: 950 }) } catch {}
-      window.location.hash = '#/project'
+      // Remember which project tile to center on in the list
+      try { sessionStorage.setItem('pj-back-focus-id', String(project.id)) } catch {}
+      try { sessionStorage.setItem('suppress-group-toast', '1') } catch {}
+      try { document.body.setAttribute('data-suppress-group-toast', '1') } catch {}
+      // No route loading overlay when returning to list
+      // If layout not ready, fallback to immediate navigation
+      if (!wrap || !canvas || !st) { window.location.hash = '#/project'; return }
+      const ease = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2)
+      const now = () => performance.now()
+      const animate = (dur: number, step: (t:number)=>void, done: ()=>void) => {
+        const t0 = now()
+        const tick = () => { const tt = Math.min(1, (now()-t0)/dur); step(ease(tt)); if (tt<1) requestAnimationFrame(tick); else done() }
+        requestAnimationFrame(tick)
+      }
+      const zoomAtCenter = (s: number) => {
+        const rect = wrap.getBoundingClientRect()
+        const cx2 = rect.width / 2
+        const cy2 = rect.height / 2
+        const effBefore = (function(){ try { return (hxwEffectiveScale as any)(wrap, st) } catch { return st.scale || 1 } })()
+        const wx = (cx2 - st.offsetX) / (effBefore || 1)
+        const wy = (cy2 - st.offsetY) / (effBefore || 1)
+        st.scale = s
+        try {
+          const effAfter = (hxwEffectiveScale as any)(wrap, st)
+          st.offsetX = Math.round(cx2 - wx * (effAfter || s))
+          st.offsetY = Math.round(cy2 - wy * (effAfter || s))
+        } catch {
+          st.offsetX = Math.round(cx2 - wx * s)
+          st.offsetY = Math.round(cy2 - wy * s)
+        }
+        try { (hxwApplyTransform as any)(wrap, canvas, st) } catch {}
+      }
+      const startScale = st.scale || 1
+      const endScale = Math.max(0.1, startScale * 0.6)
+      // Persist the ratio so list can mirror our small state if desired
+      try { sessionStorage.setItem('pj-back-shrink-ratio', String(endScale / Math.max(0.0001, startScale))) } catch {}
+      let sent = false
+      const go = () => { if (sent) return; sent = true; window.location.hash = '#/project' }
+      const durationShrink = 400
+      const durationMove = 800
+      // Phase 1: shrink around viewport center
+      animate(durationShrink, (t) => {
+        const s = startScale + (endScale - startScale) * t
+        zoomAtCenter(s)
+      }, () => {
+        // Phase 2: pan right while small
+        const startX = st.offsetX || 0
+        const targetX = startX + Math.max(wrap.clientWidth * 1.2, 600)
+        const startY = st.offsetY || 0
+        animate(durationMove, (t2) => {
+          st.offsetX = Math.round(startX + (targetX - startX) * t2)
+          st.offsetY = startY
+          try { (hxwApplyTransform as any)(wrap, canvas, st) } catch {}
+        }, () => {})
+        // Navigate near end of move so edge is gone
+        setTimeout(go, Math.max(600, durationMove - 180))
+        setTimeout(go, durationMove + 700) // absolute fallback
+      })
     })
   } catch {}
   // expose project color for honeycomb widget field tone alignment

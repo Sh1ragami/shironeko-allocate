@@ -61,7 +61,7 @@ function createProjectCard(): string {
 }
 
 export function renderProject(container: HTMLElement): void {
-  // If coming back from detail, optionally show a brief entry animation
+  // If coming back from detail, optionally run a reverse arrival animation (no loader)
   let shouldHideAnim = false
   try {
     const flag = sessionStorage.getItem('pj-back-anim')
@@ -69,10 +69,10 @@ export function renderProject(container: HTMLElement): void {
       sessionStorage.removeItem('pj-back-anim')
       const bc = sessionStorage.getItem('pj-back-color') || undefined
       if (bc) { try { sessionStorage.removeItem('pj-back-color') } catch {} }
-      if (!document.getElementById('routeLoading')) {
-        try { showRouteLoading('プロジェクト一覧', (bc as any), { style: 'single', spinMs: 950 }) } catch {}
-        shouldHideAnim = true
-      }
+      // Mark container for back-arrival animation (do not show route-loading)
+      ;(container as HTMLElement).setAttribute('data-back-anim', '1')
+      // No loader for back-arrival
+      shouldHideAnim = false
     }
   } catch {}
   container.innerHTML = `
@@ -95,8 +95,8 @@ export function renderProject(container: HTMLElement): void {
     </div>
   `
 
-  // Hide entry animation after mount if we started it here
-  try { if (shouldHideAnim) { hideRouteLoading() } } catch {}
+  // Ensure any existing loader is hidden (back-arrival does not use loader)
+  try { hideRouteLoading() } catch {}
 
   // Set user name into title if available
   apiFetch<{ id: number; name: string; github_id?: number; email?: string }>(`/me`)
@@ -249,6 +249,8 @@ function renderHoneycomb(root: HTMLElement, projects: Project[]): void {
   // layout state on host
   const prev = (wrap as any)._hx as HexLayout | undefined
   const st: HexLayout = prev || { scale: 1, tile: 220, width: 0, height: 0, offsetX: 120, offsetY: 80 }
+  // If returning from detail with back-arrival animation, prevent one-frame flash
+  try { if ((root as HTMLElement).getAttribute('data-back-anim') === '1') wrap.style.visibility = 'hidden' } catch {}
   let W = st.tile
   let H = Math.round(W * 0.866)
   const n = projects.length
@@ -386,6 +388,21 @@ function renderHoneycomb(root: HTMLElement, projects: Project[]): void {
     const spots = groupedNodes[gid] || []
     arr.forEach((p, idx) => { if (spots[idx]) spots[idx].i = projects.indexOf(p) })
   }
+
+  // Determine focus tile (when returning from detail) in pixel coordinates
+  let focusPx: { x: number; y: number } | null = null
+  try {
+    const fid = sessionStorage.getItem('pj-back-focus-id')
+    if (fid) {
+      const idx = projects.findIndex((p) => String(p.id) === String(fid))
+      if (idx >= 0) {
+        const node = nodes.find((n) => n.i === idx)
+        if (node) { focusPx = { x: node.x + W / 2, y: node.y + H / 2 } }
+      }
+      // clear after reading so it won't affect future entries
+      try { sessionStorage.removeItem('pj-back-focus-id') } catch {}
+    }
+  } catch {}
 
   // Decide hub tiles (first N center-most) for the common feature area
   type Hub = { q: number; r: number; label: string; sub: string; route: string }
@@ -642,6 +659,80 @@ function renderHoneycomb(root: HTMLElement, projects: Project[]): void {
   // apply transform
   applyHexTransform(wrap, canvas, st)
   bindHoneyInteractions(root, wrap, canvas, st)
+  // Run reverse arrival (from left, then grow) if flagged
+  try {
+    const need = (root as HTMLElement).getAttribute('data-back-anim') === '1'
+    if (need && !(wrap as any)._backArrivalRun) {
+      ;(wrap as any)._backArrivalRun = true
+      const origScale = st.scale || 1
+      // Small state target (mirror of forward path)
+      let smallRatio = 0.6
+      try {
+        const r = parseFloat(sessionStorage.getItem('pj-back-shrink-ratio') || '')
+        if (isFinite(r) && r > 0.1 && r < 2.0) smallRatio = r
+      } catch {}
+      const small = Math.max(0.1, origScale * smallRatio)
+      // Compute target offsets at small scale such that the focused tile (if any)
+      // is centered on screen; otherwise center the whole content.
+      const viewW = wrap.clientWidth || 0
+      const viewH = wrap.clientHeight || 0
+      let targetXSmall: number, targetYSmall: number
+      if (focusPx) {
+        targetXSmall = Math.round(viewW / 2 - focusPx.x * small)
+        targetYSmall = Math.round(viewH / 2 - focusPx.y * small)
+      } else {
+        const contentWSmall = st.width * small
+        const contentHSmall = st.height * small
+        targetXSmall = Math.round((viewW - contentWSmall) / 2)
+        targetYSmall = Math.round((viewH - contentHSmall) / 2)
+      }
+      st.scale = small
+      st.offsetX = targetXSmall - Math.max(viewW * 1.2, 600)
+      st.offsetY = targetYSmall
+      applyHexTransform(wrap, canvas, st)
+      wrap.style.visibility = ''
+      const durationMove = 800
+      const durationGrow = 400
+      const ease = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2)
+      const now = () => performance.now()
+      const animate = (dur: number, step: (t:number)=>void, done: ()=>void) => {
+        const t0 = now()
+        const tick = () => { const tt = Math.min(1, (now()-t0)/dur); step(ease(tt)); if (tt<1) requestAnimationFrame(tick); else done() }
+        requestAnimationFrame(tick)
+      }
+      // Phase A: slide in from left while small
+      const startXOff = st.offsetX
+      animate(durationMove, (t) => {
+        st.offsetX = Math.round(startXOff + (targetXSmall - startXOff) * t)
+        st.offsetY = targetYSmall
+        applyHexTransform(wrap, canvas, st)
+      }, () => {
+        // Phase B: grow to normal scale around viewport center
+        const rect = wrap.getBoundingClientRect()
+        const cx2 = rect.width / 2
+        const cy2 = rect.height / 2
+        const zoomAtCenter = (s: number) => {
+          const prev = st.scale
+          const wx = (cx2 - st.offsetX) / prev
+          const wy = (cy2 - st.offsetY) / prev
+          st.scale = s
+          st.offsetX = Math.round(cx2 - wx * s)
+          st.offsetY = Math.round(cy2 - wy * s)
+          applyHexTransform(wrap, canvas, st)
+        }
+        const startS = st.scale
+        animate(durationGrow, (t2) => {
+          const s = startS + (origScale - startS) * t2
+          zoomAtCenter(s)
+        }, () => {
+          // Clear suppression and hide loader now that arrival is complete
+          try { sessionStorage.removeItem('suppress-group-toast'); document.body.removeAttribute('data-suppress-group-toast') } catch {}
+          try { hideRouteLoading() } catch {}
+          try { (root as HTMLElement).removeAttribute('data-back-anim') } catch {}
+        })
+      })
+    }
+  } catch {}
 }
 
 function escapeHtml(s: string): string { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;') }
