@@ -1028,14 +1028,34 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
   const repoName = fullName.includes('/') ? fullName.split('/')[1] : project.name
 
   // Determine if we are entering from project list with native slide
+  // (flag is set in project list before navigating)
   let entryDir: string | null = null
   try { entryDir = sessionStorage.getItem('proj-entry-dir') } catch {}
   const entryHidden = (entryDir === 'left' || entryDir === 'right')
   // Render the full layout once with all available data. Hide the hex field initially
   // when coming from list to prevent a one-frame central flash before animation setup.
   container.innerHTML = detailLayout({ id: project.id, name: project.name, fullName, owner, repo: repoName }, { entryHidden })
-  // Default to non-edit mode on entry (override any previous session 'on')
-  try { localStorage.setItem(`wg-edit-${project.id}`, '0') } catch {}
+  // Default to non-edit mode when:
+  // - arriving from list (entry animation flag present), OR
+  // - the initial page load is a direct navigation to this detail (NavigationType 'navigate').
+  // Do NOT override on reload/back-forward, and do NOT override when re-entering the
+  // same project within the same SPA session.
+  let navType: string | null = null
+  try {
+    const entries = (performance as any)?.getEntriesByType?.('navigation') || []
+    if (entries && entries.length) navType = (entries[0] as any).type || null
+    else if ((performance as any).navigation) {
+      const t = (performance as any).navigation.type
+      navType = (t === 0 ? 'navigate' : t === 1 ? 'reload' : t === 2 ? 'back_forward' : 'prerender')
+    }
+  } catch {}
+  const prevPid = (window as any).__pdCurrentProjectId
+  const sameProjectInSession = String(prevPid || '') === String(project.id)
+  const isInitialNavigate = navType === 'navigate'
+  if (entryHidden || (isInitialNavigate && !sameProjectInSession)) {
+    try { localStorage.setItem(`wg-edit-${project.id}`, '0') } catch {}
+  }
+  ;(window as any).__pdCurrentProjectId = String(project.id)
   // Helper: Intro title float-up (will be invoked when arrival reaches center)
   const showIntroTitle = () => {
     try {
@@ -1051,7 +1071,7 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
   }
   // If coming from list with native transition, slide in actual detail honeycomb and fade dimmer
   try {
-    const dir = entryDir || sessionStorage.getItem('proj-entry-dir')
+    const dir = (entryDir || sessionStorage.getItem('proj-entry-dir'))
     if (dir === 'left' || dir === 'right') {
       try { (container as HTMLElement).setAttribute('data-arriving', '1') } catch {}
       const wrapD = container.querySelector('#hxwWrap') as HTMLElement | null
@@ -8506,6 +8526,8 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
       (panel as any)._infoBarBound = true
       const handle = panel.querySelector('#hxwInfoHandle') as HTMLButtonElement | null
       const cont = panel.querySelector('#hxwInfoPanel') as HTMLElement | null
+      // Remember user's intended expanded/collapsed state across auto-hides
+      if ((panel as any)._infoWantedCollapsed === undefined) (panel as any)._infoWantedCollapsed = false
       const applyCollapsed = (on: boolean) => {
         try {
           if (!cont || !handle) return
@@ -8535,7 +8557,9 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
       }
       handle?.addEventListener('click', () => {
         const collapsed = panel.getAttribute('data-collapsed') === '1'
-        applyCollapsed(!collapsed)
+        const next = !collapsed
+        ;(panel as any)._infoWantedCollapsed = next
+        applyCollapsed(next)
       })
       // default: expanded when first shown (animate from 0)
       try {
@@ -8544,15 +8568,27 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
         cont!.style.transform = 'translateY(8px)'
         cont!.style.pointerEvents = 'none'
       } catch {}
-      requestAnimationFrame(() => applyCollapsed(false))
+      requestAnimationFrame(() => {
+        // On first show, expand by default and record desired state
+        applyCollapsed(false)
+        ;(panel as any)._infoWantedCollapsed = false
+      })
       ;(panel as any)._infoCollapse = applyCollapsed
       }
+    // Restore previous desired expand/collapse state after auto-hide
+    try {
+      const desired = (panel as any)._infoWantedCollapsed
+      const collapse = (panel as any)._infoCollapse as ((on: boolean) => void) | undefined
+      if (typeof desired === 'boolean' && collapse) collapse(desired)
+    } catch {}
     }
   const infoHide = () => {
     const panel = getInfoEl(); if (!panel) return
     try {
       const collapse = (panel as any)._infoCollapse as (on: boolean) => void | undefined
       if (collapse) {
+        // Animate hide by collapsing, but preserve user's intended state
+        // The intended state is stored in _infoWantedCollapsed and restored on next show
         collapse(true)
         setTimeout(() => panel.classList.add('hidden'), 300)
       } else panel.classList.add('hidden')
@@ -9929,7 +9965,17 @@ export function renderHexWidgets(root: HTMLElement, pid: string): void {
   hxwBindInteractions(root, wrap, canvas, st)
   // center initial view (skip during entry animation or if already inited)
   let allowCenter = true
-  try { const dir = sessionStorage.getItem('proj-entry-dir'); if (dir === 'left' || dir === 'right') allowCenter = false } catch {}
+  try {
+    let reload = false
+    try {
+      const nav = (performance as any)
+      const entries = nav?.getEntriesByType ? nav.getEntriesByType('navigation') : []
+      if (entries && entries.length) reload = ((entries[0] as any).type === 'reload')
+      else if ((performance as any).navigation) reload = ((performance as any).navigation.type === 1)
+    } catch {}
+    const dir = reload ? null : sessionStorage.getItem('proj-entry-dir')
+    if (dir === 'left' || dir === 'right') allowCenter = false
+  } catch {}
   try { const rootEl = (canvas.closest('.gh-canvas') as HTMLElement | null) || root as HTMLElement; if (rootEl?.hasAttribute('data-arriving')) allowCenter = false } catch {}
   if (!st.inited && allowCenter) {
     try {
