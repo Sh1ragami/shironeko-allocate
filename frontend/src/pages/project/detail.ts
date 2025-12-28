@@ -1564,7 +1564,8 @@ function overviewSkeleton(): string {
 }
 
 function barSkeleton(): string {
-  return `<div class="h-60 grid place-items-center text-gray-400">Loading...</div>`
+  // Minimal placeholder (no persistent Loading text)
+  return `<div class="h-60"></div>`
 }
 
 function readmeSkeleton(): string {
@@ -1711,13 +1712,10 @@ function committersRender(root: HTMLElement, stats: Array<{ login: string; avata
       if (i === 0) return
       const login = users[i - 1] || ''
       if (!login) {
-        if (edit) {
-          s.innerHTML = `<button class=\"cm-add text-2xl md:text-3xl text-gray-100\">＋</button>`
-          const btn = s.querySelector('.cm-add') as HTMLElement | null
-          btn?.addEventListener('click', () => openPicker(i))
-        } else {
-          s.innerHTML = `<div class=\"text-[12px] text-gray-100\">未設定</div>`
-        }
+        // 非編集モードでも追加できるように常に＋ボタンを表示
+        s.innerHTML = `<button class=\"cm-add text-2xl md:text-3xl text-gray-100\">＋</button>`
+        const btn = s.querySelector('.cm-add') as HTMLElement | null
+        btn?.addEventListener('click', () => openPicker(i))
       } else {
         if (edit) {
           s.innerHTML = `<div class=\"relative grid place-items-center\">\n          <button title=\"解除\" class=\"cm-del absolute top-0.5 right-0.5 text-[12px] text-gray-300 hover:text-white\">×</button>\n          <img src=\"https://avatars.githubusercontent.com/${login}?s=96\" class=\"rounded-full ring-2 ring-[rgba(255,255,255,0.22)] object-cover\" style=\"width:56px;height:56px\" alt=\"${login}\"/>\n          <div class=\"mt-1 text-[12px] text-gray-200 truncate max-w-[96%]\">${login}</div>\n          <div class=\"cm-count text-[13px] font-semibold text-emerald-300\">…</div>\n        </div>`
@@ -1735,7 +1733,9 @@ function committersRender(root: HTMLElement, stats: Array<{ login: string; avata
             try { hydrateCommittersSelected(root) } catch {}
           })
         } else {
-          s.innerHTML = `<div class=\"relative grid place-items-center\">\n          <img src=\"https://avatars.githubusercontent.com/${login}?s=96\" class=\"rounded-full ring-2 ring-[rgba(255,255,255,0.22)] object-cover\" style=\"width:56px;height:56px\" alt=\"${login}\"/>\n          <div class=\"mt-1 text-[12px] text-gray-200 truncate max-w-[96%]\">${login}</div>\n          <div class=\"cm-count text-[13px] font-semibold text-emerald-300\">…</div>\n        </div>`
+          s.innerHTML = `<div class=\"relative grid place-items-center\">\n          <button title=\"解除\" class=\"cm-del absolute top-0.5 right-0.5 text-[12px] text-gray-300 hover:text-white\">×</button>\n          <img src=\"https://avatars.githubusercontent.com/${login}?s=96\" class=\"cm-avatar rounded-full ring-2 ring-[rgba(255,255,255,0.22)] object-cover\" style=\"width:56px;height:56px\" alt=\"${login}\"/>\n          <div class=\"mt-1 text-[12px] text-gray-200 truncate max-w-[96%]\">${login}</div>\n          <div class=\"cm-count text-[13px] font-semibold text-emerald-300\">…</div>\n        </div>`
+          const del2 = s.querySelector('.cm-del') as HTMLElement | null
+          del2?.addEventListener('click', (ev) => { ev.stopPropagation(); const next = users.slice(); next[i - 1] = '' as any; cmSet(next); s.innerHTML = `<button class=\\\"cm-add text-2xl md:text-3xl text-gray-100\\\">＋</button>`; (s.querySelector('.cm-add') as HTMLElement | null)?.addEventListener('click', () => openPicker(i)) })
         }
       }
     })
@@ -1817,22 +1817,26 @@ async function hydrateCommittersSelected(root: HTMLElement): Promise<void> {
   const full = host.getAttribute('data-repo-full') || (document.querySelector('[data-repo-full]') as HTMLElement | null)?.getAttribute('data-repo-full') || ''
   if (!full) return
   const pid = (document.getElementById('hxwCanvas') as HTMLElement | null)?.getAttribute('data-pid') || (root.getAttribute('data-pid') || '')
-  const countObj = await ensureCommitCounts(full)
   const widgets = Array.from(root.querySelectorAll('.hxw-widget[data-type="committers"]')) as HTMLElement[]
-  widgets.forEach((widEl) => {
+  for (const widEl of widgets) {
     const wid = widEl.getAttribute('data-widget') || ''
+    const pid = (document.getElementById('hxwCanvas') as HTMLElement | null)?.getAttribute('data-pid') || (root.getAttribute('data-pid') || '')
+    const rKey = (p: string, w: string) => `pj-cm-range-${p}-${w}`
+    const days = Math.max(7, parseInt(localStorage.getItem(rKey(pid, wid)) || '90', 10))
+    const countObj = await ensureCommitCounts(full, days)
+    const slotsWrap = widEl.querySelector('.hxw-cells') as HTMLElement | null
+    if (!slotsWrap) continue
+    const outers = Array.from(slotsWrap.querySelectorAll('.hxw-slot .slot-inner')).slice(1) as HTMLElement[]
     const cmKey = (p: string, w: string) => `pj-cm-users-${p}-${w}`
     let users: string[] = []
     try { users = JSON.parse(localStorage.getItem(cmKey(pid, wid)) || '[]') as string[] } catch { users = [] }
-    const slotsWrap = widEl.querySelector('.hxw-cells') as HTMLElement | null
-    if (!slotsWrap) return
-    const outers = Array.from(slotsWrap.querySelectorAll('.hxw-slot .slot-inner')).slice(1) as HTMLElement[]
     outers.forEach((s, idx) => {
       const login = users[idx] || ''
       const el = s.querySelector('.cm-count') as HTMLElement | null
       if (el) el.textContent = login ? String(countObj[login] || 0) : ''
     })
-  })
+    try { if (widget) densifyCommitters(widget, 1) } catch {}
+  }
 }
 
 async function committersPopulate(root: HTMLElement): Promise<void> {
@@ -1841,7 +1845,7 @@ async function committersPopulate(root: HTMLElement): Promise<void> {
   const pid = (document.getElementById('hxwCanvas') as HTMLElement | null)?.getAttribute('data-pid') || (root.getAttribute('data-pid') || '')
   const widgets = Array.from(root.querySelectorAll('.hxw-widget[data-type="committers"]')) as HTMLElement[]
   if (widgets.length === 0) return
-  const counts = full ? await ensureCommitCounts(full) : {}
+  const countsByDays = new Map<number, Record<string, number>>()
   for (const widEl of widgets) {
     const slotsWrap = widEl.querySelector('.hxw-cells') as HTMLElement | null
     if (!slotsWrap) continue
@@ -1854,8 +1858,10 @@ async function committersPopulate(root: HTMLElement): Promise<void> {
     let users: string[] = []
     try { users = JSON.parse(localStorage.getItem(cmKey(pid, wid)) || '[]') as string[] } catch { users = [] }
     const slots = Array.from(slotsWrap.querySelectorAll('.hxw-slot .slot-inner')) as HTMLElement[]
-    // center label
-    if (slots[0]) slots[0].innerHTML = `<div class=\"text-center text-gray-100\"><div class=\"text-[12px]\">コミット数</div><div class=\"text-[11px] text-gray-300\">過去90日</div></div>`
+    const rKey = (p: string, w: string) => `pj-cm-range-${p}-${w}`
+    let days = Math.max(7, parseInt(localStorage.getItem(rKey(pid, wid)) || '90', 10))
+    // center label with range toggle
+    if (slots[0]) slots[0].innerHTML = `<div class=\"text-center text-gray-100\"><div class=\"text-[12px]\">コミット数</div><button class=\"cm-range text-[11px] text-gray-300 hover:text-white underline decoration-dotted\">過去${days}日</button></div>`
     const openPicker = async (slotIdx: number) => {
       document.getElementById('cmPicker')?.remove()
       const overlay = document.createElement('div')
@@ -1884,26 +1890,46 @@ async function committersPopulate(root: HTMLElement): Promise<void> {
       overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove() })
     }
     // outer cells
+    // click center range to cycle [30, 90, 180, 365]
+    try {
+      const rngBtn = slots[0]?.querySelector('.cm-range') as HTMLElement | null
+      rngBtn?.addEventListener('click', async (ev) => {
+        ev.preventDefault()
+        const list = [30, 90, 180, 365]
+        const cur = Math.max(7, parseInt(localStorage.getItem(rKey(pid, wid)) || String(days), 10))
+        const next = list[(list.indexOf(cur) + 1) % list.length] || 90
+        localStorage.setItem(rKey(pid, wid), String(next))
+        // refresh this widget only
+        await committersPopulate(root)
+        await hydrateCommittersSelected(root)
+      })
+    } catch {}
+    // outer cells
     slots.forEach((s, idx) => {
       if (idx === 0) return
       const login = users[idx - 1] || ''
       if (!login) {
-        if (edit) {
-          s.innerHTML = `<button class=\"cm-add text-2xl md:text-3xl text-gray-100\">＋</button>`
-          ;(s.querySelector('.cm-add') as HTMLElement | null)?.addEventListener('click', () => openPicker(idx))
-        } else {
-          s.innerHTML = `<div class=\"text-[12px] text-gray-100\">未設定</div>`
-        }
+        // 非編集モードでも追加できるように常に＋ボタンを表示
+        s.innerHTML = `<button class=\"cm-add text-2xl md:text-3xl text-gray-100\">＋</button>`
+        ;(s.querySelector('.cm-add') as HTMLElement | null)?.addEventListener('click', () => openPicker(idx))
       } else {
         if (edit) {
-          s.innerHTML = `<div class=\"relative grid place-items-center\">\n          <button title=\"解除\" class=\"cm-del absolute top-0.5 right-0.5 text-[12px] text-gray-300 hover:text-white\">×</button>\n          <img src=\"https://avatars.githubusercontent.com/${login}?s=96\" class=\"rounded-full ring-2 ring-[rgba(255,255,255,0.22)] object-cover\" style=\"width:56px;height:56px\" alt=\"${login}\"/>\n          <div class=\"mt-1 text-[12px] text-gray-200 truncate max-w-[96%]\">${login}</div>\n          <div class=\"cm-count text-[13px] font-semibold text-emerald-300\">${counts[login]||0}</div>\n        </div>`
+          s.innerHTML = `<div class=\"relative grid place-items-center\">\n          <button title=\"解除\" class=\"cm-del absolute top-0.5 right-0.5 text-[12px] text-gray-300 hover:text-white\">×</button>\n          <img src=\"https://avatars.githubusercontent.com/${login}?s=96\" class=\"cm-avatar rounded-full ring-2 ring-[rgba(255,255,255,0.22)] object-cover\" style=\"width:56px;height:56px\" alt=\"${login}\"/>\n          <div class=\"mt-1 text-[12px] text-gray-200 truncate max-w-[96%]\">${login}</div>\n          <div class=\"cm-count text-[13px] font-semibold text-emerald-300\">${(countsByDays.get(days)||{})[login]||0}</div>\n        </div>`
           s.addEventListener('click', (ev) => { const t = ev.target as HTMLElement; if (!t.closest('.cm-del')) openPicker(idx) })
           ;(s.querySelector('.cm-del') as HTMLElement | null)?.addEventListener('click', (ev) => { ev.stopPropagation(); const next = users.slice(); next[idx - 1] = ''; localStorage.setItem(cmKey(pid, wid), JSON.stringify(next)); committersPopulate(root) })
         } else {
-          s.innerHTML = `<div class=\"relative grid place-items-center\">\n          <img src=\"https://avatars.githubusercontent.com/${login}?s=96\" class=\"rounded-full ring-2 ring-[rgba(255,255,255,0.22)] object-cover\" style=\"width:56px;height:56px\" alt=\"${login}\"/>\n          <div class=\"mt-1 text-[12px] text-gray-200 truncate max-w-[96%]\">${login}</div>\n          <div class=\"cm-count text-[13px] font-semibold text-emerald-300\">${counts[login]||0}</div>\n        </div>`
+          // 非編集でも削除（×）できるように統一
+          s.innerHTML = `<div class=\"relative grid place-items-center\">\n          <button title=\"解除\" class=\"cm-del absolute top-0.5 right-0.5 text-[12px] text-gray-300 hover:text-white\">×</button>\n          <img src=\"https://avatars.githubusercontent.com/${login}?s=96\" class=\"cm-avatar rounded-full ring-2 ring-[rgba(255,255,255,0.22)] object-cover\" style=\"width:56px;height:56px\" alt=\"${login}\"/>\n          <div class=\"mt-1 text-[12px] text-gray-200 truncate max-w-[96%]\">${login}</div>\n          <div class=\"cm-count text-[13px] font-semibold text-emerald-300\">${(countsByDays.get(days)||{})[login]||0}</div>\n        </div>`
+          ;(s.querySelector('.cm-del') as HTMLElement | null)?.addEventListener('click', (ev) => { ev.stopPropagation(); const next = users.slice(); next[idx - 1] = ''; localStorage.setItem(cmKey(pid, wid), JSON.stringify(next)); committersPopulate(root) })
         }
       }
     })
+    // Apply sizing
+    try { densifyCommitters(widEl, 1) } catch {}
+    // fetch counts for chosen range (cache per range during this populate)
+    if (full) {
+      if (!countsByDays.has(days)) countsByDays.set(days, await ensureCommitCounts(full, days))
+    }
   }
 }
 
@@ -1929,13 +1955,13 @@ function ccGet(full: string): CommitCountsCache | null {
 function ccSet(full: string, data: CommitCountsCache): void {
   try { localStorage.setItem(ccKey(full), JSON.stringify(data)) } catch { }
 }
-async function ensureCommitCounts(full: string): Promise<Record<string, number>> {
+async function ensureCommitCounts(full: string, days: number = 90): Promise<Record<string, number>> {
   const ttl = 60 * 60 * 1000 // 1h
-  const cached = ccGet(full)
+  const cached = ccGet(full + `-d${days}`)
   const now = Date.now()
   if (cached && (now - cached.at) < ttl) return cached.counts || {}
-  // fetch last 90 days commits and aggregate
-  const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString()
+  // fetch commits in the last N days and aggregate
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()
   const commits = await fetchCommitsPaged(full, since)
   const map = new Map<string, number>()
   ;(commits || []).forEach(c => {
@@ -1945,7 +1971,7 @@ async function ensureCommitCounts(full: string): Promise<Record<string, number>>
   })
   const counts: Record<string, number> = {}
   map.forEach((v, k) => { counts[k] = v })
-  ccSet(full, { at: now, counts })
+  ccSet(full + `-d${days}`, { at: now, counts })
   return counts
 }
 
@@ -3323,10 +3349,20 @@ function densifyGeneric(widgetEl: HTMLElement, scale: number): void {
 }
 
 function densifyCommitters(widgetEl: HTMLElement, scale: number): void {
+  // Scale generic text slightly
   const labels = widgetEl.querySelectorAll('.wg-content div[class*="text-"]') as NodeListOf<HTMLElement>
   const base = 12
-  const fs = Math.round(Math.max(10, Math.min(16, base * scale)))
+  const fs = Math.round(Math.max(12, Math.min(18, base * scale)))
   labels.forEach((n) => { n.style.fontSize = `${fs}px` })
+  // Scale avatar and counts based on available height
+  const area = (widgetEl.querySelector('.hxw-body') as HTMLElement | null) || widgetEl
+  const rect = (area as HTMLElement).getBoundingClientRect()
+  const h = Math.max(120, rect.height || widgetEl.clientHeight || 200)
+  const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, Math.round(v)))
+  const ava = clamp(h * 0.28, 48, 96)
+  const cnt = clamp(h * 0.18, 16, 42)
+  widgetEl.querySelectorAll('.cm-avatar').forEach((n) => { const el = n as HTMLElement; el.style.width = `${ava}px`; el.style.height = `${ava}px` })
+  widgetEl.querySelectorAll('.cm-count').forEach((n) => { const el = n as HTMLElement; el.style.fontSize = `${cnt}px`; el.style.lineHeight = '1.1' })
 }
 
 function densifyTaskSummary(widgetEl: HTMLElement, scale: number): void {
