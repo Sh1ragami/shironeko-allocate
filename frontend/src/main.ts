@@ -4,6 +4,8 @@ import { renderRoot } from './pages/root/root'
 import { renderLogin } from './pages/login/login'
 import { renderProject } from './pages/project/project'
 import { renderProjectDetail } from './pages/project/detail'
+import { renderTutorial } from './pages/project/tutorial'
+import { renderPaint } from './pages/project/paint'
 import { renderProjectCreating } from './pages/project/creating'
 import { renderNotFound } from './pages/not-found/not-found'
 import { getTheme, applyTheme } from './utils/theme'
@@ -18,6 +20,8 @@ if (app) {
     '/project': renderProject,
     '/project/detail': renderProjectDetail,
     '/project/creating': renderProjectCreating,
+    '/project/tutorial': renderTutorial,
+    '/project/paint': renderPaint,
     '/404': renderNotFound,
   })
   // Capture token in hash and store

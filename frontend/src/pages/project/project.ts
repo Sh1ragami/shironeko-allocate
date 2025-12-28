@@ -102,6 +102,7 @@ export function renderProject(container: HTMLElement): void {
     .then((me) => {
       const el = container.querySelector('#userTitle')
       if (el) el.textContent = `${me.name}のプロジェクト`
+      try { localStorage.setItem(userNameKey(me.id), me.name || '') } catch {}
       // avatar
       const avatar = container.querySelector('#accountAvatar') as HTMLImageElement | null
       const fallback = container.querySelector('#accountFallback') as HTMLElement | null
@@ -185,6 +186,9 @@ function hexDist(a: Ax, b: Ax): number {
 // ---- Group palette (stable by index) ----
 const GROUP_COLORS: Project['color'][] = ['blue', 'purple', 'green', 'orange', 'yellow', 'red', 'gray']
 function colorForGroupId(groups: { id: string }[], gid: string): Project['color'] {
+  // Pinned colors for specific areas/groups
+  if (gid === 'area-common') return 'purple'
+  if (gid === 'user') return 'blue'
   const idx = Math.max(0, groups.findIndex((g) => g.id === gid))
   return GROUP_COLORS[idx % GROUP_COLORS.length]
 }
@@ -253,7 +257,7 @@ function renderHoneycomb(root: HTMLElement, projects: Project[]): void {
 
   // Multi-cluster plane: arrange groups on a grid; each cluster has its own honeycomb area
   const me = (root as any)._me as { id?: number } | undefined
-  const groups = ensureDefaultGroups(me?.id)
+  const groups = layoutGroups(me?.id)
   st.uid = me?.id
   const gcount = Math.max(1, groups.length)
   // Determine a uniform cluster radius to fit projects per group (+slack)
@@ -355,9 +359,46 @@ function renderHoneycomb(root: HTMLElement, projects: Project[]): void {
       return da - db
     })
   }
+  // -- Shrink common area (about 1/3 radius) --
+  const COMMON_ID = 'area-common'
+  const commonNodes = groupedNodes[COMMON_ID] || []
+  const userNodes = groupedNodes['user'] || []
+  const commonCenterQR = commonNodes.length ? { q: commonNodes[0].q, r: commonNodes[0].r } : null
+  const userCenterQR = userNodes.length ? { q: userNodes[0].q, r: userNodes[0].r } : null
+  // Slightly larger (約1/2半径) and leave a 1-ring gap around it
+  const R_COMMON = Math.max(2, Math.round(R_CLUSTER * 0.5))
+  const isInsideCommon = (q: number, r: number): boolean => {
+    if (!commonCenterQR) return false
+    const a = oddqToAxial(q, r)
+    const b = oddqToAxial(commonCenterQR.q, commonCenterQR.r)
+    const d = hexDist(a, b)
+    return d <= R_COMMON
+  }
+  const isCommonGap = (q: number, r: number): boolean => {
+    if (!commonCenterQR) return false
+    const a = oddqToAxial(q, r)
+    const b = oddqToAxial(commonCenterQR.q, commonCenterQR.r)
+    const d = hexDist(a, b)
+    return d === (R_COMMON + 1)
+  }
   for (const [gid, arr] of Object.entries(byGroup)) {
     const spots = groupedNodes[gid] || []
     arr.forEach((p, idx) => { if (spots[idx]) spots[idx].i = projects.indexOf(p) })
+  }
+
+  // Decide hub tiles (first N center-most) for the common feature area
+  type Hub = { q: number; r: number; label: string; sub: string; route: string }
+  const hubs: Record<string, Hub[]> = {}
+  {
+    const gid = 'area-common'
+    const arr = groupedNodes[gid] || []
+    const defs: Array<{ label: string; sub: string; route: string }> = [
+      { label: 'チュートリアル', sub: '使い方を学ぶ', route: '#/project/tutorial' },
+      { label: 'みんなでお絵かき', sub: '色を塗って絵を描く', route: '#/project/paint' },
+    ]
+    if (arr.length) {
+      hubs[gid] = arr.slice(0, defs.length).map((n, i) => ({ q: n.q, r: n.r, ...defs[i] }))
+    }
   }
 
   // Initial centering on preferred group (once)
@@ -372,13 +413,15 @@ function renderHoneycomb(root: HTMLElement, projects: Project[]): void {
 
   // Save nodes for minimap rendering
   // Save for minimap: tint empty cells by group color
-  ;(wrap as any)._hx.nodes = nodes.map(n => ({
-    x: n.x,
-    y: n.y,
-    filled: n.i >= 0,
-    // Minimap: always show region color by group for clear boundaries
-    color: colorForGroupId(groups, n.gid)
-  }))
+  ;(wrap as any)._hx.nodes = nodes
+    .filter((n) => !isCommonGap(n.q, n.r))
+    .filter((n) => n.gid !== COMMON_ID || isInsideCommon(n.q, n.r))
+    .map(n => ({
+      x: n.x,
+      y: n.y,
+      filled: n.i >= 0,
+      color: colorForGroupId(groups, n.gid)
+    }))
 
   // Render (with one create tile per group if there is a free spot)
   const createdSpot = new Set<string>()
@@ -399,12 +442,15 @@ function renderHoneycomb(root: HTMLElement, projects: Project[]): void {
     tile.style.top = `${pt.y}px`
     tile.style.width = `${W}px`
     tile.style.height = `${H}px`
+    if (pt.gid === COMMON_ID && !isInsideCommon(pt.q, pt.r)) return
+    if (isCommonGap(pt.q, pt.r)) return
+    let gid = pt.gid
     if (pt.i >= 0) {
       const p = projects[pt.i]
       tile.setAttribute('data-id', String(p.id))
       const title = (p.alias && String(p.alias).trim() !== '' ? p.alias : p.name)
       // Use group color for filled tiles to unify honeycomb color by group
-      const gcol = colorForGroupId(groups, pt.gid)
+      const gcol = colorForGroupId(groups, gid)
       const tone = hexTone(gcol)
       tile.innerHTML = `
         <div class="hx-clip hx-plain" style="background:${tone.bg}; border-color:${tone.border}">
@@ -516,14 +562,39 @@ function renderHoneycomb(root: HTMLElement, projects: Project[]): void {
       tile.addEventListener('mouseenter', doPrefetch)
       tile.addEventListener('touchstart', doPrefetch, { passive: true })
     } else {
-      const gid = pt.gid
+      // use effective gid for rendering logic below
+      if (gid === 'area-common') {
+        // Render hub tiles with labels; others as tinted background
+        const gcol = colorForGroupId(groups, gid)
+        const tone = hexTone(gcol)
+        const picks = hubs[gid] || []
+        const h = picks.find((x) => x.q === pt.q && x.r === pt.r)
+        if (h) {
+          const label = h.label
+          const sub = h.sub
+          tile.innerHTML = `
+            <div class="hx-clip hx-plain" style="background:${tone.bg}; border-color:${tone.border}">
+              <div class="hx-info hx-plain"><div>${escapeHtml(label)}</div><div class="text-[10px] opacity-80 mt-0.5">${escapeHtml(sub)}</div></div>
+            </div>`
+          tile.addEventListener('click', () => {
+            try { sessionStorage.setItem('proj-center-gid', gid) } catch {}
+            window.location.hash = h.route
+          })
+        } else {
+          tile.innerHTML = `<div class="hx-clip hx-plain" style="background:${tone.bg}; border-color:${tone.border}"></div>`
+        }
+        canvas.appendChild(tile)
+        return
+      }
       let makeCreate = false
       if (!createdSpot.has(gid)) {
         // place create tile next to existing project if any in this group
         const adj = nbrs(pt.q, pt.r)
         makeCreate = adj.some(([aq, ar]) => occ.has(idxKey(gid, aq, ar)))
         // fallback: ifグループに1件もない場合は中心に近い最初の空きを使う
-        if (!makeCreate && !(byGroup[gid] && byGroup[gid].length > 0)) {
+        if (gid === 'area-common') {
+          makeCreate = false
+        } else if (!makeCreate && !(byGroup[gid] && byGroup[gid].length > 0)) {
           const c = centers[gid]
           const dist = (pt.x - c.x) ** 2 + (pt.y - c.y) ** 2
           // Threshold based on cluster radius in pixels
@@ -611,33 +682,40 @@ function applyHexTransform(wrap: HTMLElement, canvas: HTMLElement, st: HexLayout
     }
     if (best) {
       const uid = st.uid
-      const cur = getSelectedGroup(uid)
-      if (best[0] && cur !== best[0]) {
-        setSelectedGroup(uid, best[0])
+      const curSel = getSelectedGroup(uid)
+      const gidNow = best[0]
+      const prevLoc = (wrap as any)._locCenter
+      // Toast when center group actually changes (real or common)
+      if (gidNow && gidNow !== prevLoc) {
+        try {
+          if (!document.body.hasAttribute('data-suppress-group-toast') && !document.getElementById('pageDimmer')) {
+            showGroupLocationToast(gidNow, uid)
+          }
+        } catch {}
+        try { (wrap as any)._locCenter = gidNow } catch {}
+      }
+      // Maintain selected group only for real groups
+      const real = getGroupById(uid, gidNow)
+      if (gidNow && real && curSel !== gidNow) {
+        setSelectedGroup(uid, gidNow)
         // Slightly update title text without reload
         const me = (document.getElementById('app') as any)?._me
         updateListTitle(document.getElementById('app') as HTMLElement, me || {})
         // highlight in sidebar if present
         const sb = document.getElementById('groupSidebar')
         sb?.querySelectorAll('[data-group]')?.forEach((el) => {
-          el.classList.toggle('ring-sky-500', (el as HTMLElement).getAttribute('data-group') === best![0])
-          el.classList.toggle('ring-neutral-600', (el as HTMLElement).getAttribute('data-group') !== best![0])
+          el.classList.toggle('ring-sky-500', (el as HTMLElement).getAttribute('data-group') === gidNow)
+          el.classList.toggle('ring-neutral-600', (el as HTMLElement).getAttribute('data-group') !== gidNow)
         })
         // highlight in quickbar as well
         const qb = document.getElementById('groupQuick')
         qb?.querySelectorAll('[data-group]')?.forEach((el) => {
-          const on = (el as HTMLElement).getAttribute('data-group') === best![0]
+          const on = (el as HTMLElement).getAttribute('data-group') === gidNow
           el.classList.toggle('gq-active', on)
           el.classList.toggle('ring-sky-500', on)
           el.classList.toggle('ring-neutral-600', !on)
           if (on) (el as HTMLElement).style.zIndex = '9000'
         })
-        // Show center-screen group banner like game location display (skip during transition)
-        try {
-          if (!document.body.hasAttribute('data-suppress-group-toast') && !document.getElementById('pageDimmer')) {
-            showGroupLocationToast(best[0], uid)
-          }
-        } catch {}
       }
     }
   } catch {}
@@ -654,26 +732,18 @@ function showGroupLocationToast(gid: string, uid?: number): void {
   const overlayId = 'groupLocToast'
   // Find group name
   let name = ''
-  let accent: { r: number; g: number; b: number } | null = null
+  let accentRgb: string | null = null
   try {
     const g = getGroupById(uid, gid)
     name = g?.name || ''
-    // Resolve group color for accent
-    const groups = ensureDefaultGroups(uid)
+    // Resolve group color for accent using the same layout group ordering
+    const groups = layoutGroups(uid)
     const col = colorForGroupId(groups as any, gid)
-    const pick = (c: string): { r: number; g: number; b: number } => {
-      switch (c) {
-        case 'red': return { r: 248, g: 113, b: 113 } // red-400
-        case 'green': return { r: 52, g: 211, b: 153 } // emerald-400
-        case 'purple': return { r: 192, g: 132, b: 252 } // purple-400
-        case 'orange': return { r: 251, g: 146, b: 60 } // orange-400
-        case 'yellow': return { r: 250, g: 204, b: 21 } // yellow-400
-        case 'gray': return { r: 156, g: 163, b: 175 } // gray-400
-        default: /* blue */ return { r: 96, g: 165, b: 250 } // blue-400
-      }
-    }
-    accent = pick(col as any)
+    // Use the same solid color used for group icons to keep visuals consistent with area color
+    accentRgb = groupSolid(col as any)
   } catch {}
+  // Fallback names for virtual areas
+  if (!name && gid === 'area-common') name = 'みんなのひろば'
   if (!name) return
   // Recreate to restart animation cleanly
   document.getElementById(overlayId)?.remove()
@@ -683,9 +753,7 @@ function showGroupLocationToast(gid: string, uid?: number): void {
   const inner = document.createElement('div')
   inner.className = 'loc-inner'
   inner.textContent = name
-  if (accent) {
-    inner.style.setProperty('--loc-color', `rgb(${accent.r}, ${accent.g}, ${accent.b})`)
-  }
+  if (accentRgb) { inner.style.setProperty('--loc-color', accentRgb) }
   wrap.appendChild(inner)
   host.appendChild(wrap)
   // Auto remove after animation
@@ -997,6 +1065,7 @@ type Group = { id: string; name: string; avatar?: string }
 function groupsKey(uid?: number): string { return `groups-${uid ?? 'guest'}` }
 function groupMapKey(uid?: number): string { return `groupMap-${uid ?? 'guest'}` }
 function groupSelectedKey(uid?: number): string { return `groupSelected-${uid ?? 'guest'}` }
+function userNameKey(uid?: number): string { return `userName-${uid ?? 'guest'}` }
 
 function getGroups(uid?: number): Group[] {
   try {
@@ -1030,10 +1099,32 @@ function ensureDefaultGroups(uid?: number, avatar?: string): Group[] {
   let list = getGroups(uid)
   const hasUser = list.some((g) => g.id === 'user')
   if (!hasUser) {
-    list = [{ id: 'user', name: 'マイグループ', avatar }, ...list]
+    // Default name will be replaced by stored user name if available
+    const fallback = 'マイグループ'
+    let uname = fallback
+    try { const s = localStorage.getItem(userNameKey(uid)); if (s && s.trim()) uname = s } catch {}
+    list = [{ id: 'user', name: uname, avatar }, ...list]
     saveGroups(uid, list)
   }
+  // Keep user group name in sync with stored user name (first-time rename)
+  try {
+    const s = localStorage.getItem(userNameKey(uid))
+    if (s && s.trim()) {
+      const idx = list.findIndex((g) => g.id === 'user')
+      if (idx >= 0 && list[idx].name !== s) {
+        list[idx] = { ...list[idx], name: s }
+        saveGroups(uid, list)
+      }
+    }
+  } catch {}
   return list
+}
+
+// Groups used for honeycomb layout and color mapping (includes the common feature area)
+function layoutGroups(uid?: number, avatar?: string): Group[] {
+  const base = ensureDefaultGroups(uid, avatar)
+  // Friendly common hub name
+  return [{ id: 'area-common', name: 'みんなのひろば' } as Group].concat(base)
 }
 
 function renderGroupSidebar(root: HTMLElement, me: { id?: number; github_id?: number }): void {
@@ -1090,6 +1181,7 @@ function renderGroupQuickbar(root: HTMLElement, me: { id?: number; github_id?: n
   host.innerHTML = ''
   const avatar = me.github_id ? `https://avatars.githubusercontent.com/u/${me.github_id}?s=64` : undefined
   const groups = ensureDefaultGroups(me.id, avatar)
+  const mapGroups = layoutGroups(me.id, avatar)
   const selected = getSelectedGroup(me.id) || 'user'
   setSelectedGroup(me.id, selected)
   const makeBtn = (g: Group, idx: number) => {
@@ -1098,7 +1190,7 @@ function renderGroupQuickbar(root: HTMLElement, me: { id?: number; github_id?: n
     el.className = `gq-icon ${selected === g.id ? 'gq-active ring-2 ring-sky-500' : 'ring-2 ring-neutral-600'} overflow-hidden grid place-items-center rounded-full text-base`
     el.style.zIndex = selected === g.id ? '9000' : String(100 + idx)
     try {
-      const gcol = colorForGroupId(groups as any, g.id)
+      const gcol = colorForGroupId(mapGroups as any, g.id)
       // Apply solid background to non-avatar icons
       if (!(g.avatar && idx === 0)) {
         el.textContent = g.name.charAt(0)
