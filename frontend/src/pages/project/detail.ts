@@ -1013,37 +1013,90 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
 
   // Render the full layout once with all available data
   container.innerHTML = detailLayout({ id: project.id, name: project.name, fullName, owner, repo: repoName })
+  // Helper: Intro title float-up (will be invoked when arrival reaches center)
+  const showIntroTitle = () => {
+    try {
+      const old = document.getElementById('pdIntroTitle'); if (old) old.remove()
+      const el = document.createElement('div')
+      el.id = 'pdIntroTitle'
+      const title = (project?.github_meta?.ui?.alias || project?.name || repoName || '').toString()
+      el.textContent = title
+      document.body.appendChild(el)
+      el.classList.add('pd-in')
+      setTimeout(() => { el.classList.remove('pd-in'); el.classList.add('pd-out'); setTimeout(()=>el.remove(), 420) }, 1200)
+    } catch {}
+  }
   // If coming from list with native transition, slide in actual detail honeycomb and fade dimmer
   try {
     const dir = sessionStorage.getItem('proj-entry-dir')
     if (dir === 'left' || dir === 'right') {
-      const hx = container.querySelector('#hxwWrap') as HTMLElement | null
-      if (hx) {
-        const fromX = dir === 'left' ? '-120vw' : '120vw'
-        hx.style.transform = `translateX(${fromX})`
-        hx.style.opacity = '0'
-        hx.style.transition = 'transform 1.2s cubic-bezier(.2,.9,.24,1), opacity 1s ease'
-        const cleanup = () => {
-          try {
-            hx.style.transition = ''
-            hx.style.transform = ''
-            hx.style.opacity = ''
-            hx.removeEventListener('transitionend', cleanup)
-          } catch {}
-        }
-        hx.addEventListener('transitionend', cleanup, { once: true })
-        requestAnimationFrame(() => {
-          hx!.style.transform = 'translateX(0)'
-          hx!.style.opacity = '1'
+      const wrapD = container.querySelector('#hxwWrap') as HTMLElement | null
+      const canvasD = container.querySelector('#hxwCanvas') as HTMLElement | null
+      if (wrapD) wrapD.style.visibility = 'hidden'
+      const durationMove = 800
+      const durationGrow = 400
+      const ease = (t: number) => t < .5 ? 2*t*t : -1+(4-2*t)*t
+      const now = () => performance.now()
+      const animate = (dur: number, step: (t:number)=>void, done: ()=>void) => {
+        const t0 = now()
+        const tick = () => { const t = Math.min(1, (now()-t0)/dur); step(ease(t)); if (t<1) requestAnimationFrame(tick); else done() }
+        requestAnimationFrame(tick)
+      }
+      const startArrival = () => {
+        const stD: any = (wrapD as any)?._hxw
+        if (!wrapD || !canvasD || !stD) { setTimeout(startArrival, 16); return }
+        const origScale = stD.scale || 1
+        const origX = stD.offsetX || 0
+        // Set initial: small; compute centered Y at small scale
+        stD.scale = Math.max(0.1, origScale * 0.6)
+        const viewW = wrapD.clientWidth || 0
+        const viewH = wrapD.clientHeight || 0
+        const contentWSmall = (stD.width || 0) * (stD.scale || 1)
+        const contentHSmall = (stD.height || 0) * (stD.scale || 1)
+        const targetXSmall = Math.round((viewW - contentWSmall) / 2)
+        const targetYSmall = Math.round((viewH - contentHSmall) / 2)
+        // Place offscreen horizontally, but vertically already centered → pure horizontal motion
+        stD.offsetX = origX + (dir === 'left' ? -wrapD.clientWidth * 1.2 : wrapD.clientWidth * 1.2)
+        stD.offsetY = targetYSmall
+        try { (hxwApplyTransform as any)(wrapD, canvasD, stD) } catch {}
+        wrapD.style.visibility = ''
+        // Phase A: move in while small (horizontal only)
+        const startXOff = stD.offsetX
+        animate(durationMove, (t) => {
+          stD.offsetX = Math.round(startXOff + (targetXSmall - startXOff) * t)
+          stD.offsetY = targetYSmall
+          try { (hxwApplyTransform as any)(wrapD, canvasD, stD) } catch {}
+        }, () => {
+          // Show intro title right after reaching center (small scale)
+          try { showIntroTitle() } catch {}
+          // Phase B: grow to normal scale centered on viewport
+          const startS = stD.scale
+          const zoomAtCenter = (s: number) => {
+            const rect = wrapD.getBoundingClientRect()
+            const cx2 = rect.width / 2
+            const cy2 = rect.height / 2
+            const prev = stD.scale
+            const wx = (cx2 - stD.offsetX) / prev
+            const wy = (cy2 - stD.offsetY) / prev
+            stD.scale = s
+            stD.offsetX = cx2 - wx * s
+            stD.offsetY = cy2 - wy * s
+            try { (hxwApplyTransform as any)(wrapD, canvasD, stD) } catch {}
+          }
+          animate(durationGrow, (t2) => {
+            const s = startS + (origScale - startS) * t2
+            zoomAtCenter(s)
+          }, () => {
+            // Re-enable group toast after transition fully completes
+            try { sessionStorage.removeItem('suppress-group-toast'); document.body.removeAttribute('data-suppress-group-toast') } catch {}
+          })
         })
+        // Fade out and remove pageDimmer quickly
+        const dim = document.getElementById('pageDimmer') as HTMLElement | null
+        if (dim) { setTimeout(() => { dim.style.opacity = '0'; setTimeout(() => dim.remove(), 120) }, 10) }
+        sessionStorage.removeItem('proj-entry-dir')
       }
-      // Fade out and remove pageDimmer
-      const dim = document.getElementById('pageDimmer') as HTMLElement | null
-      if (dim) {
-        setTimeout(() => { dim.style.opacity = '0'; setTimeout(() => dim.remove(), 180) }, 10)
-      }
-      // Clear flag
-      sessionStorage.removeItem('proj-entry-dir')
+      setTimeout(startArrival, 0)
     }
   } catch {}
   // Intercept breadcrumb click to add a back animation to project list
@@ -1120,6 +1173,8 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
   try {
     const wrap = container.querySelector('#hxwWrap') as HTMLElement | null
     const canvas = container.querySelector('#hxwCanvas') as HTMLElement | null
+    // Ensure normal scroll direction (do not invert)
+    try { if (wrap) wrap.removeAttribute('data-scroll-dir') } catch {}
     const key = `hxw-view-${project.id}`
     const iso = localStorage.getItem(key) === 'iso'
     if (iso) wrap?.classList.add('hxw-iso')
@@ -8504,8 +8559,9 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
       }
     } else {
       e.preventDefault()
-      st.offsetX -= e.deltaX
-      st.offsetY -= e.deltaY
+      const inv = (wrap.getAttribute('data-scroll-dir') === 'invert') ? -1 : 1
+      st.offsetX -= e.deltaX * inv
+      st.offsetY -= e.deltaY * inv
       enforceBounds(); hxwApplyTransform(wrap, canvas, st)
     }
     // 配置モード中はスクロール後にゴーストを再計算

@@ -419,6 +419,9 @@ function renderHoneycomb(root: HTMLElement, projects: Project[]): void {
           sessionStorage.setItem('proj-center-gid', gid)
         } catch {}
         try { prefetchProjectDetail(p.id) } catch {}
+        // Suppress group location toast during transition
+        try { sessionStorage.setItem('suppress-group-toast', '1') } catch {}
+        try { document.body.setAttribute('data-suppress-group-toast', '1') } catch {}
         // Native transition: move actual list honeycomb off-screen with dim
         try {
           const wrap = root.querySelector('#honeyWrap') as HTMLElement | null
@@ -432,20 +435,65 @@ function renderHoneycomb(root: HTMLElement, projects: Project[]): void {
               dim.id = 'pageDimmer'
               document.body.appendChild(dim)
             }
-            // Fade in dimmer late in the slide to shorten visible black time
-            ;(dim as HTMLElement).offsetHeight
-            setTimeout(() => { dim!.style.opacity = '0.25' }, 400)
-            // Move honeycomb
-            wrap.classList.add('transition-out')
-            wrap.classList.add('to-left')
+            // Sequence using actual canvas transform (no cut-out): shrink via zoomAt, then pan left
+            const canvas = root.querySelector('#honeyCanvas') as HTMLElement | null
+            const st: any = (wrap as any)._hx
             let sent = false
             const go = () => { if (sent) return; sent = true; window.location.hash = `#/project/detail?id=${p.id}` }
-            // Fire navigate when the list edge is likely off-screen (about half duration)
-            setTimeout(go, 700)
-            const onEnd = () => { wrap.removeEventListener('transitionend', onEnd); setTimeout(go, 50) }
-            wrap.addEventListener('transitionend', onEnd, { once: true } as any)
-            // Fallback timeout
-            setTimeout(go, 1600)
+            if (!canvas || !st) { setTimeout(go, 50); return }
+            const rect = tile.getBoundingClientRect()
+            const cx = Math.round(rect.left + rect.width / 2)
+            const cy = Math.round(rect.top + rect.height / 2)
+            const startScale = st.scale || 1
+            const endScale = startScale * 0.6
+            const durationShrink = 400
+            const durationMove = 800
+            const ease = (t: number) => t < .5 ? 2*t*t : -1+(4-2*t)*t
+            const now = () => performance.now()
+            const animate = (dur: number, step: (t:number)=>void, done: ()=>void) => {
+              const t0 = now()
+              const tick = () => {
+                const t = Math.min(1, (now() - t0) / dur)
+                step(ease(t))
+                if (t < 1) requestAnimationFrame(tick); else done()
+              }
+              requestAnimationFrame(tick)
+            }
+            // Helper: zoom keeping a screen point fixed (same logic as wheel pinch)
+            const zoomAtPoint = (clientX: number, clientY: number, nextScale: number) => {
+              const min = Math.max(0.2, (st.minScale || 0))
+              const ns = Math.max(min, Math.min(2.4, nextScale))
+              const rect = wrap.getBoundingClientRect()
+              const prev = st.scale
+              const cx2 = clientX - rect.left
+              const cy2 = clientY - rect.top
+              const wx = (cx2 - st.offsetX) / prev
+              const wy = (cy2 - st.offsetY) / prev
+              st.scale = ns
+              st.offsetX = cx2 - wx * ns
+              st.offsetY = cy2 - wy * ns
+              applyHexTransform(wrap, canvas!, st)
+            }
+            // No full-screen dim; keep it transparent to avoid flash
+            // setTimeout(() => { dim!.style.opacity = '0.25' }, 180)
+            // Phase 1: shrink around tile center using built-in zoomAt
+            animate(durationShrink, (t) => {
+              const s = startScale + (endScale - startScale) * t
+              try { zoomAtPoint(cx, cy, s) } catch { /* ignore */ }
+            }, () => {
+              // Phase 2: pan left while small
+              const startX = st.offsetX || 0
+              const targetX = startX - Math.max(wrap.clientWidth * 1.2, 600)
+              const startY = st.offsetY || 0
+              animate(durationMove, (t2) => {
+                st.offsetX = Math.round(startX + (targetX - startX) * t2)
+                st.offsetY = startY
+                try { applyHexTransform(wrap, canvas!, st) } catch {}
+              }, () => {})
+              // Navigate near end of move so edge is gone
+              setTimeout(go, Math.max(600, durationMove - 180))
+              setTimeout(go, durationMove + 700) // absolute fallback
+            })
           } else {
             window.location.hash = `#/project/detail?id=${p.id}`
           }
@@ -572,14 +620,22 @@ function applyHexTransform(wrap: HTMLElement, canvas: HTMLElement, st: HexLayout
           el.classList.toggle('ring-neutral-600', !on)
           if (on) (el as HTMLElement).style.zIndex = '9000'
         })
-        // Show center-screen group banner like game location display
-        try { showGroupLocationToast(best[0], uid) } catch {}
+        // Show center-screen group banner like game location display (skip during transition)
+        try {
+          if (!document.body.hasAttribute('data-suppress-group-toast') && !document.getElementById('pageDimmer')) {
+            showGroupLocationToast(best[0], uid)
+          }
+        } catch {}
       }
     }
   } catch {}
 }
 
 function showGroupLocationToast(gid: string, uid?: number): void {
+  // Disable while navigating to detail
+  try { if (sessionStorage.getItem('suppress-group-toast') === '1') return } catch {}
+  if (document.body.hasAttribute('data-suppress-group-toast')) return
+  if (document.getElementById('pageDimmer')) return
   // Throttle a bit to avoid overwhelming on rapid toggles
   const app = document.getElementById('app') as HTMLElement | null
   const host = app || document.body
