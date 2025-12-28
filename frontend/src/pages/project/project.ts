@@ -996,7 +996,8 @@ function bindHoneyInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTM
     if (e.ctrlKey) {
       e.preventDefault()
       const prev = st.scale
-      const ds = Math.exp(-e.deltaY * 0.0022) // more sensitive
+      // Match detail view 2D zoom sensitivity
+      const ds = Math.exp(-e.deltaY * 0.0055)
       zoomAt(e.clientX, e.clientY, prev * ds)
     } else {
       // two-finger pan on trackpad
@@ -1023,7 +1024,8 @@ function bindHoneyInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTM
       const d = dist()
       if (startDist === 0) { startDist = d; startScale = st.scale }
       if (d > 0 && startDist > 0) {
-        const s = Math.pow(d / startDist, 1.25) // increase pinch response
+        // Match detail view 2D pinch sensitivity
+        const s = Math.pow(d / startDist, 1.9)
         // Zoom around pinch midpoint
         const a = Array.from(pts.values())
         const midX = (a[0].x + a[1].x) / 2

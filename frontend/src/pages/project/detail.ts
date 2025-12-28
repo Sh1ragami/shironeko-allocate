@@ -8603,7 +8603,8 @@ function hxwToggleIsoKeepCenter(wrap: HTMLElement, canvas: HTMLElement, st: HexW
     const W = (st.width || 0) * (st.scale || 1)
     const H = (st.height || 0) * (st.scale || 1)
     const iso = wrap.classList.contains('hxw-iso')
-    let mX = 120, mY = 120
+    // Widen horizontal margin to allow more side panning
+    let mX = 320, mY = 120
     if (iso) {
       const parseDeg = (v: string, d: number) => { const n = parseFloat(v.replace('deg','')); return isNaN(n) ? d : n }
       let rx = 46, rz = -22
@@ -8678,7 +8679,8 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
     const H = (st.height || 0) * (st.scale || 1)
     if (!isFinite(vw) || !isFinite(vh)) return
     const iso = wrap.classList.contains('hxw-iso')
-    let mX = 120, mY = 120
+    // Widen horizontal pan allowance vs vertical
+    let mX = 320, mY = 120
     if (iso) {
       // Increase bounds in 3D to compensate perspective skew so右下にも十分に移動できる
       const parseDeg = (v: string, d: number) => { const n = parseFloat(v.replace('deg','')); return isNaN(n) ? d : n }
