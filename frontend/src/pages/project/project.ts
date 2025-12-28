@@ -1,7 +1,7 @@
 import { apiFetch } from '../../utils/api'
 import { getTheme, setTheme } from '../../utils/theme'
 import { showRouteLoading, hideRouteLoading } from '../../utils/route-loading'
-import { prefetchProjectDetail } from '../../utils/prefetch'
+import { prefetchProjectDetail, prefetchProjectDetailDeep } from '../../utils/prefetch'
 import { openAccountModal as openDetailAccountModal } from './detail'
 
 type Project = {
@@ -410,6 +410,8 @@ function renderHoneycomb(root: HTMLElement, projects: Project[]): void {
         <div class="hx-clip hx-plain" style="background:${tone.bg}; border-color:${tone.border}">
           <div class="hx-info hx-plain"><div>${escapeHtml(title)}</div></div>
         </div>`
+      // Start deeper prefetch at the earliest selection moment
+      tile.addEventListener('pointerdown', () => { try { prefetchProjectDetailDeep(p.id) } catch {} }, { once: true })
       tile.addEventListener('click', () => {
         // 保存: 戻ってきた時にこのプロジェクトのグループを中心に
         try {
@@ -418,7 +420,7 @@ function renderHoneycomb(root: HTMLElement, projects: Project[]): void {
           const gid = map[String(p.id)] || 'user'
           sessionStorage.setItem('proj-center-gid', gid)
         } catch {}
-        try { prefetchProjectDetail(p.id) } catch {}
+        try { prefetchProjectDetailDeep(p.id) } catch {}
         // Suppress group location toast during transition
         try { sessionStorage.setItem('suppress-group-toast', '1') } catch {}
         try { document.body.setAttribute('data-suppress-group-toast', '1') } catch {}
@@ -924,9 +926,21 @@ function bindGridInteractions(root: HTMLElement): void {
   if (!grid) return
   // card click + menu
   grid.querySelectorAll('[data-id]')?.forEach((el) => {
+    // Light prefetch on hover/touch
+    const idAttr = (el as HTMLElement).getAttribute('data-id')
+    if (idAttr) {
+      const pid = Number(idAttr)
+      el.addEventListener('mouseenter', () => { try { prefetchProjectDetail(pid) } catch {} })
+      el.addEventListener('touchstart', () => { try { prefetchProjectDetail(pid) } catch {} }, { passive: true })
+      // Deep prefetch as soon as selection starts
+      el.addEventListener('pointerdown', () => { try { prefetchProjectDetailDeep(pid) } catch {} }, { once: true })
+    }
     el.addEventListener('click', () => {
       const id = (el as HTMLElement).getAttribute('data-id')
-      if (id) window.location.hash = `#/project/detail?id=${encodeURIComponent(id)}`
+      if (id) {
+        try { sessionStorage.setItem('proj-entry-dir', 'right') } catch {}
+        window.location.hash = `#/project/detail?id=${encodeURIComponent(id)}`
+      }
     })
     // right-click context menu
     el.addEventListener('contextmenu', (ev) => {
@@ -1904,7 +1918,11 @@ function openCardMenu(root: HTMLElement, anchor: HTMLElement, id: number): void 
   const remove = () => menu.remove()
   const onDoc = (e: MouseEvent) => { if (!menu.contains(e.target as Node)) { remove(); document.removeEventListener('click', onDoc) } }
   setTimeout(() => document.addEventListener('click', onDoc), 0)
-  menu.querySelector('[data-act="open"]')?.addEventListener('click', () => {
+  const openBtn = menu.querySelector('[data-act="open"]') as HTMLElement | null
+  openBtn?.addEventListener('mousedown', () => { try { prefetchProjectDetailDeep(id) } catch {} }, { once: true })
+  openBtn?.addEventListener('click', () => {
+    try { sessionStorage.setItem('proj-entry-dir', 'right') } catch {}
+    try { prefetchProjectDetailDeep(id) } catch {}
     window.location.hash = `#/project/detail?id=${id}`
     remove()
   })

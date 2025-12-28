@@ -1011,8 +1011,13 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
   const owner = fullName.includes('/') ? fullName.split('/')[0] : me?.name || 'User'
   const repoName = fullName.includes('/') ? fullName.split('/')[1] : project.name
 
-  // Render the full layout once with all available data
-  container.innerHTML = detailLayout({ id: project.id, name: project.name, fullName, owner, repo: repoName })
+  // Determine if we are entering from project list with native slide
+  let entryDir: string | null = null
+  try { entryDir = sessionStorage.getItem('proj-entry-dir') } catch {}
+  const entryHidden = (entryDir === 'left' || entryDir === 'right')
+  // Render the full layout once with all available data. Hide the hex field initially
+  // when coming from list to prevent a one-frame central flash before animation setup.
+  container.innerHTML = detailLayout({ id: project.id, name: project.name, fullName, owner, repo: repoName }, { entryHidden })
   // Helper: Intro title float-up (will be invoked when arrival reaches center)
   const showIntroTitle = () => {
     try {
@@ -1028,8 +1033,9 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
   }
   // If coming from list with native transition, slide in actual detail honeycomb and fade dimmer
   try {
-    const dir = sessionStorage.getItem('proj-entry-dir')
+    const dir = entryDir || sessionStorage.getItem('proj-entry-dir')
     if (dir === 'left' || dir === 'right') {
+      try { (container as HTMLElement).setAttribute('data-arriving', '1') } catch {}
       const wrapD = container.querySelector('#hxwWrap') as HTMLElement | null
       const canvasD = container.querySelector('#hxwCanvas') as HTMLElement | null
       if (wrapD) wrapD.style.visibility = 'hidden'
@@ -1073,6 +1079,7 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
         stD.offsetY = targetYSmall
         try { (hxwApplyTransform as any)(wrapD, canvasD, stD) } catch {}
         wrapD.style.visibility = ''
+        try { (wrapD.style as any).opacity = '0' } catch {}
         // Phase A: move in while small (horizontal only)
         const startXOff = stD.offsetX
         animate(durationMove, (t) => {
@@ -1102,12 +1109,19 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
           }, () => {
             // Re-enable group toast after transition fully completes
             try { sessionStorage.removeItem('suppress-group-toast'); document.body.removeAttribute('data-suppress-group-toast') } catch {}
+            // Reveal entry-hidden UI parts (e.g., minimap wrapper)
+            try { (container.querySelector('.hxw-mini') as HTMLElement | null)?.style.removeProperty('visibility') } catch {}
+            // Let deferred hydration proceed
+            try { window.dispatchEvent(new CustomEvent('pd-arrived', { detail: { id: project?.id } })) } catch {}
+            // Clear entry flags now that animation is fully done
+            try { (container as HTMLElement).removeAttribute('data-arriving') } catch {}
+            try { sessionStorage.removeItem('proj-entry-dir') } catch {}
           })
         })
-        // Fade out and remove pageDimmer quickly
+        // Fade out and remove pageDimmer quickly, fade in wrap
         const dim = document.getElementById('pageDimmer') as HTMLElement | null
         if (dim) { setTimeout(() => { dim.style.opacity = '0'; setTimeout(() => dim.remove(), 120) }, 10) }
-        sessionStorage.removeItem('proj-entry-dir')
+        try { requestAnimationFrame(() => { (wrapD.style as any).opacity = '1' }) } catch {}
       }
       setTimeout(startArrival, 0)
     }
@@ -1262,22 +1276,24 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
     if (hx && (hx as any)._setEdit) (hx as any)._setEdit(saved)
   } catch {}
 
-  // DnD (Summary widgets)
-  enableDragAndDrop(container)
-
-  // Kanban board
-  renderKanban(container, String(project.id))
-  // Load saved custom tabs first so dependent widgets (e.g., 新規タブ) can link to them
-  loadCustomTabs(container, String(project.id))
-  // Apply saved tab order (core + custom)
-  try { applySavedTabOrder(container, String(project.id)) } catch { }
-  // Load server-backed widget state (for tabnew/invite, etc.), then refresh dynamic widgets
-  try { await wsLoadAll(String(project.id)) } catch {}
-  try { refreshDynamicWidgets(container, String(project.id)) } catch { }
-  // Enable DnD for tabs
-  try { enableTabDnD(container, String(project.id)) } catch { }
-  // Enable tab drag & drop reordering for custom tabs
-  try { enableTabDnD(container, String(project.id)) } catch { }
+  // Defer heavy hydration if we are in entry animation; show area only until arrival finishes
+  const deferHydration = (entryDir === 'left' || entryDir === 'right')
+  const resumeHydration = async () => {
+    try { enableDragAndDrop(container) } catch {}
+    try { renderKanban(container, String(project.id)) } catch {}
+    try { loadCustomTabs(container, String(project.id)) } catch {}
+    try { applySavedTabOrder(container, String(project.id)) } catch {}
+    try { await wsLoadAll(String(project.id)) } catch {}
+    try { refreshDynamicWidgets(container, String(project.id)) } catch {}
+    try { enableTabDnD(container, String(project.id)) } catch {}
+    try { enableTabDnD(container, String(project.id)) } catch {}
+  }
+  if (deferHydration) {
+    const once = () => { window.removeEventListener('pd-arrived', once as any); resumeHydration() }
+    window.addEventListener('pd-arrived', once as any, { once: true })
+  } else {
+    await resumeHydration()
+  }
 
   // Global top-left quick tab switch (always accessible)
   const showTab = (name: string) => {
@@ -1425,7 +1441,8 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
   } catch { }
 
   // Load data for widgets from GitHub proxy (independent fallbacks)
-  if (fullName) {
+  const hydrateRepo = async () => {
+    if (!fullName) return
     // Overview (repo meta)
     try {
       const repo = await apiFetch<any>(`/github/repo?full_name=${encodeURIComponent(fullName)}`)
@@ -1455,6 +1472,12 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
     try {
       await hydrateContribHeatmap(container, fullName)
     } catch { }
+  }
+  if (deferHydration) {
+    const runOnce = () => { window.removeEventListener('pd-arrived', runOnce as any); hydrateRepo() }
+    window.addEventListener('pd-arrived', runOnce as any, { once: true })
+  } else {
+    await hydrateRepo()
   }
 
   // Update avatar image if user was fetched
@@ -6570,16 +6593,17 @@ function buildWidgetTab(panel: HTMLElement, pid: string, scope: string, defaults
   }
 }
 
-function detailLayout(ctx: { id: number; name: string; fullName: string; owner: string; repo: string }): string {
+function detailLayout(ctx: { id: number; name: string; fullName: string; owner?: string; repo?: string }, opts?: { entryHidden?: boolean }): string {
+  const hideWrap = opts?.entryHidden === true
   return `
     <div class="min-h-screen gh-canvas text-gray-100">
       <div class="relative">
         <!-- Top-left breadcrumb (repo / projects) with tabs below -->
         <div class="fixed left-3 top-3 z-[19]">
           <div class="flex items-baseline gap-2">
-            <a href="#/project" class="text-gray-300 hover:text-white truncate max-w-[10rem] align-middle text-2xl font-semibold" id="topPathUser" title="${ctx.owner}">${ctx.owner}</a>
+            <a href="#/project" class="text-gray-300 hover:text-white truncate max-w-[10rem] align-middle text-2xl font-semibold" id="topPathUser" title="${ctx.owner ?? ''}">${ctx.owner ?? ''}</a>
             <span class="text-gray-500 text-2xl">/</span>
-            <span class="text-gray-300 text-2xl font-semibold" id="topPathRepo" title="${ctx.repo}">${ctx.repo}</span>
+            <span class="text-gray-300 text-2xl font-semibold" id="topPathRepo" title="${ctx.repo ?? ''}">${ctx.repo ?? ''}</span>
           </div>
           <div class="mt-2 flex items-center gap-0">
             <button id="topGoSummary" class="px-6 py-1.5 text-white text-xs font-medium drop-shadow-sm hover:bg-sky-600 bg-sky-700 transition select-none" style="clip-path: polygon(20% 0%, 100% 0%, 80% 100%, 0% 100%); -webkit-clip-path: polygon(20% 0%, 100% 0%, 80% 100%, 0% 100%);">概要</button>
@@ -6592,7 +6616,7 @@ function detailLayout(ctx: { id: number; name: string; fullName: string; owner: 
             <section class="space-y-3" id="tab-summary" data-tab="summary">
               <!-- Honeycomb widget field: full-screen behind left rail -->
               <div id="hxwHost" class="fixed inset-0 z-0">
-                <section class="hxw-wrap" id="hxwWrap">
+                <section class="hxw-wrap" id="hxwWrap"${hideWrap ? ' style="visibility:hidden;opacity:0"' : ''}>
                   <div class="hxw-stage" id="hxwStage">
                     <div class="hxw-canvas hxw-base" id="hxwBase" style="width:2000px; height:1400px"></div>
                     <div class="hxw-canvas" id="hxwCanvas" style="width:2000px; height:1400px"></div>
@@ -6604,7 +6628,7 @@ function detailLayout(ctx: { id: number; name: string; fullName: string; owner: 
               <!-- Capacity bar (bottom-left) - show only in edit mode -->
               <div id="hxwCap" class="hxw-cap hidden"></div>
               <!-- Minimap (top-right) -->
-              <div class="hxw-mini"><canvas id="hxwMini" width="120" height="120"></canvas></div>
+              <div class="hxw-mini"${hideWrap ? ' style=\"visibility:hidden\"' : ''}><canvas id="hxwMini" width="120" height="120"></canvas></div>
               <!-- Info panel (bottom, edit mode only) -->
               <aside id="hxwInfo" class="fixed inset-x-0 bottom-0 z-[18] hidden">
                 <div class="mx-auto w-[min(560px,94vw)]">
@@ -9649,14 +9673,20 @@ export function renderHexWidgets(root: HTMLElement, pid: string): void {
   hxwPlaceWidgets(root, pid, st)
   // bind interactions and minimap
   hxwBindInteractions(root, wrap, canvas, st)
-  // center initial view
-  try {
-    const vw = wrap.clientWidth, vh = wrap.clientHeight
-    const Wv = (st.width || 0) * st.scale
-    const Hv = (st.height || 0) * st.scale
-    st.offsetX = Math.round((vw - Wv) / 2)
-    st.offsetY = Math.round((vh - Hv) / 2)
-  } catch {}
+  // center initial view (skip during entry animation or if already inited)
+  let allowCenter = true
+  try { const dir = sessionStorage.getItem('proj-entry-dir'); if (dir === 'left' || dir === 'right') allowCenter = false } catch {}
+  try { const rootEl = (canvas.closest('.gh-canvas') as HTMLElement | null) || root as HTMLElement; if (rootEl?.hasAttribute('data-arriving')) allowCenter = false } catch {}
+  if (!st.inited && allowCenter) {
+    try {
+      const vw = wrap.clientWidth, vh = wrap.clientHeight
+      const Wv = (st.width || 0) * st.scale
+      const Hv = (st.height || 0) * st.scale
+      st.offsetX = Math.round((vw - Wv) / 2)
+      st.offsetY = Math.round((vh - Hv) / 2)
+    } catch {}
+  }
+  st.inited = true
   hxwApplyTransform(wrap, canvas, st)
   // ensure initial contents hydrate now that skeletons exist
   try { refreshDynamicWidgets(root, pid) } catch {}
