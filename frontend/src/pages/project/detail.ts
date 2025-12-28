@@ -1035,7 +1035,8 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
       if (wrapD) wrapD.style.visibility = 'hidden'
       const durationMove = 800
       const durationGrow = 400
-      const ease = (t: number) => t < .5 ? 2*t*t : -1+(4-2*t)*t
+      // S-curve easing (easeInOutCubic): 徐々に加速→徐々に減速
+      const ease = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2)
       const now = () => performance.now()
       const animate = (dur: number, step: (t:number)=>void, done: ()=>void) => {
         const t0 = now()
@@ -1048,7 +1049,19 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
         const origScale = stD.scale || 1
         const origX = stD.offsetX || 0
         // Set initial: small; compute centered Y at small scale
-        stD.scale = Math.max(0.1, origScale * 0.6)
+        // Prefer absolute unit size recorded in list (tile*scale) to match visual size exactly
+        let targetScale = origScale * 0.6
+        try {
+          const unitSmall = parseFloat(sessionStorage.getItem('proj-small-unit') || '')
+          const tile = stD.tile || 200
+          if (isFinite(unitSmall) && unitSmall > 1) {
+            targetScale = unitSmall / tile
+          } else {
+            const r = parseFloat(sessionStorage.getItem('proj-shrink-ratio') || '')
+            if (isFinite(r) && r > 0.1 && r < 2.0) targetScale = origScale * r
+          }
+        } catch {}
+        stD.scale = Math.max(0.1, targetScale)
         const viewW = wrapD.clientWidth || 0
         const viewH = wrapD.clientHeight || 0
         const contentWSmall = (stD.width || 0) * (stD.scale || 1)

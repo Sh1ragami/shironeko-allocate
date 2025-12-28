@@ -448,7 +448,8 @@ function renderHoneycomb(root: HTMLElement, projects: Project[]): void {
             const endScale = startScale * 0.6
             const durationShrink = 400
             const durationMove = 800
-            const ease = (t: number) => t < .5 ? 2*t*t : -1+(4-2*t)*t
+            // S-curve easing (easeInOutCubic): 徐々に加速→徐々に減速
+            const ease = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2)
             const now = () => performance.now()
             const animate = (dur: number, step: (t:number)=>void, done: ()=>void) => {
               const t0 = now()
@@ -481,6 +482,15 @@ function renderHoneycomb(root: HTMLElement, projects: Project[]): void {
               const s = startScale + (endScale - startScale) * t
               try { zoomAtPoint(cx, cy, s) } catch { /* ignore */ }
             }, () => {
+              // Persist achieved shrink ratio for detail to match visual scale
+              try {
+                const achieved = st.scale || endScale
+                const ratio = (startScale > 0.0001) ? (achieved / startScale) : 0.6
+                sessionStorage.setItem('proj-shrink-ratio', String(ratio))
+                // Persist the on-screen unit size (tile * scale) at small state to match detail visually
+                const unitSmall = (st.tile || 1) * (achieved || endScale)
+                sessionStorage.setItem('proj-small-unit', String(unitSmall))
+              } catch {}
               // Phase 2: pan left while small
               const startX = st.offsetX || 0
               const targetX = startX - Math.max(wrap.clientWidth * 1.2, 600)
