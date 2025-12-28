@@ -3045,7 +3045,7 @@ function enableDragAndDrop(root: HTMLElement): void {
         if (editor) editor.classList.remove('hidden')
         if (preview) preview.classList.add('hidden')
       } else {
-        if (preview) preview.innerHTML = mdRenderToHtml(txt || 'ここにMarkdownを書いてください')
+        if (preview) preview.innerHTML = mdRenderQiita(txt || 'ここにMarkdownを書いてください')
         if (editor) editor.classList.add('hidden')
         if (preview) preview.classList.remove('hidden')
       }
@@ -3253,7 +3253,7 @@ function enableDragAndDrop(root: HTMLElement): void {
     if (prevTimer) { try { clearTimeout(prevTimer) } catch { } }
     const t = window.setTimeout(() => {
       mdSet(pid, id, val)
-      if (preview) preview.innerHTML = mdRenderToHtml(val || 'ここにMarkdownを書いてください')
+      if (preview) preview.innerHTML = mdRenderQiita(val || 'ここにMarkdownを書いてください')
       try { mdFillSlots(w, pid, id, val) } catch {}
       // re-apply density scaling after re-render
       try {
@@ -6107,6 +6107,141 @@ function mdRenderToHtml(src: string): string {
   return s
 }
 
+// Richer Markdown renderer approximating GFM + Qiita extensions used in the cheat sheet
+function mdRenderQiita(src: string): string {
+  const escapeHtml = (t: string) => (t || '').replace(/[&<>\"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', "'": '&#39;' }[c] as string))
+  const escapeNoQuotes = (t: string) => (t || '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c] as string))
+  const lines = (src || '').replace(/\r\n?/g, '\n').split('\n')
+  const out: string[] = []
+  let i = 0
+  let inFence = false, fence = '', fenceInfo = ''
+  let list: null | 'ul' | 'ol' | 'task' = null
+  let inQuote = false
+  let inTable = false, align: string[] = []
+  let inNote = false
+
+  const flushList = () => { if (list) { out.push(list === 'ol' ? '</ol>' : '</ul>'); list = null } }
+  const flushQuote = () => { if (inQuote) { out.push('</blockquote>'); inQuote = false } }
+  const flushTable = () => { if (inTable) { out.push('</tbody></table>'); inTable = false; align = [] } }
+  const flushNote = () => { if (inNote) { out.push('</div>'); inNote = false } }
+
+  const inline = (s: string): string => {
+    const stash: string[] = []
+    s = s.replace(/(`+)([\s\S]*?)\1/g, (_m, _t: string, body: string) => { stash.push(`<code class=\"bg-neutral-900 px-1 rounded\">${escapeHtml(body)}</code>`); return `\u0000C${stash.length - 1};` })
+    s = s.replace(/\[([^\]]+)\]\(([^\s\)]+)(?:\s+\"([^\"]*)\")?\)/g, (_m, text, url, title) => {
+      const t = title ? ` title=\"${escapeHtml(title)}\"` : ''
+      return `<a href=\"${escapeHtml(url)}\" target=\"_blank\" class=\"text-sky-400 hover:text-sky-300\"${t}>${escapeHtml(text)}</a>`
+    })
+    s = s.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    s = s.replace(/\*(.*?)\*/g, '<em>$1</em>')
+    s = s.replace(/\u0000C(\d+);/g, (_m, idx) => {
+      const html = stash[Number(idx)] || ''
+      const m = html.match(/<code[^>]*>([\s\S]*)<\/code>/)
+      const val = m ? m[1] : ''
+      const pat = /^(#(?:[0-9a-fA-F]{3,8})|rgb\([^\)]+\)|rgba\([^\)]+\)|hsl\([^\)]+\)|hsla\([^\)]+\))$/
+      if (val && pat.test(val)) {
+        const chip = `<span class=\"inline-block align-middle w-3 h-3 rounded-sm ml-1\" style=\"background:${escapeNoQuotes(val)}\"></span>`
+        return html.replace('</code>', `</code>${chip}`)
+      }
+      return html
+    })
+    return s
+  }
+
+  while (i < lines.length) {
+    const line = lines[i]
+    if (!inFence && /^:::note(\s+(info|warn|alert))?\s*$/.test(line)) {
+      flushList(); flushQuote(); flushTable(); flushNote()
+      const m = line.match(/^:::note(?:\s+(info|warn|alert))?\s*$/)!
+      const kind = m[1] || ''
+      const cls = kind ? ` md-note-${kind}` : ''
+      out.push(`<div class=\"md-note${cls} p-3 rounded border border-neutral-600 bg-neutral-900/60\">`)
+      inNote = true; i++; continue
+    }
+    if (inNote && line.trim() === ':::') { out.push('</div>'); inNote = false; i++; continue }
+
+    const fs = line.match(/^(```|~~~)\s*([^\s]*)[^$]*$/)
+    if (!inFence && fs) {
+      flushList(); flushQuote(); flushTable()
+      inFence = true; fence = fs[1]; fenceInfo = fs[2] || ''
+      let lang = '', meta = ''
+      if (fenceInfo) { const parts = fenceInfo.split(':'); lang = parts[0] || ''; meta = parts.slice(1).join(':') }
+      const buf: string[] = []
+      i++
+      while (i < lines.length && !new RegExp(`^${fence}\\s*$`).test(lines[i])) { buf.push(lines[i]); i++ }
+      if (i < lines.length) i++
+      inFence = false
+      const code = escapeHtml(buf.join('\n'))
+      const metaHtml = (lang || meta) ? `<div class=\"text-[11px] text-gray-400 px-2 py-1 border-b border-neutral-700\">${escapeNoQuotes([lang, meta].filter(Boolean).join(':'))}</div>` : ''
+      out.push(`<div class=\"md-code rounded bg-neutral-900 ring-2 ring-neutral-600 overflow-hidden\">${metaHtml}<pre class=\"p-3 overflow-auto\"><code class=\"lang-${escapeNoQuotes(lang)}\">${code}</code></pre></div>`)
+      continue
+    }
+
+    let m: RegExpMatchArray | null
+    if (!inFence && (m = line.match(/^######\s?(.*)$/))) { flushList(); flushQuote(); flushTable(); out.push(`<h6 class=\"text-xs font-semibold mt-2\">${inline(escapeNoQuotes(m[1]))}</h6>`); i++; continue }
+    if (!inFence && (m = line.match(/^#####\s?(.*)$/))) { flushList(); flushQuote(); flushTable(); out.push(`<h5 class=\"text-sm font-semibold mt-2\">${inline(escapeNoQuotes(m[1]))}</h5>`); i++; continue }
+    if (!inFence && (m = line.match(/^####\s?(.*)$/))) { flushList(); flushQuote(); flushTable(); out.push(`<h4 class=\"text-base font-semibold mt-3\">${inline(escapeNoQuotes(m[1]))}</h4>`); i++; continue }
+    if (!inFence && (m = line.match(/^###\s?(.*)$/))) { flushList(); flushQuote(); flushTable(); out.push(`<h3 class=\"text-lg font-semibold mt-3\">${inline(escapeNoQuotes(m[1]))}</h3>`); i++; continue }
+    if (!inFence && (m = line.match(/^##\s?(.*)$/))) { flushList(); flushQuote(); flushTable(); out.push(`<h2 class=\"text-xl font-semibold mt-4\">${inline(escapeNoQuotes(m[1]))}</h2>`); i++; continue }
+    if (!inFence && (m = line.match(/^#\s?(.*)$/))) { flushList(); flushQuote(); flushTable(); out.push(`<h1 class=\"text-2xl font-semibold mt-4\">${inline(escapeNoQuotes(m[1]))}</h1>`); i++; continue }
+
+    const t = line.trim()
+    if (!inFence && (/^(\*\s?){3,}$/.test(t) || /^(-\s?){3,}$/.test(t) || /^_{3,}$/.test(t))) { flushList(); flushQuote(); flushTable(); out.push('<hr class=\"my-3 border-neutral-700\"/>'); i++; continue }
+
+    if (!inFence && /^>\s?/.test(line)) {
+      if (!inQuote) { flushList(); flushTable(); out.push('<blockquote class=\"border-l-4 border-neutral-600 pl-3 my-2 text-gray-300\">'); inQuote = true }
+      out.push(`<p class=\"my-1\">${inline(escapeNoQuotes(line.replace(/^>\s?/, '')))}</p>`)
+      i++; continue
+    } else { flushQuote() }
+
+    const parseRow = (r: string) => r.split('|').map(c => c.trim())
+    if (!inFence && !inTable && line.includes('|') && i + 1 < lines.length && /^\s*\|?\s*[:\-\s|]+\s*\|?\s*$/.test(lines[i + 1])) {
+      flushList(); flushQuote(); flushTable()
+      const header = parseRow(line)
+      const al = parseRow(lines[i + 1])
+      align = al.map(x => x.includes(':-') && x.includes('-:') ? 'center' : (x.trim().startsWith(':') ? 'left' : (x.trim().endsWith(':') ? 'right' : 'left')))
+      out.push('<table class=\"md-table my-3 border-collapse\"><thead><tr>')
+      header.forEach((h, idx) => out.push(`<th class=\"px-2 py-1 border border-neutral-700 text-gray-200\" style=\"text-align:${align[idx] || 'left'}\">${inline(escapeNoQuotes(h))}</th>`))
+      out.push('</tr></thead><tbody>')
+      inTable = true; i += 2; continue
+    }
+    if (inTable) {
+      if (line.trim() === '' || !line.includes('|')) { flushTable(); i++; continue }
+      const cells = parseRow(line)
+      out.push('<tr>')
+      cells.forEach((c, idx) => out.push(`<td class=\"px-2 py-1 border border-neutral-700\" style=\"text-align:${align[idx] || 'left'}\">${inline(escapeNoQuotes(c))}</td>`))
+      out.push('</tr>')
+      i++; continue
+    }
+
+    let lm: RegExpMatchArray | null
+    if (!inFence && (lm = line.match(/^\s*\d+\.\s+(.*)$/))) {
+      if (list !== 'ol') { flushList(); out.push('<ol class=\"ml-5 list-decimal\">'); list = 'ol' }
+      out.push(`<li>${inline(escapeNoQuotes(lm[1]))}</li>`)
+      i++; continue
+    }
+    if (!inFence && (lm = line.match(/^\s*[-\*\+]\s+\[( |x|X)\]\s+(.*)$/))) {
+      if (list !== 'task') { flushList(); out.push('<ul class=\"ml-5 md-task\">'); list = 'task' }
+      const checked = (lm[1] || '').toLowerCase() === 'x'
+      out.push(`<li class=\"md-task-item\"><label><input type=\"checkbox\" disabled ${checked ? 'checked' : ''}/> ${inline(escapeNoQuotes(lm[2]))}</label></li>`)
+      i++; continue
+    }
+    if (!inFence && (lm = line.match(/^\s*[-\*\+]\s+(.*)$/))) {
+      if (list !== 'ul') { flushList(); out.push('<ul class=\"ml-5 list-disc\">'); list = 'ul' }
+      out.push(`<li>${inline(escapeNoQuotes(lm[1]))}</li>`)
+      i++; continue
+    }
+    if (list && line.trim() === '') { flushList(); i++; continue }
+
+    if (line.trim() === '') { flushList(); flushQuote(); flushTable(); flushNote(); out.push(''); i++; continue }
+    if (line.trim().startsWith('<')) { out.push(line); i++; continue }
+    out.push(`<p class=\"my-2\">${inline(escapeNoQuotes(line))}</p>`)
+    i++
+  }
+  flushList(); flushQuote(); flushTable(); flushNote()
+  return out.join('\n')
+}
+
 // ---- Popups for README / Markdown ----
 function openReadmeModal(root: HTMLElement): void {
   // Ensure single instance
@@ -6126,7 +6261,7 @@ function openReadmeModal(root: HTMLElement): void {
   // Try cached value; otherwise fetch
   const body = overlay.querySelector('#rd-body') as HTMLElement
   const cached = (root as any)._readmeText as string | undefined
-  const render = (txt: string) => { body.innerHTML = mdRenderToHtml(txt || 'README not found') }
+  const render = (txt: string) => { body.innerHTML = mdRenderQiita(txt || 'README not found') }
   if (cached != null) render(cached)
   else {
     const full = (root as HTMLElement).getAttribute('data-repo-full') || ''
@@ -6148,15 +6283,57 @@ function openMarkdownModal(root: HTMLElement, pid: string, id: string): void {
   overlay.className = 'fixed inset-0 z-[86] bg-black/60 backdrop-blur-[1px] grid place-items-center fade-overlay'
   overlay.innerHTML = `
     <div class="relative w-[min(980px,95vw)] max-h-[86vh] overflow-hidden rounded-xl bg-neutral-900 ring-2 ring-neutral-600 text-gray-100 pop-modal modal-fixed flex flex-col">
-      <header class="h-11 flex items-center px-4 border-b border-neutral-600"><div class="text-sm font-medium">Markdown</div><button class="ml-auto text-2xl text-neutral-300 hover:text-white" data-close>×</button></header>
-      <section class="flex-1 overflow-auto p-4 text-sm" id="md-body"></section>
+      <header class="h-11 flex items-center px-3 border-b border-neutral-600 gap-2">
+        <div class="text-sm font-medium">Markdown</div>
+        <div class="ml-3 inline-flex items-center gap-1 bg-neutral-800/70 ring-1 ring-neutral-600 rounded p-0.5" role="tablist">
+          <button id="mdTabView" role="tab" aria-selected="true" class="px-2 py-1 text-xs rounded bg-neutral-700 text-gray-100">表示</button>
+          <button id="mdTabEdit" role="tab" aria-selected="false" class="px-2 py-1 text-xs rounded text-gray-300 hover:text-white">記入</button>
+        </div>
+        <button class="ml-auto text-2xl text-neutral-300 hover:text-white" data-close>×</button>
+      </header>
+      <section class="flex-1 overflow-hidden">
+        <div id="mdView" class="w-full h-full overflow-auto p-4 text-sm"></div>
+        <div id="mdEdit" class="hidden w-full h-full p-3">
+          <textarea id="mdText" class="w-full h-[calc(86vh-120px)] min-h-[320px] rounded bg-neutral-800/70 ring-2 ring-neutral-600 px-3 py-2 text-gray-100 font-mono text-[13px] leading-5" placeholder="ここにMarkdownを書いてください"></textarea>
+          <div class="mt-2 flex items-center justify-end gap-2">
+            <button id="mdSave" class="rounded bg-emerald-700 hover:bg-emerald-600 text-white px-3 py-1 text-sm">保存</button>
+          </div>
+        </div>
+      </section>
     </div>`
   const close = () => overlay.remove()
   overlay.addEventListener('click', (e) => { if (e.target === overlay) close() })
   overlay.querySelector('[data-close]')?.addEventListener('click', close)
   document.body.appendChild(overlay)
-  const body = overlay.querySelector('#md-body') as HTMLElement
-  body.innerHTML = mdRenderToHtml(text || 'ここにMarkdownを書いてください')
+  const view = overlay.querySelector('#mdView') as HTMLElement
+  const edit = overlay.querySelector('#mdEdit') as HTMLElement
+  const ta = overlay.querySelector('#mdText') as HTMLTextAreaElement
+  const tabView = overlay.querySelector('#mdTabView') as HTMLButtonElement
+  const tabEdit = overlay.querySelector('#mdTabEdit') as HTMLButtonElement
+  const saveBtn = overlay.querySelector('#mdSave') as HTMLButtonElement
+  // init
+  view.innerHTML = mdRenderQiita(text || 'ここにMarkdownを書いてください')
+  ta.value = text || ''
+  const setTab = (which: 'view' | 'edit') => {
+    const onView = which === 'view'
+    view.classList.toggle('hidden', !onView)
+    edit.classList.toggle('hidden', onView)
+    tabView.setAttribute('aria-selected', onView ? 'true' : 'false')
+    tabEdit.setAttribute('aria-selected', onView ? 'false' : 'true')
+    tabView.classList.toggle('bg-neutral-700', onView)
+    tabView.classList.toggle('text-gray-100', onView)
+    tabEdit.classList.toggle('bg-neutral-700', !onView)
+    tabEdit.classList.toggle('text-gray-100', !onView)
+    if (!onView) setTimeout(() => ta.focus(), 0)
+  }
+  tabView.addEventListener('click', () => setTab('view'))
+  tabEdit.addEventListener('click', () => setTab('edit'))
+  saveBtn.addEventListener('click', () => {
+    const txt = ta.value || ''
+    try { mdSet(pid, id, txt) } catch {}
+    view.innerHTML = mdRenderQiita(txt || 'ここにMarkdownを書いてください')
+    setTab('view')
+  })
 }
 
 // ---- Simple runner modal for custom/flow widgets ----
@@ -6591,7 +6768,7 @@ function buildNotesTab(panel: HTMLElement, pid: string, id: string): void {
   const txt = panel.querySelector('#nt-text') as HTMLTextAreaElement
   const prev = panel.querySelector('#nt-preview') as HTMLElement
   try { txt.value = localStorage.getItem(key) || '' } catch { }
-  const render = () => { prev.innerHTML = mdRenderToHtml(txt.value || '') }
+  const render = () => { prev.innerHTML = mdRenderQiita(txt.value || '') }
   render()
   txt.addEventListener('input', render)
   panel.querySelector('#nt-save')?.addEventListener('click', () => { localStorage.setItem(key, txt.value || '') })
