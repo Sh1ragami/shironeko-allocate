@@ -7773,6 +7773,23 @@ function hxwEnsureDefs(): SVGDefsElement {
 }
 
 function hxwKey(pid: string): string { return `pj-hx-widgets-${pid}` }
+
+// Keep hex-field radius stable across zoom by persisting a preferred radius.
+// Global (app-wide) so all projects use the same baseline cell count unless a larger
+// radius is required to contain existing widgets, in which case we raise it.
+function hxwRadiusKey(): string { return 'hxw-radius-v1' }
+const HXW_DEFAULT_RADIUS = 15
+function hxwGetPreferredRadius(): number | null {
+  try {
+    const v = localStorage.getItem(hxwRadiusKey())
+    if (!v) return null
+    const n = parseInt(v, 10)
+    return Number.isFinite(n) && n > 0 ? n : null
+  } catch { return null }
+}
+function hxwSetPreferredRadius(n: number): void {
+  try { if (Number.isFinite(n) && n > 0) localStorage.setItem(hxwRadiusKey(), String(Math.floor(n))) } catch {}
+}
 function hxwGetMeta(pid: string): Record<string, { type: string; q: number; r: number }> {
   try {
     const raw = JSON.parse(localStorage.getItem(hxwKey(pid)) || '{}') as Record<string, { type: string; q: number; r: number }>
@@ -9499,13 +9516,16 @@ export function renderHexWidgets(root: HTMLElement, pid: string): void {
       usedMinR = Math.min(usedMinR, o.r); usedMaxR = Math.max(usedMaxR, o.r)
     })
   })
-  // Base hex radius from viewport
+  // Determine base strict radius: prefer a persisted preferred radius to avoid zoom-dependent changes
+  // If none saved yet, derive from viewport once; afterwards we keep the persisted value stable.
   const viewCols = Math.max(3, Math.ceil(vw / stepX()))
   const viewRows = Math.max(3, Math.ceil(vh / stepY()))
   const R_VIEW = Math.max(1, Math.floor(Math.min(viewCols, viewRows) / 2) - 1)
   // フィールドが広すぎたため縮小: 以前の約8倍 → 約3倍に調整
   const RADIUS_SCALE = 5.0 // フィールドを広く確保（視界を拡大）
-  let R_STRICT = Math.max(3, Math.floor(R_VIEW * RADIUS_SCALE))
+  const R_FROM_VIEW = Math.max(3, Math.floor(R_VIEW * RADIUS_SCALE))
+  const R_PERSIST = hxwGetPreferredRadius()
+  let R_STRICT = (R_PERSIST != null) ? R_PERSIST : HXW_DEFAULT_RADIUS
   // 既存ウィジェットの占有範囲を必ず内包するように半径を引き上げる
   try {
     const hexDist = (a: Ax, b: Ax): number => {
@@ -9535,6 +9555,12 @@ export function renderHexWidgets(root: HTMLElement, pid: string): void {
   ; (wrap as any)._hxw = st
   ; (wrap as any)._hxwCols = COLS
   ; (wrap as any)._hxwRows = ROWS
+
+  // Persist chosen radius to keep it stable across routes/zoom; only raise, never shrink automatically.
+  try {
+    const cur = hxwGetPreferredRadius()
+    if (cur == null || R_STRICT > cur) hxwSetPreferredRadius(R_STRICT)
+  } catch {}
 
   // build background nodes
   const nodes: Array<{ q: number; r: number; x: number; y: number }> = []
