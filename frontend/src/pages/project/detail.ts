@@ -5854,7 +5854,9 @@ function widgetTitle(type: string): string {
     case 'overview': return 'Overview'
     case 'contrib': return 'Contributions'
     case 'markdown': return 'Markdown'
+    case 'tasksum': return 'タスクサマリー'
     case 'committers': return 'Top Committers'
+    case 'links': return 'クイックリンク'
     case 'calendar': return 'カレンダー'
     case 'clock': return '時計'
     case 'clock-digital': return 'デジタル時計'
@@ -8494,7 +8496,7 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
         const ok = confirm('このウィジェットを削除しますか？')
         if (!ok) return
         try { delete meta[id]; hxwSetMeta(pid, meta); try { hxwCustomDelete(pid, id) } catch {} } catch {}
-        selId = null; infoHide(); hxwPlaceWidgets(root, pid, st); try { refreshDynamicWidgets(root, pid) } catch {}; try { hxwRehydrate(root, pid) } catch {}
+        selId = null; infoHide(); hxwPlaceWidgets(root, pid, st); try { hxwRecolorBackground(root, pid) } catch {} ; try { refreshDynamicWidgets(root, pid) } catch {}; try { hxwRehydrate(root, pid) } catch {}
       }
     }
     panel.classList.remove('hidden')
@@ -8962,6 +8964,8 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
       // If the deleted widget was selected, clear selection and close info
       try { if (selId && selId === dragId) setSelected(pid, null) } catch {}
       hxwPlaceWidgets(root, pid, st)
+      try { hxwRecolorBackground(root, pid) } catch {}
+      try { hxwSyncEditPointerEvents(root) } catch {}
       try { refreshDynamicWidgets(root, pid) } catch {}
       try { hxwRehydrate(root, pid) } catch { }
       hideGhost(); didDrag = false; return
@@ -8973,6 +8977,8 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
     hxwSetMeta(pid, meta)
     // rebuild occupancy and reposition element
     hxwPlaceWidgets(root, pid, st)
+    try { hxwRecolorBackground(root, pid) } catch {}
+    try { hxwSyncEditPointerEvents(root) } catch {}
     try { refreshDynamicWidgets(root, pid) } catch {}
     try { hxwRehydrate(root, pid) } catch { }
     hideGhost()
@@ -9249,7 +9255,9 @@ function hxwPlaceWidgets(root: HTMLElement, pid: string, st: HexWLayout): void {
     host!.setAttribute('data-w', String(boxW))
     host!.setAttribute('data-h', String(boxH))
     // prepare empty background layer; actual fill and clipping applied after clipPath is ready
+    // also prune any previous cell markers to avoid stale coloring
     Array.from(host!.querySelectorAll('.hxw-bg')).forEach(n => n.remove())
+    Array.from(host!.querySelectorAll('.hxw-hex.hxw-filled')).forEach(n => (n as HTMLElement).remove())
     const bg = document.createElement('div')
     bg.className = 'hxw-bg'
     host!.appendChild(bg)
@@ -9543,6 +9551,95 @@ function hxwPlaceWidgets(root: HTMLElement, pid: string, st: HexWLayout): void {
   try { const pid = (canvas.getAttribute('data-pid') || '0'); hxwRenderShortcuts(root, pid); hxwRenderCapacityBar(root, pid) } catch {}
 }
 
+// Ensure pointer-events routing for edit mode applies to newly created widgets
+function hxwSyncEditPointerEvents(root: HTMLElement): void {
+  const canvas = root.querySelector('#hxwCanvas') as HTMLElement | null
+  if (!canvas) return
+  const on = canvas.getAttribute('data-edit') === '1'
+  try {
+    Array.from(canvas.querySelectorAll('.hxw-widget')).forEach((el) => {
+      const host = el as HTMLElement
+      const bg = host.querySelector('.hxw-bg') as HTMLElement | null
+      if (on) {
+        host.style.pointerEvents = 'none'
+        if (bg) bg.style.pointerEvents = 'auto'
+      } else {
+        host.style.pointerEvents = ''
+        if (bg) bg.style.pointerEvents = ''
+      }
+    })
+    // Disable inner content hit-testing while editing so hex background gets clicks
+    canvas.querySelectorAll('.hxw-widget .wg-content, .hxw-widget .hxw-body, .hxw-widget .slot-inner, .hxw-widget .hxw-cells').forEach((el) => {
+      (el as HTMLElement).style.pointerEvents = on ? 'none' : ''
+    })
+  } catch {}
+}
+
+// Recolor background hex cells to match current occupancy and tones
+function hxwRecolorBackground(root: HTMLElement, pid: string): void {
+  const wrap = root.querySelector('#hxwWrap') as HTMLElement | null
+  const canvas = root.querySelector('#hxwCanvas') as HTMLElement | null
+  if (!wrap || !canvas) return
+  const isLightTheme = (document.documentElement.getAttribute('data-theme') || 'dark') !== 'dark'
+  const pjColor = ((root as HTMLElement).getAttribute('data-pj-color') || 'blue') as string
+  const toneFor = (c: string): string => {
+    const a = isLightTheme ? 0.42 : 0.38
+    switch (c) {
+      case 'red': return `rgba(239,68,68,${a})`
+      case 'green': return `rgba(16,185,129,${a})`
+      case 'purple': return `rgba(168,85,247,${a})`
+      case 'orange': return `rgba(251,146,60,${a})`
+      case 'yellow': return `rgba(234,179,8,${a})`
+      case 'gray': return isLightTheme ? 'rgba(120,120,128,0.38)' : 'rgba(120,120,128,0.35)'
+      case 'black': return isLightTheme ? 'rgba(0,0,0,0.45)' : 'rgba(0,0,0,0.55)'
+      case 'white': return isLightTheme ? 'rgba(255,255,255,0.65)' : 'rgba(255,255,255,0.10)'
+      default: return `rgba(59,130,246,${a})` // blue
+    }
+  }
+  const occTone = toneFor(pjColor)
+  const emptyTone = isLightTheme ? 'rgba(120,120,128,0.26)' : 'rgba(120,120,128,0.22)'
+  const facetsEmpty = deriveFacets(emptyTone)
+  const occ: Set<string> = (wrap as any)._hxwOcc || new Set<string>()
+  const bgHexes = Array.from(canvas.querySelectorAll('.hxw-hex[data-kind="bg"]')) as HTMLElement[]
+  bgHexes.forEach((el) => {
+    const q = parseInt(el.getAttribute('data-q') || '-1', 10)
+    const r = parseInt(el.getAttribute('data-r') || '-1', 10)
+    const k = `${q},${r}`
+    const clip = el.querySelector('.hxw-clip') as HTMLElement | null
+    if (!clip) return
+    if (occ.has(k)) {
+      // Find widget color for this cell if possible
+      let col = occTone
+      const marker = canvas.querySelector(`.hxw-hex.hxw-filled[data-kr="${q},${r}"]`) as HTMLElement | null
+      if (marker) {
+        const host = marker.closest('.hxw-widget') as HTMLElement | null
+        const id = host?.getAttribute('data-widget') || ''
+        const rgbStr = marker.getAttribute('data-rgb') || ''
+        let a = isLightTheme ? 0.42 : 0.38
+        try { const c = hxwCustomGet(pid, id); if (c && typeof (c as any).alpha === 'number') a = Math.max(0, Math.min(1, (c as any).alpha)) } catch {}
+        if (rgbStr) {
+          const [rr, gg, bb] = rgbStr.split(',').map((n) => parseInt(n, 10))
+          if (Number.isFinite(rr) && Number.isFinite(gg) && Number.isFinite(bb)) col = `rgba(${rr},${gg},${bb}, ${a})`
+        }
+      }
+      const f = deriveFacets(col)
+      clip.innerHTML = honeyHexFilledSvg()
+      clip.style.color = col
+      ;(clip.style as any).setProperty('--hx-side', f.side)
+      ;(clip.style as any).setProperty('--hx-hi', f.hi)
+      ;(clip.style as any).setProperty('--hx-edge', f.side)
+    } else {
+      clip.innerHTML = honeyHexEmptySvg()
+      clip.style.color = emptyTone
+      ;(clip.style as any).setProperty('--hx-side', facetsEmpty.side)
+      ;(clip.style as any).setProperty('--hx-hi', facetsEmpty.hi)
+      ;(clip.style as any).setProperty('--hx-edge', facetsEmpty.side)
+    }
+  })
+  // Remove any stale hosts not present in meta (ensures no ghost tiles remain)
+  existing.forEach((el) => { try { el.remove() } catch {} })
+}
+
 export function renderHexWidgets(root: HTMLElement, pid: string): void {
   const wrap = root.querySelector('#hxwWrap') as HTMLElement | null
   const canvas = root.querySelector('#hxwCanvas') as HTMLElement | null
@@ -9783,6 +9880,10 @@ export function renderHexWidgets(root: HTMLElement, pid: string): void {
 
   // place widgets
   hxwPlaceWidgets(root, pid, st)
+  // Update background cell visuals to reflect current occupancy
+  try { hxwRecolorBackground(root, pid) } catch { }
+  // Re-apply edit hit-testing routing to new DOM
+  try { hxwSyncEditPointerEvents(root) } catch {}
   // After widgets are placed, recolor background cells: use empty design for unoccupied cells
   try {
     const occ: Set<string> = (wrap as any)._hxwOcc || new Set<string>()
@@ -9953,6 +10054,8 @@ function hxwStartPlacement(root: HTMLElement, pid: string, type: string): void {
       try { (window as any)._hxwPending = undefined } catch {}
     }
     hxwPlaceWidgets(root, pid, st)
+    try { hxwRecolorBackground(root, pid) } catch {}
+    try { hxwSyncEditPointerEvents(root) } catch {}
     try { refreshDynamicWidgets(root, pid) } catch {}
     try { hxwRehydrate(root, pid) } catch {}
     cleanup()
@@ -10028,6 +10131,7 @@ function hxwAddWidget(root: HTMLElement, pid: string, type: string): void {
           meta[id] = { type, q, r }
           hxwSetMeta(pid, meta)
           hxwPlaceWidgets(root, pid, st)
+          try { hxwRecolorBackground(root, pid) } catch {}
           try { refreshDynamicWidgets(root, pid) } catch {}
           try { hxwRehydrate(root, pid) } catch {}
           placed = true
