@@ -3081,6 +3081,9 @@ function enableDragAndDrop(root: HTMLElement): void {
     const add = (e.target as HTMLElement).closest('.lnk-add') as HTMLElement | null
     if (add) {
       const w = getWid(add); if (!w) return
+      const isEdit = grid.getAttribute('data-edit') === '1'
+      const id = w.getAttribute('data-widget') || ''
+      if (!isEdit) { openLinkHexPopup(root, pid, id); return }
       const form = w.querySelector('.lnk-form') as HTMLElement | null
       if (form) {
         form.classList.toggle('hidden')
@@ -4320,7 +4323,7 @@ async function hydrateLinkCircle(circle: HTMLElement, url: string): Promise<void
   try {
     if (!circle) return
     const safeUrl = (url || '').trim()
-    if (!safeUrl) { circle.innerHTML = `<div class="w-full h-full grid place-items-center text-gray-300 text-sm">リンク未設定</div>`; return }
+    if (!safeUrl) { circle.innerHTML = ``; return }
     // Loading indicator
     circle.innerHTML = `<div class="w-full h-full grid place-items-center text-[11px] text-gray-400">読み込み中…</div>`
     let meta: LinkMeta | null = null
@@ -5464,10 +5467,11 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
         const gridEl = w.closest('#widgetGrid') as HTMLElement | null
         const hxEl = w.closest('#hxwCanvas') as HTMLElement | null
         const edit = ((gridEl && gridEl.getAttribute('data-edit') === '1') || (hxEl && hxEl.getAttribute('data-edit') === '1'))
+        const hasLink = !!(links && links[0] && links[0].url)
         const slotsWrap = w.querySelector('.hxw-cells') as HTMLElement | null
         if (slotsWrap) {
-          // ハニカム: 非編集時はスロット層のポインターを無効化（円プレビューのリンクをクリック可能に）
-          ;(slotsWrap as HTMLElement).style.pointerEvents = edit ? 'auto' : 'none'
+          // ハニカム: 非編集でも未設定なら＋ボタン操作のためにポインターを有効化
+          ;(slotsWrap as HTMLElement).style.pointerEvents = (edit || !hasLink) ? 'auto' : 'none'
           // ハニカム内は円形に近い合成表現でプレビュー
           const content = w.querySelector('.wg-content') as HTMLElement | null
           let circle = w.querySelector('.lnk-hex-circle') as HTMLElement | null
@@ -5487,7 +5491,15 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
               if (l && l.url) {
                 try { (window as any).requestIdleCallback ? (window as any).requestIdleCallback(() => hydrateLinkCircle(circle!, l.url)) : hydrateLinkCircle(circle!, l.url) } catch { circle.innerHTML = renderLinkPreview(l.url, true) }
               } else {
-                circle.innerHTML = `<div class="w-full h-full grid place-items-center text-gray-300 text-sm">リンク未設定</div>`
+                circle.innerHTML = ``
+                // 非編集モードでも未設定ならクリックで設定ポップを開く
+                try {
+                  if (!edit && !(circle as any)._bindAdd) {
+                    (circle as any)._bindAdd = true
+                    circle.style.cursor = 'pointer'
+                    circle.addEventListener('click', (ev) => { ev.stopPropagation(); openLinkHexPopup(root, pid, id) })
+                  }
+                } catch {}
               }
             }
           }
@@ -5495,15 +5507,15 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
           const slots = Array.from(slotsWrap.querySelectorAll('.hxw-slot .slot-inner')) as HTMLElement[]
           const addIdx = Math.min(1, Math.max(0, Math.floor(slots.length / 2)))
           const addSlot = slots[addIdx]
-          if (addSlot && edit && !(links && links[0] && links[0].url) && !addSlot.querySelector('.lnk-hex-add')) {
+          if (addSlot && !hasLink && !addSlot.querySelector('.lnk-hex-add')) {
             const btn = document.createElement('button')
             btn.className = 'lnk-hex-add text-2xl md:text-3xl text-gray-100'
             btn.textContent = '＋'
             btn.addEventListener('click', (ev) => { ev.stopPropagation(); openLinkHexPopup(root, pid, id) })
             addSlot.appendChild(btn)
           }
-          // 編集モードでない、またはリンク設定済みなら＋を消す
-          if (addSlot && (!edit || (links && links[0] && links[0].url))) {
+          // リンク設定済みなら＋を消す
+          if (addSlot && hasLink) {
             const ex = addSlot.querySelector('.lnk-hex-add') as HTMLElement | null
             if (ex) ex.remove()
           }
@@ -5513,6 +5525,7 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
           const form = w.querySelector('.lnk-form') as HTMLElement | null
           const addBtn = w.querySelector('.lnk-add') as HTMLElement | null
           if (form) form.classList.add('hidden')
+          // ハニカムでは常にテキストの「リンク追加」ボタンは非表示（＋ボタンで統一）
           if (addBtn) addBtn.classList.add('hidden')
           return
         }
@@ -8539,7 +8552,44 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
       `<div><span class=\"text-gray-400\">Anchor:</span> q=${m.q}, r=${m.r}</div>`,
       `<div><span class=\"text-gray-400\">Cells:</span> ${rel.length}</div>`
     ].filter(Boolean).join('')
-    if (body) body.innerHTML = rows
+    if (body) {
+      body.innerHTML = rows
+      // リンクウィジェット: 編集モードのinfoエリアでURL設定を可能にする
+      if ((m.type || '').toLowerCase() === 'links') {
+        try {
+          const cur = (mdGetLinks(pid, id)[0] || { title: '', url: '' }) as { title: string; url: string }
+          const html = `
+            <hr class=\"my-2 border-neutral-700\" />
+            <div class=\"text-xs text-gray-400 mb-1\">クイックリンク設定</div>
+            <div class=\"flex items-center gap-2\">
+              <input id=\"hxwLinkTitle\" class=\"flex-1 min-w-[80px] rounded bg-neutral-800/60 ring-2 ring-neutral-600 px-2 py-1 text-gray-100 text-xs\" placeholder=\"タイトル(任意)\" value=\"${(cur.title || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/\"/g,'&quot;')}\" />
+              <input id=\"hxwLinkUrl\" class=\"flex-[2] min-w-[140px] rounded bg-neutral-800/60 ring-2 ring-neutral-600 px-2 py-1 text-gray-100 text-xs\" placeholder=\"URL (https://...)\" value=\"${(cur.url || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/\"/g,'&quot;')}\" />
+              <button id=\"hxwLinkSave\" class=\"rounded bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-medium px-3 py-1\">保存</button>
+              <button id=\"hxwLinkClear\" class=\"rounded ring-1 ring-neutral-600 hover:bg-neutral-800 text-xs px-3 py-1\">削除</button>
+            </div>
+            <p id=\"hxwLinkErr\" class=\"mt-1 text-xs text-rose-400 hidden\"></p>`
+          body.insertAdjacentHTML('beforeend', html)
+          const save = panel.querySelector('#hxwLinkSave') as HTMLButtonElement | null
+          const clear = panel.querySelector('#hxwLinkClear') as HTMLButtonElement | null
+          const ttl = panel.querySelector('#hxwLinkTitle') as HTMLInputElement | null
+          const urlEl = panel.querySelector('#hxwLinkUrl') as HTMLInputElement | null
+          const err = panel.querySelector('#hxwLinkErr') as HTMLElement | null
+          save?.addEventListener('click', () => {
+            try {
+              const t = (ttl?.value || '').trim()
+              let u = (urlEl?.value || '').trim()
+              if (u && !(u.toLowerCase().startsWith('http://') || u.toLowerCase().startsWith('https://'))) u = 'https://' + u
+              if (u) { try { new URL(u) } catch { if (err) { err.textContent = 'URLが正しくありません'; err.classList.remove('hidden') }; return } }
+              if (!u) { mdSetLinks(pid, id, []); try { refreshDynamicWidgets(root, pid) } catch {}; infoShow(pid, id); return }
+              mdSetLinks(pid, id, [{ title: t, url: u }])
+              try { refreshDynamicWidgets(root, pid) } catch {}
+              infoShow(pid, id)
+            } catch {}
+          })
+          clear?.addEventListener('click', () => { try { mdSetLinks(pid, id, []); refreshDynamicWidgets(root, pid) } catch {}; infoShow(pid, id) })
+        } catch {}
+      }
+    }
     // Shortcuts control (add/remove + optional name)
     if (scCtl) {
       const inSc = scGet(pid).includes(id)
@@ -8967,10 +9017,20 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
   canvas.addEventListener('pointerdown', (e) => {
     const el = (e.target as HTMLElement).closest('.hxw-widget') as HTMLElement | null
     if (!el) return
-    // Select only when clicking inside the hex area to improve hit-testing
+    // In edit mode, allow selection when clicking background hex OR
+    // over the cells/content layer as long as it's not an interactive control
     if (editOn) {
-      const bg = (e.target as HTMLElement).closest('.hxw-bg') as HTMLElement | null
-      if (!bg || !el.contains(bg)) return
+      const t = e.target as HTMLElement
+      let allow = false
+      const bg = t.closest('.hxw-bg') as HTMLElement | null
+      if (bg && el.contains(bg)) allow = true
+      if (!allow) {
+        const overCells = t.closest('.hxw-cells') as HTMLElement | null
+        const overContent = t.closest('.wg-content') as HTMLElement | null
+        const interactive = t.closest('input, textarea, select, button, a, [contenteditable], .lnk-form, .cal-form, .lnk-hex-add, .cal-hex-add') as HTMLElement | null
+        if ((overCells || overContent) && !interactive) allow = true
+      }
+      if (!allow) return
       e.preventDefault(); e.stopPropagation()
       const pidCur = canvas.getAttribute('data-pid') || '0'
       const id = el.getAttribute('data-widget') || ''
