@@ -1018,6 +1018,8 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
   // Render the full layout once with all available data. Hide the hex field initially
   // when coming from list to prevent a one-frame central flash before animation setup.
   container.innerHTML = detailLayout({ id: project.id, name: project.name, fullName, owner, repo: repoName }, { entryHidden })
+  // Default to non-edit mode on entry (override any previous session 'on')
+  try { localStorage.setItem(`wg-edit-${project.id}`, '0') } catch {}
   // Helper: Intro title float-up (will be invoked when arrival reaches center)
   const showIntroTitle = () => {
     try {
