@@ -1305,36 +1305,7 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
       setTimeout(() => { try { openWidgetPickerModal(container, String(project.id)) } catch {} }, 0)
     }
   } catch {}
-  // Apply saved view mode (2D/3D)
-  try {
-    const wrap = container.querySelector('#hxwWrap') as HTMLElement | null
-    const canvas = container.querySelector('#hxwCanvas') as HTMLElement | null
-    // Ensure normal scroll direction (do not invert)
-    try { if (wrap) wrap.removeAttribute('data-scroll-dir') } catch {}
-    const key = `hxw-view-${project.id}`
-    const iso = localStorage.getItem(key) === 'iso'
-    if (iso) wrap?.classList.add('hxw-iso')
-    const btn = container.querySelector('#hxwView3d') as HTMLElement | null
-    const applyLabel = () => {
-      if (!btn) return
-      const on = !!wrap?.classList.contains('hxw-iso')
-      btn.setAttribute('aria-pressed', on ? 'true' : 'false')
-      btn.setAttribute('title', on ? '3D モード' : '2D モード')
-      btn.setAttribute('aria-label', on ? '3D モード' : '2D モード')
-      btn.classList.toggle('is-on', on)
-      const lab = btn.querySelector('.ctl-label') as HTMLElement | null
-      if (lab) lab.textContent = on ? '3D' : '2D'
-    }
-    applyLabel()
-    btn?.addEventListener('click', () => {
-      if (!wrap || !canvas) return
-      const toIso = !wrap.classList.contains('hxw-iso')
-      const st = (wrap as any)._hxw as any
-      try { if (st) hxwToggleIsoKeepCenter(wrap, canvas, st, toIso) } catch {}
-      localStorage.setItem(key, wrap.classList.contains('hxw-iso') ? 'iso' : '2d')
-      applyLabel()
-    })
-  } catch {}
+  // 3Dモードは廃止: 2D固定（関連UI/保存は無効化）
   // Bind Add (green hex)
   const fabBtn = container.querySelector('#hxwFab') as HTMLElement | null
   fabBtn?.addEventListener('click', () => {
@@ -1344,7 +1315,7 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
   })
 
   // Global edit toggle (applies to current visible panel)
-  const edt = container.querySelector('#wgEditToggle') as HTMLElement | null
+  const edt = container.querySelector('#wgEditSwitch') as HTMLElement | null
   const applyEditTo = (on: boolean, name: string) => {
     const panel = container.querySelector(`section[data-tab="${name}"]`) as HTMLElement | null
     const grid = panel?.querySelector('#widgetGrid') as HTMLElement | null
@@ -2717,13 +2688,10 @@ function enableDragAndDrop(root: HTMLElement): void {
     grid.querySelectorAll('.widget').forEach((w) => {
       ;(w as HTMLElement).setAttribute('draggable', on ? 'true' : 'false')
     })
-    const btn = root.querySelector('#wgEditToggle') as HTMLElement | null
+    const btn = root.querySelector('#wgEditSwitch') as HTMLElement | null
     if (btn) {
       btn.setAttribute('aria-pressed', on ? 'true' : 'false')
       btn.setAttribute('title', on ? '編集中' : '編集モード')
-      btn.classList.toggle('is-on', on)
-      const lab = btn.querySelector('.ctl-label') as HTMLElement | null
-      if (lab) lab.textContent = on ? '編集中' : '編集'
     }
     if (!on) closeBgMenu()
     localStorage.setItem(`wg-edit-${pid}`, on ? '1' : '0')
@@ -3081,26 +3049,49 @@ function enableDragAndDrop(root: HTMLElement): void {
     }
   })
 
-  // Delete widget
+  // Delete widget (grid) with modal confirm
   grid.addEventListener('click', (e) => {
     const del = (e.target as HTMLElement).closest('.w-del') as HTMLElement | null
     if (!del) return
     const widget = del.closest('.widget') as HTMLElement | null
     if (!widget) return
     const id = widget.getAttribute('data-widget') || ''
-    // Confirm deletion
-    const ok = confirm('このウィジェットを削除しますか？')
-    if (!ok) return
-    // Remove DOM
-    widget.remove()
-    // Persist order
-    const order = Array.from(grid.querySelectorAll('.widget')).map((w) => (w as HTMLElement).getAttribute('data-widget'))
-    localStorage.setItem(`pj-widgets-${pid}`, JSON.stringify(order))
-    // Remove meta
-    const meta = getWidgetMeta(pid)
-    if (meta[id]) { delete meta[id]; setWidgetMeta(pid, meta) }
-    try { showMiniToast('ウィジェットを削除しました', { variant: 'danger' }) } catch {}
+    openGridWidgetDeleteConfirm(root, pid, id, widget)
   })
+
+  function openGridWidgetDeleteConfirm(root: HTMLElement, pid: string, id: string, widgetEl: HTMLElement): void {
+    const overlay = document.createElement('div')
+    overlay.className = 'fixed inset-0 z-[70] bg-black/60 grid place-items-center'
+    const title = (widgetEl.querySelector('.wg-title') as HTMLElement | null)?.textContent?.trim() || 'ウィジェット'
+    overlay.innerHTML = `
+      <div class="relative w-[min(520px,92vw)] rounded-xl bg-neutral-900 ring-2 ring-neutral-600 shadow-2xl text-gray-100">
+        <header class="h-10 flex items-center px-4 border-b border-neutral-600"><div class="font-semibold">ウィジェットを削除</div><button id="gwDelClose" class="ml-auto text-xl">×</button></header>
+        <div class="p-4 space-y-3">
+          <p class="text-sm text-gray-300">${escapeHtml(title)} を削除しますか？この操作は元に戻せません。</p>
+          <div class="flex justify-end gap-2 pt-2">
+            <button id="gwDelCancel" class="px-3 py-1.5 rounded bg-neutral-800/60 text-gray-200 text-sm">キャンセル</button>
+            <button id="gwDelOk" class="px-3 py-1.5 rounded bg-rose-700 hover:bg-rose-600 text-white text-sm">削除</button>
+          </div>
+        </div>
+      </div>`
+    const close = () => overlay.remove()
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) close() })
+    overlay.querySelector('#gwDelClose')?.addEventListener('click', close)
+    overlay.querySelector('#gwDelCancel')?.addEventListener('click', close)
+    overlay.querySelector('#gwDelOk')?.addEventListener('click', () => {
+      // Remove DOM
+      widgetEl.remove()
+      // Persist order
+      const order = Array.from(grid.querySelectorAll('.widget')).map((w) => (w as HTMLElement).getAttribute('data-widget'))
+      localStorage.setItem(`pj-widgets-${pid}`, JSON.stringify(order))
+      // Remove meta
+      const meta = getWidgetMeta(pid)
+      if (meta[id]) { delete meta[id]; setWidgetMeta(pid, meta) }
+      try { showMiniToast('ウィジェットを削除しました', { variant: 'danger' }) } catch {}
+      close()
+    })
+    document.body.appendChild(overlay)
+  }
 
   // Markdown widget delegated handlers
   const getWid = (el: HTMLElement | null) => (el?.closest('.widget') as HTMLElement | null)
@@ -3585,6 +3576,40 @@ function ensureWidgets(root: HTMLElement, pid: string): void {
   })
 }
 
+// Modal: confirm deletion of a library (saved) widget entry
+function openLibWidgetDeleteConfirm(root: HTMLElement, pid: string, entry: { id: string; name?: string }, onDone?: () => void): void {
+  const overlay = document.createElement('div')
+  overlay.className = 'fixed inset-0 z-[70] bg-black/60 grid place-items-center'
+  const name = entry?.name || 'ウィジェット'
+  overlay.innerHTML = `
+    <div class="relative w-[min(520px,92vw)] rounded-xl bg-neutral-900 ring-2 ring-neutral-600 shadow-2xl text-gray-100">
+      <header class="h-10 flex items-center px-4 border-b border-neutral-600"><div class="font-semibold">自作ウィジェットを削除</div><button id="libDelClose" class="ml-auto text-xl">×</button></header>
+      <div class="p-4 space-y-3">
+        <p class="text-sm text-gray-300">${escapeHtml(name)} を削除しますか？この操作は元に戻せません。</p>
+        <div class="flex justify-end gap-2 pt-2">
+          <button id="libDelCancel" class="px-3 py-1.5 rounded bg-neutral-800/60 text-gray-200 text-sm">キャンセル</button>
+          <button id="libDelOk" class="px-3 py-1.5 rounded bg-rose-700 hover:bg-rose-600 text-white text-sm">削除</button>
+        </div>
+      </div>
+    </div>`
+  const close = () => overlay.remove()
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close() })
+  overlay.querySelector('#libDelClose')?.addEventListener('click', close)
+  overlay.querySelector('#libDelCancel')?.addEventListener('click', close)
+  overlay.querySelector('#libDelOk')?.addEventListener('click', async () => {
+    try {
+      await wsLoadAll(pid)
+      const cur = (wsGet(pid, 'lib_widgets') as any[]) || []
+      const next = cur.filter((x: any) => x && x.id !== entry.id)
+      await wsSet(pid, 'lib_widgets', next)
+    } catch {}
+    try { showMiniToast('ウィジェットを削除しました', { variant: 'danger' }) } catch {}
+    close()
+    try { if (onDone) onDone() } catch {}
+  })
+  document.body.appendChild(overlay)
+}
+
 function openWidgetPickerModal(root: HTMLElement, pid: string, onPick?: (type: string) => void): void {
   try {
     // Ensure project widget-state is loaded so project library can be included as tiles
@@ -3811,6 +3836,7 @@ function openWidgetPickerModal(root: HTMLElement, pid: string, onPick?: (type: s
               (window as any)._wpPickedLibName = it.lib.name || ''
               ;(window as any)._wpPickedLibRGB = Array.isArray(it.lib.rgb) ? it.lib.rgb : null
               ;(window as any)._wpPickedLibCells = Array.isArray(it.lib.shape) ? it.lib.shape.length : null
+              ;(window as any)._hxwPending = { shape: it.lib.shape, rgb: it.lib.rgb, alpha: it.lib.alpha, name: it.lib.name, flowGraph: it.lib.flowGraph }
             } catch {}
             close(); setTimeout(() => { try { onPick('custom') } catch {} }, 0)
             return
@@ -3986,6 +4012,8 @@ function openWidgetPickerModal(root: HTMLElement, pid: string, onPick?: (type: s
             (window as any)._wpPickedLibName = en.name || ''
             ;(window as any)._wpPickedLibRGB = Array.isArray(en.rgb) ? en.rgb : null
             ;(window as any)._wpPickedLibCells = Array.isArray(en.shape) ? en.shape.length : null
+            // Seed pending for hex placement when caller uses hxwStartPlacement via onPick
+            ;(window as any)._hxwPending = { shape: en.shape, rgb: en.rgb, alpha: en.alpha, name: en.name, flowGraph: en.flowGraph }
           } catch {}
           close()
           setTimeout(() => { try { onPick('custom') } catch {} }, 0)
@@ -4001,14 +4029,7 @@ function openWidgetPickerModal(root: HTMLElement, pid: string, onPick?: (type: s
       del.title = 'プロジェクトから削除'
       del.addEventListener('click', async (ev) => {
         ev.stopPropagation()
-        try {
-          await wsLoadAll(pid)
-          const cur = (wsGet(pid, 'lib_widgets') as any[]) || []
-          const next = cur.filter((x: any) => x && x.id !== en.id)
-          await wsSet(pid, 'lib_widgets', next)
-          renderProjLibList()
-        } catch {}
-        try { showMiniToast('ウィジェットを削除しました', { variant: 'danger' }) } catch {}
+        openLibWidgetDeleteConfirm(root, pid, { id: en.id, name: en.name }, () => { renderProjLibList() })
       })
       row.appendChild(btn)
       row.appendChild(del)
@@ -4151,16 +4172,10 @@ function openWidgetPickerModal(root: HTMLElement, pid: string, onPick?: (type: s
           </div>`
           const del = descBody.querySelector('#lib-del') as HTMLElement | null
           del?.addEventListener('click', async () => {
-            if (!confirm(`${entry.name || 'ウィジェット'} を削除しますか？`)) return
-            try {
-              await wsLoadAll(pid)
-              const cur = (wsGet(pid, 'lib_widgets') as any[]) || []
-              const next = cur.filter((x: any) => x && x.id !== entry.id)
-              await wsSet(pid, 'lib_widgets', next)
-            } catch {}
-            try { showMiniToast('ウィジェットを削除しました', { variant: 'danger' }) } catch {}
-            close()
-            setTimeout(() => { try { openWidgetPickerModal(root, pid) } catch {} }, 0)
+            openLibWidgetDeleteConfirm(root, pid, { id: entry.id, name: entry.name }, () => {
+              close()
+              setTimeout(() => { try { openWidgetPickerModal(root, pid) } catch {} }, 0)
+            })
           })
           return
         }
@@ -4195,7 +4210,13 @@ function openWidgetPickerModal(root: HTMLElement, pid: string, onPick?: (type: s
         // If picker was opened with an onPick callback, we're in a grid panel.
         // Grid cannot use hex placement; fallback to adding a simple "custom" widget card.
         if (onPick) {
-          try { (window as any)._wpPickedLibName = it.lib.name || '' } catch {}
+          try {
+            (window as any)._wpPickedLibName = it.lib.name || ''
+            ;(window as any)._wpPickedLibRGB = Array.isArray(it.lib.rgb) ? it.lib.rgb : null
+            ;(window as any)._wpPickedLibCells = Array.isArray(it.lib.shape) ? it.lib.shape.length : null
+            // Also seed hex placement pending so onPick('custom') can start hx with saved shape/color when caller uses hxwStartPlacement
+            ;(window as any)._hxwPending = { shape: it.lib.shape, rgb: it.lib.rgb, alpha: it.lib.alpha, name: it.lib.name, flowGraph: it.lib.flowGraph }
+          } catch {}
           close()
           setTimeout(() => { try { onPick('custom') } catch {} }, 0)
           return
@@ -4215,19 +4236,10 @@ function openWidgetPickerModal(root: HTMLElement, pid: string, onPick?: (type: s
     host.addEventListener('contextmenu', (ev) => {
       if (!it.lib) return
       ev.preventDefault(); ev.stopPropagation()
-      const ok = confirm(`${it.lib.name || 'ウィジェット'} を削除しますか？`)
-      if (!ok) return
-      ;(async () => {
-        try {
-          await wsLoadAll(pid)
-          const cur = (wsGet(pid, 'lib_widgets') as any[]) || []
-          const next = cur.filter((x: any) => x && x.id !== it.lib!.id)
-          await wsSet(pid, 'lib_widgets', next)
-        } catch {}
-        try { showMiniToast('ウィジェットを削除しました', { variant: 'danger' }) } catch {}
+      openLibWidgetDeleteConfirm(root, pid, { id: it.lib.id, name: it.lib.name }, () => {
         ;(document.getElementById('wp-close') as HTMLButtonElement | null)?.click()
         setTimeout(() => { try { openWidgetPickerModal(root, pid) } catch {} }, 0)
-      })()
+      })
     })
     host.tabIndex = 0
     it.cells.forEach((c) => {
@@ -4613,8 +4625,8 @@ function addWidget(root: HTMLElement, pid: string, type: string): void {
         }
         const body = card.querySelector('.wg-content') as HTMLElement | null
         if (body) {
-          const bg = pickedRGB ? `style=\"background: var(--lib-color, rgba(${pickedRGB[0]},${pickedRGB[1]},${pickedRGB[2]},0.18))\"` : ''
-          body.innerHTML = `<button class="w-full h-full grid place-items-center text-center px-2 py-1 rounded ring-2 ring-neutral-600 hover:bg-neutral-900/60 text-gray-100 transition shadow-sm hover:shadow-md hover:brightness-110" ${bg} style="min-height:64px">${escapeHtml(pickedName)}</button>`
+          const styleStr = pickedRGB ? `min-height:64px; background: var(--lib-color, rgba(${pickedRGB[0]},${pickedRGB[1]},${pickedRGB[2]},0.18))` : 'min-height:64px'
+          body.innerHTML = `<button class=\"w-full h-full grid place-items-center text-center px-2 py-1 rounded ring-2 ring-neutral-600 hover:bg-neutral-900/60 text-gray-100 transition shadow-sm hover:shadow-md hover:brightness-110\" style=\"${styleStr}\">${escapeHtml(pickedName)}</button>`
           const btn = body.querySelector('button') as HTMLButtonElement | null
           btn?.addEventListener('click', (e) => {
             e.stopPropagation()
@@ -7660,8 +7672,8 @@ function detailLayout(ctx: { id: number; name: string; fullName: string; owner?:
             <span class="text-gray-300 text-2xl font-semibold" id="topPathRepo" title="${ctx.repo ?? ''}">${ctx.repo ?? ''}</span>
           </div>
           <div class="mt-2 flex items-center gap-0">
-            <button id="topGoSummary" class="px-6 py-1.5 text-white text-xs font-medium drop-shadow-sm hover:bg-sky-600 bg-sky-700 transition select-none" style="clip-path: polygon(20% 0%, 100% 0%, 80% 100%, 0% 100%); -webkit-clip-path: polygon(20% 0%, 100% 0%, 80% 100%, 0% 100%);">概要</button>
-            <button id="topGoBoard" class="px-6 py-1.5 text-white text-xs font-medium drop-shadow-sm hover:bg-emerald-600 bg-emerald-700 transition select-none" style="clip-path: polygon(20% 0%, 100% 0%, 80% 100%, 0% 100%); -webkit-clip-path: polygon(20% 0%, 100% 0%, 80% 100%, 0% 100%); margin-left:-12px;">ボード</button>
+            <button id="topGoSummary" class="px-6 py-1.5 text-white/95 text-xs font-semibold drop-shadow-sm ring-1 ring-white/20 backdrop-blur hover:bg-sky-600/60 bg-sky-700/60 transition select-none" style="clip-path: polygon(20% 0%, 100% 0%, 80% 100%, 0% 100%); -webkit-clip-path: polygon(20% 0%, 100% 0%, 80% 100%, 0% 100%);">概要</button>
+            <button id="topGoBoard" class="px-6 py-1.5 text-white/95 text-xs font-semibold drop-shadow-sm ring-1 ring-white/20 backdrop-blur hover:bg-emerald-600/60 bg-emerald-700/60 transition select-none" style="clip-path: polygon(20% 0%, 100% 0%, 80% 100%, 0% 100%); -webkit-clip-path: polygon(20% 0%, 100% 0%, 80% 100%, 0% 100%); margin-left:-12px;">ボード</button>
           </div>
         </div>
         <!-- Content -->
@@ -7679,8 +7691,8 @@ function detailLayout(ctx: { id: number; name: string; fullName: string; owner?:
               </div>
               <!-- Shortcuts rail (peek from left; expands on hover) -->
               <div id="hxwShortcuts" class="hxw-sc-rail flex flex-col"></div>
-              <!-- Capacity bar (bottom-left) - show only in edit mode -->
-              <div id="hxwCap" class="hxw-cap hidden"></div>
+              <!-- Capacity bar (bottom-left) -->
+              <div id="hxwCap" class="hxw-cap"></div>
               <!-- Minimap (top-right) -->
               <div class="hxw-mini"${hideWrap ? ' style=\"visibility:hidden\"' : ''}><canvas id="hxwMini" width="120" height="120"></canvas></div>
               <!-- Info panel (bottom, edit mode only) -->
@@ -7718,19 +7730,27 @@ function detailLayout(ctx: { id: number; name: string; fullName: string; owner?:
                   </div>
                 </div>
               </aside>
-              <!-- Hexagon Actions (bottom-right) -->
-              <div class="hxw-hex-ctl" aria-label="Actions">
-                <!-- 3D toggle (purple) -->
-                <button id="hxwView3d" class="ctl-hex ctl-hex-violet ctl-pos-3d" title="2D/3D 切替" aria-label="2D/3D 切替">
-                  <span class="ctl-label">3D</span>
+              <!-- Actions (bottom-right): Edit switch + Add button -->
+              <div class="hxw-ctl" aria-label="Actions">
+                <!-- Vertical edit switch -->
+                <button id="wgEditSwitch" class="edit-switch" title="編集モード" aria-label="編集モード" aria-pressed="false">
+                  <div class="es-track">
+                    <div class="es-seg es-on" aria-hidden="true">
+                      <span class="es-ico">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.862 4.487a1.75 1.75 0 0 1 2.475 2.475l-9.9 9.9a1 1 0 0 1-.425.25l-4 1a1 1 0 0 1-1.212-1.212l1-4a1 1 0 0 1 .25-.425l9.9-9.9Z"/><path d="M15 6l3 3"/></svg>
+                      </span>
+                    </div>
+                    <div class="es-seg es-off" aria-hidden="true">
+                      <span class="es-ico">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 5c-5 0-9 3.582-10 7 1 3.418 5 7 10 7s9-3.582 10-7c-1-3.418-5-7-10-7Zm0 2a5 5 0 1 1 0 10 5 5 0 0 1 0-10Z"/></svg>
+                      </span>
+                    </div>
+                    <div class="es-indicator" aria-hidden="true"></div>
+                  </div>
                 </button>
-                <!-- Edit toggle (orange) -->
-                <button id="wgEditToggle" class="ctl-hex ctl-hex-orange ctl-pos-edit" title="編集モード" aria-label="編集モード">
-                  <span class="ctl-label">編集</span>
-                </button>
-                <!-- Add widget (green single) - shown only in edit mode -->
-                <button id="hxwFab" class="ctl-hex ctl-hex-green ctl-pos-add" style="display:none" title="ウィジェットを追加" aria-label="ウィジェットを追加">
-                  <span class="ctl-label plus">＋</span>
+                <!-- Add widget (large) -->
+                <button id="hxwFab" class="hxw-fab" title="ウィジェットを追加" aria-label="ウィジェットを追加">
+                  <span class="fab-plus">＋</span>
                 </button>
               </div>
             </section>
@@ -9130,10 +9150,8 @@ function hxwRenderCapacityBar(root: HTMLElement, pid: string): void {
   if (fill) {
     fill.style.width = `${Math.round(usedPct * 100)}%`
     const setGrad = (a: string, b: string) => { try { fill!.style.setProperty('--cap-a', a); fill!.style.setProperty('--cap-b', b) } catch {} }
-    // Color thresholds by usage: <= 1/3 green, <= 2/3 orange, > 2/3 red
-    if (usedPct <= (1/3)) setGrad('#10b981', '#84cc16') // green
-    else if (usedPct <= (2/3)) setGrad('#f59e0b', '#f97316') // amber
-    else setGrad('#ef4444', '#f43f5e') // red
+    // Always use blue tones with slight transparency
+    setGrad('rgba(59,130,246,0.65)', 'rgba(6,182,212,0.65)')
   }
   if (text) text.textContent = `現在 ${used} / ${total}`
 }
@@ -9545,13 +9563,7 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
     }
     if (del) {
       del.classList.remove('hidden')
-      del.onclick = () => {
-        const ok = confirm('このウィジェットを削除しますか？')
-        if (!ok) return
-        try { delete meta[id]; hxwSetMeta(pid, meta); try { hxwCustomDelete(pid, id) } catch {} } catch {}
-        selId = null; infoHide(); hxwPlaceWidgets(root, pid, st); try { hxwRecolorBackground(root, pid) } catch {} ; try { refreshDynamicWidgets(root, pid) } catch {}; try { hxwRehydrate(root, pid) } catch {}
-        try { showMiniToast('ウィジェットを削除しました', { variant: 'danger' }) } catch {}
-      }
+      del.onclick = () => openHexWidgetDeleteConfirm(root, pid, id)
     }
     panel.classList.remove('hidden')
     // Bind collapse/expand handle once
@@ -9626,6 +9638,44 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
         setTimeout(() => panel.classList.add('hidden'), 300)
       } else panel.classList.add('hidden')
     } catch { panel.classList.add('hidden') }
+  }
+  function openHexWidgetDeleteConfirm(root: HTMLElement, pid: string, id: string): void {
+    const overlay = document.createElement('div')
+    overlay.className = 'fixed inset-0 z-[70] bg-black/60 grid place-items-center'
+    // Resolve display name (custom name or type)
+    const meta = hxwGetMeta(pid)
+    const m = meta[id]
+    let disp = ''
+    try { const c = hxwCustomGet(pid, id); disp = (c?.name || '') as string } catch {}
+    if (!disp) disp = (m?.type || 'ウィジェット')
+    overlay.innerHTML = `
+      <div class="relative w-[min(520px,92vw)] rounded-xl bg-neutral-900 ring-2 ring-neutral-600 shadow-2xl text-gray-100">
+        <header class="h-10 flex items-center px-4 border-b border-neutral-600"><div class="font-semibold">ウィジェットを削除</div><button id="hxwDelClose" class="ml-auto text-xl">×</button></header>
+        <div class="p-4 space-y-3">
+          <p class="text-sm text-gray-300">${escapeHtml(disp)} を削除しますか？この操作は元に戻せません。</p>
+          <div class="flex justify-end gap-2 pt-2">
+            <button id="hxwDelCancel" class="px-3 py-1.5 rounded bg-neutral-800/60 text-gray-200 text-sm">キャンセル</button>
+            <button id="hxwDelOk" class="px-3 py-1.5 rounded bg-rose-700 hover:bg-rose-600 text-white text-sm">削除</button>
+          </div>
+        </div>
+      </div>`
+    const close = () => overlay.remove()
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) close() })
+    overlay.querySelector('#hxwDelClose')?.addEventListener('click', close)
+    overlay.querySelector('#hxwDelCancel')?.addEventListener('click', close)
+    overlay.querySelector('#hxwDelOk')?.addEventListener('click', () => {
+      try { delete meta[id]; hxwSetMeta(pid, meta); try { hxwCustomDelete(pid, id) } catch {} } catch {}
+      // Hide panel, clear selection, and re-render
+      try { selId = null; infoHide() } catch {}
+      try {
+        const wrap = root.querySelector('#hxwWrap') as HTMLElement | null
+        const st: any = (wrap as any)?._hxw
+        if (wrap && st) { hxwPlaceWidgets(root, pid, st); hxwRecolorBackground(root, pid); refreshDynamicWidgets(root, pid); hxwRehydrate(root, pid) }
+      } catch {}
+      try { showMiniToast('ウィジェットを削除しました', { variant: 'danger' }) } catch {}
+      close()
+    })
+    document.body.appendChild(overlay)
   }
   const setSelected = (pid: string, id: string | null) => {
     // Clear previous highlight (revert bg effects)
@@ -9794,16 +9844,24 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
   const setEdit = (on: boolean) => {
     editOn = on
     canvas.setAttribute('data-edit', on ? '1' : '0')
-    // Toggle capacity bar and add (FAB) visibility with edit mode
-    try { (root.querySelector('#hxwCap') as HTMLElement | null)?.classList.toggle('hidden', !on) } catch {}
-    try { const fab = root.querySelector('#hxwFab') as HTMLElement | null; if (fab) fab.style.display = on ? '' : 'none' } catch {}
-    const btn = root.querySelector('#wgEditToggle') as HTMLElement | null
-    if (btn) {
-      btn.setAttribute('aria-pressed', on ? 'true' : 'false')
-      btn.setAttribute('title', on ? '編集中' : '編集モード')
-      const lab = btn.querySelector('.ctl-label') as HTMLElement | null
-      if (lab) lab.textContent = on ? '編集中' : '編集'
-    }
+    // Toggle capacity bar and add (FAB) with smooth animations
+    try {
+      const cap = root.querySelector('#hxwCap') as HTMLElement | null
+      if (cap) {
+        if (on) { cap.classList.add('is-visible') } else { cap.classList.remove('is-visible') }
+      }
+    } catch {}
+    try {
+      const fab = root.querySelector('#hxwFab') as HTMLElement | null
+      if (fab) {
+        if (on) { fab.classList.add('is-visible') } else { fab.classList.remove('is-visible') }
+      }
+    } catch {}
+  const btn = root.querySelector('#wgEditSwitch') as HTMLElement | null
+  if (btn) {
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false')
+    btn.setAttribute('title', on ? '編集中' : '編集モード')
+  }
     try {
       const pid = canvas.getAttribute('data-pid') || '0'
       hxwPlaceWidgets(root, pid, st)

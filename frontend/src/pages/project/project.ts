@@ -110,6 +110,11 @@ export function renderProject(container: HTMLElement): void {
       <!-- Left edge slide-out group panel removed -->
       <!-- Minimap (top-left) -->
       <div class="hx-mini"><canvas id="hxMini" width="120" height="120"></canvas></div>
+      <!-- Account FAB (bottom-right) -->
+      <button id="accountFab" class="fixed right-3 bottom-3 z-20 w-12 h-12 rounded-full ring-2 ring-neutral-600 bg-neutral-900/80 hover:bg-neutral-800 text-gray-100 shadow-lg grid place-items-center" title="アカウント" aria-label="アカウント">
+        <img id="accountFabAvatar" class="hidden w-10 h-10 rounded-full" alt="avatar" />
+        <span id="accountFabFallback" class="w-10 h-10 rounded-full bg-neutral-800/80 grid place-items-center text-sm font-semibold">Me</span>
+      </button>
       <!-- Group info panel (bottom) - styled like widget info, separate id to avoid conflicts -->
       <aside id="giInfo" class="fixed inset-x-0 bottom-0 z-[18] hidden">
         <div class="mx-auto w-[min(560px,94vw)]">
@@ -149,9 +154,9 @@ export function renderProject(container: HTMLElement): void {
       const el = container.querySelector('#userTitle')
       if (el) el.textContent = `${me.name}のプロジェクト`
       try { localStorage.setItem(userNameKey(me.id), me.name || '') } catch {}
-      // avatar
-      const avatar = container.querySelector('#accountAvatar') as HTMLImageElement | null
-      const fallback = container.querySelector('#accountFallback') as HTMLElement | null
+      // account FAB avatar
+      const avatar = container.querySelector('#accountFabAvatar') as HTMLImageElement | null
+      const fallback = container.querySelector('#accountFabFallback') as HTMLElement | null
       if (me.github_id && avatar) {
         avatar.src = `https://avatars.githubusercontent.com/u/${me.github_id}?s=96`
         avatar.classList.remove('hidden')
@@ -159,6 +164,8 @@ export function renderProject(container: HTMLElement): void {
       } else if (fallback) {
         fallback.textContent = (me.name || 'Me').slice(0, 2)
       }
+      // click to open account modal
+      container.querySelector('#accountFab')?.addEventListener('click', () => openDetailAccountModal(container))
       ; (container as any)._me = me
       // render quickbar now that we have user
       renderGroupQuickbar(container, me)
@@ -470,7 +477,6 @@ function renderHoneycomb(root: HTMLElement, projects: Project[]): void {
       { label: '共有ウィジェット', sub: 'みんなの作品を使う', route: '#/widgets/share' },
       { label: 'ウィジェット作成', sub: '自作ウィジェットを作る', route: '#/widget/create' },
       { label: '自作ウィジェット管理', sub: '投稿・編集・削除', route: '#/widgets/manage' },
-      { label: 'アカウント', sub: 'ユーザー設定', route: '#/project?openAccount=1' },
     ]
     if (arr.length) {
       hubs[gid] = arr.slice(0, defs.length).map((n, i) => ({ q: n.q, r: n.r, ...defs[i] }))

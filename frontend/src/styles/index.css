@@ -929,9 +929,11 @@ body[data-lock]:not([data-lock="0"]) .hxw-wrap { pointer-events: none; }
 
 /* ---- Capacity (HP-like) bar ---- */
 .hxw-cap { position: fixed; left: 12px; bottom: 14px; width: 200px; z-index: 18; }
-.hxw-cap .cap-wrap { position: relative; width: 100%; height: 12px; border-radius: 9999px; border: 1px solid var(--gh-border); background: rgba(255,255,255,.12); overflow: hidden; }
-:root[data-theme="warm"] .hxw-cap .cap-wrap, :root[data-theme="sakura"] .hxw-cap .cap-wrap { background: rgba(0,0,0,.08) }
-.hxw-cap .cap-fill { height: 100%; width: 0%; background: linear-gradient(90deg, var(--cap-a, #10b981), var(--cap-b, #84cc16)); box-shadow: inset 0 0 0 1px rgba(255,255,255,.08); transition: width .25s ease; }
+.hxw-cap { opacity: 0; transform: translateY(8px); transition: opacity .22s ease, transform .22s ease; pointer-events: none; }
+.hxw-cap.is-visible { opacity: 1; transform: translateY(0); pointer-events: auto; }
+.hxw-cap .cap-wrap { position: relative; width: 100%; height: 12px; border-radius: 9999px; border: 1px solid var(--gh-border); background: rgba(255,255,255,.10); overflow: hidden; backdrop-filter: saturate(120%) blur(4px); }
+:root[data-theme="warm"] .hxw-cap .cap-wrap, :root[data-theme="sakura"] .hxw-cap .cap-wrap { background: rgba(0,0,0,.06) }
+.hxw-cap .cap-fill { height: 100%; width: 0%; background: linear-gradient(90deg, var(--cap-a, #3b82f6), var(--cap-b, #06b6d4)); box-shadow: inset 0 0 0 1px rgba(255,255,255,.08); transition: width .25s ease; }
 .hxw-cap .cap-text { margin-bottom: 6px; font-size: 12px; color: var(--gh-contrast); opacity: .9; font-weight: 600; letter-spacing: .01em; }
 
 /* ---- Info handle (collapse/expand) ---- */
@@ -979,6 +981,27 @@ body[data-lock]:not([data-lock="0"]) .hxw-wrap { pointer-events: none; }
   width: calc(var(--ctl-sx) + var(--ctl-s));
   height: calc(var(--ctl-h) * 2);
 }
+.hxw-ctl { position: fixed; right: 14px; bottom: 148px; z-index: 19; display: flex; flex-direction: column; align-items: center; gap: 16px; }
+/* Edit vertical switch */
+.edit-switch { position: relative; width: 52px; height: 108px; border: 2px solid var(--gh-border); border-radius: 12px; background: rgba(0,0,0,.22); box-shadow: 0 8px 22px rgba(0,0,0,.30); cursor: pointer; padding: 5px; transition: filter .18s ease, transform .12s ease; opacity: .92; backdrop-filter: saturate(120%) blur(6px); --ind-h: 36px; }
+.edit-switch:hover { filter: brightness(1.05) }
+.edit-switch:active { transform: translateY(1px) }
+.edit-switch .es-track { position: relative; width: 100%; height: 100%; border-radius: 11px; overflow: hidden; }
+.edit-switch .es-track::after { content: ""; position: absolute; left: 10%; right: 10%; top: 50%; height: 1px; background: rgba(255,255,255,.20); transform: translateY(-50%); z-index: 1 }
+.edit-switch .es-seg { position: absolute; left: 0; width: 100%; height: 50%; display: grid; place-items: center; gap: 4px; color: #eef2ff; font-weight: 800; font-size: 12px; letter-spacing: .02em; text-shadow: 0 1px 2px rgba(0,0,0,.35); z-index: 2; padding: 4px 0 }
+.edit-switch .es-on { bottom: 0 }
+.edit-switch .es-off { top: 0 }
+.edit-switch .es-ico { display: grid; place-items: center }
+.edit-switch .es-indicator { position: absolute; left: 2px; right: 2px; top: calc(25% - var(--ind-h)/2); height: var(--ind-h); border-radius: 11px; background: linear-gradient(180deg, rgba(59,130,246,.40), rgba(6,182,212,.40)); box-shadow: inset 0 0 0 1px rgba(255,255,255,.10), 0 6px 16px rgba(0,0,0,.22); transition: top .22s ease; z-index: 1 }
+.edit-switch[aria-pressed="true"] .es-indicator { top: calc(75% - var(--ind-h)/2) }
+
+/* Place add FAB tight to bottom-right corner */
+#hxwFab.hxw-fab { position: fixed; right: 14px; bottom: 14px; }
+/* Large Add FAB */
+#hxwFab.hxw-fab { width: 76px; height: 76px; background: linear-gradient(180deg, rgba(59,130,246,.62), rgba(6,182,212,.62)); border: 2px solid rgba(255,255,255,.18); box-shadow: 0 12px 28px rgba(0,0,0,.42); display: grid; place-items: center; color: #fff; clip-path: polygon(12% 0%, 88% 0%, 100% 12%, 100% 88%, 88% 100%, 12% 100%, 0% 88%, 0% 12%); -webkit-clip-path: polygon(12% 0%, 88% 0%, 100% 12%, 100% 88%, 88% 100%, 12% 100%, 0% 88%, 0% 12%); backdrop-filter: saturate(120%) blur(6px); }
+#hxwFab.hxw-fab .fab-plus { font-weight: 900; font-size: 34px; line-height: 1; text-shadow: 0 1px 3px rgba(0,0,0,.35) }
+#hxwFab.hxw-fab:hover { filter: brightness(1.05) }
+#hxwFab.hxw-fab:active { transform: translateY(1px) }
 .hxw-hex-ctl * { box-sizing: border-box }
 .ctl-hex { position: absolute; width: var(--ctl-s); height: var(--ctl-h); clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%); background: var(--ctl-bg, #0ea5e9); border: 0; box-shadow: none; cursor: pointer; transition: transform .12s ease, filter .15s ease; display: grid; place-items: center; }
 .ctl-label { color: #fff; font-weight: 900; font-size: clamp(9px, calc(var(--ctl-s) * 0.24), 18px); letter-spacing: .02em; text-shadow: 0 1px 3px rgba(0,0,0,.35); user-select: none; }
@@ -990,6 +1013,9 @@ body[data-lock]:not([data-lock="0"]) .hxw-wrap { pointer-events: none; }
 .ctl-hex-violet { --ctl-bg: #a855f7 }
 .ctl-hex-orange { --ctl-bg: #f59e0b }
 .ctl-hex-green { --ctl-bg: #10b981 }
+/* Smooth show/hide for Add (FAB) */
+#hxwFab.hxw-fab { opacity: 0; transform: translateY(8px) scale(.96); pointer-events: none; transition: opacity .22s ease, transform .22s ease; }
+#hxwFab.hxw-fab.is-visible { opacity: 1; transform: translateY(0) scale(1); pointer-events: auto; }
 /* Positions (origin is top-left of control box) */
 .ctl-pos-3d { left: 0; top: calc(var(--ctl-h) / 2) }
 .ctl-pos-edit { left: var(--ctl-sx); top: var(--ctl-h) }
