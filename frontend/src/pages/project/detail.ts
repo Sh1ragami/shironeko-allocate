@@ -989,7 +989,7 @@ function parseHashQuery(): Record<string, string> {
 
 export async function renderProjectDetail(container: HTMLElement): Promise<void> {
   // Clean up any list-page info panel that might linger (remove unconditionally before rendering)
-  try { document.querySelectorAll('#hxwInfo').forEach((el) => (el as HTMLElement).remove()) } catch {}
+  try { document.querySelectorAll('#giInfo').forEach((el) => (el as HTMLElement).remove()) } catch {}
   const { id } = parseHashQuery()
   // ID validation: ensure it's a numeric string
   if (!id || !/^\d+$/.test(id)) {

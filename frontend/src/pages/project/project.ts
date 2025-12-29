@@ -63,11 +63,20 @@ function createProjectCard(): string {
 export function renderProject(container: HTMLElement): void {
   // Ensure any lingering info panel from other pages is gone before render
   try { document.querySelectorAll('#giInfo').forEach((el) => (el as HTMLElement).remove()) } catch {}
-  // Bind one-time route cleanup to remove the info panel on any navigation
+  // Bind one-time route cleanup to remove the info panel only when leaving the list
   try {
     const w = window as any
     if (!w._giRouteBound) {
-      const rm = () => { try { document.querySelectorAll('#giInfo').forEach((el) => (el as HTMLElement).remove()) } catch {} }
+      const rm = () => {
+        try {
+          const hash = window.location.hash || ''
+          // Remove when navigating away from project list (e.g. to detail or other pages)
+          const leavingList = !hash.startsWith('#/project') || hash.startsWith('#/project/detail')
+          if (leavingList) {
+            document.querySelectorAll('#giInfo').forEach((el) => (el as HTMLElement).remove())
+          }
+        } catch {}
+      }
       window.addEventListener('hashchange', rm)
       window.addEventListener('popstate', rm)
       window.addEventListener('beforeunload', rm)
