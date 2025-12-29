@@ -62,12 +62,12 @@ function createProjectCard(): string {
 
 export function renderProject(container: HTMLElement): void {
   // Ensure any lingering info panel from other pages is gone before render
-  try { document.querySelectorAll('#hxwInfo').forEach((el) => (el as HTMLElement).remove()) } catch {}
+  try { document.querySelectorAll('#giInfo').forEach((el) => (el as HTMLElement).remove()) } catch {}
   // Bind one-time route cleanup to remove the info panel on any navigation
   try {
     const w = window as any
     if (!w._giRouteBound) {
-      const rm = () => { try { document.querySelectorAll('#hxwInfo').forEach((el) => (el as HTMLElement).remove()) } catch {} }
+      const rm = () => { try { document.querySelectorAll('#giInfo').forEach((el) => (el as HTMLElement).remove()) } catch {} }
       window.addEventListener('hashchange', rm)
       window.addEventListener('popstate', rm)
       window.addEventListener('beforeunload', rm)
@@ -93,11 +93,7 @@ export function renderProject(container: HTMLElement): void {
       <!-- Compact heading and controls around minimap -->
       <div class="fixed left-4 top-3 z-10 text-2xl md:text-3xl font-semibold text-gray-100">プロジェクト一覧</div>
       <div id="groupQuick" class="fixed left-4 top-[66px] z-10 flex items-center gap-0 group-quick"></div>
-      <button id="accountBtn" class="fixed bottom-5 right-5 z-20 w-9 h-9 rounded-full overflow-hidden ring-2 ring-neutral-600 bg-neutral-700 grid place-items-center shadow-lg">
-        <span class="sr-only">アカウント</span>
-        <img id="accountAvatar" class="w-full h-full object-cover hidden" alt="avatar"/>
-        <div id="accountFallback" class="text-xs text-neutral-300">Me</div>
-      </button>
+      <!-- account button removed; open from hub tile in common area -->
       <!-- Honeycomb full-screen layer -->
       <section class="hx-wrap" id="honeyWrap">
         <div class="hx-canvas" id="honeyCanvas" style="width:2000px; height:1400px"></div>
@@ -105,10 +101,10 @@ export function renderProject(container: HTMLElement): void {
       <!-- Left edge slide-out group panel removed -->
       <!-- Minimap (top-left) -->
       <div class="hx-mini"><canvas id="hxMini" width="120" height="120"></canvas></div>
-      <!-- Group info panel (bottom) - match widget edit info panel styling -->
-      <aside id="hxwInfo" class="fixed inset-x-0 bottom-0 z-[18] hidden">
+      <!-- Group info panel (bottom) - styled like widget info, separate id to avoid conflicts -->
+      <aside id="giInfo" class="fixed inset-x-0 bottom-0 z-[18] hidden">
         <div class="mx-auto w-[min(560px,94vw)]">
-          <button id="hxwInfoHandle" class="block mx-auto info-handle mb-1" aria-expanded="true" title="しまう">
+          <button id="giInfoHandle" class="block mx-auto info-handle mb-1" aria-expanded="true" title="しまう">
             <span class="ih-ico" aria-hidden="true">
               <svg width="48" height="28" viewBox="0 0 24 16" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">
                 <g class="up">
@@ -122,11 +118,11 @@ export function renderProject(container: HTMLElement): void {
               </svg>
             </span>
           </button>
-          <div id="hxwInfoPanel" class="rounded-t-xl rounded-b-none border-2 border-neutral-600 border-b-0 bg-neutral-950/70 backdrop-blur px-5 py-3 text-gray-100 shadow-xl">
+          <div id="giInfoPanel" class="rounded-t-xl rounded-b-none border-2 border-neutral-600 border-b-0 bg-neutral-950/70 backdrop-blur px-5 py-3 text-gray-100 shadow-xl">
             <div class="flex items-center gap-2 mb-2">
               <div class="text-sm font-semibold">グループ</div>
             </div>
-            <div id="hxwInfoBody" class="text-sm leading-tight space-y-2"></div>
+            <div id="giInfoBody" class="text-sm leading-tight space-y-2"></div>
           </div>
         </div>
       </aside>
@@ -182,9 +178,19 @@ export function renderProject(container: HTMLElement): void {
       })
   })
 
-  // Account modal
-  const accountBtn = container.querySelector('#accountBtn')
-  accountBtn?.addEventListener('click', () => openDetailAccountModal(container))
+  // Account modal trigger moved into hub tile; also support query param
+  try {
+    const hash = window.location.hash
+    const [, q = ''] = hash.split('?')
+    if (q) {
+      const params = new URLSearchParams(q)
+      if (params.get('openAccount') === '1') {
+        // clean URL then open modal
+        history.replaceState(null, '', '#/project')
+        openDetailAccountModal(container)
+      }
+    }
+  } catch {}
   // Group add handled inside quickbar
 
   // Load projects when me is unknown yet (fallback)
@@ -452,7 +458,10 @@ function renderHoneycomb(root: HTMLElement, projects: Project[]): void {
     const arr = groupedNodes[gid] || []
     const defs: Array<{ label: string; sub: string; route: string }> = [
       { label: 'チュートリアル', sub: '使い方を学ぶ', route: '#/project/tutorial' },
+      { label: '共有ウィジェット', sub: 'みんなの作品を使う', route: '#/widgets/share' },
       { label: 'ウィジェット作成', sub: '自作ウィジェットを作る', route: '#/widget/create' },
+      { label: '自作ウィジェット管理', sub: '投稿・編集・削除', route: '#/widgets/manage' },
+      { label: 'アカウント', sub: 'ユーザー設定', route: '#/project?openAccount=1' },
     ]
     if (arr.length) {
       hubs[gid] = arr.slice(0, defs.length).map((n, i) => ({ q: n.q, r: n.r, ...defs[i] }))
@@ -531,7 +540,7 @@ function renderHoneycomb(root: HTMLElement, projects: Project[]): void {
       // Start deeper prefetch at the earliest selection moment
       tile.addEventListener('pointerdown', () => { try { prefetchProjectDetailDeep(p.id) } catch {} }, { once: true })
       tile.addEventListener('click', () => {
-        try { document.querySelectorAll('#hxwInfo').forEach((el) => (el as HTMLElement).remove()) } catch {}
+        try { document.querySelectorAll('#giInfo').forEach((el) => (el as HTMLElement).remove()) } catch {}
         // 保存: 戻ってきた時にこのプロジェクトのグループを中心に
         try {
           const me = (root as any)._me as { id?: number } | undefined
@@ -560,7 +569,7 @@ function renderHoneycomb(root: HTMLElement, projects: Project[]): void {
             const canvas = root.querySelector('#honeyCanvas') as HTMLElement | null
             const st: any = (wrap as any)._hx
             let sent = false
-            const go = () => { if (sent) return; sent = true; try { document.querySelectorAll('#hxwInfo').forEach((el) => (el as HTMLElement).remove()) } catch {}; window.location.hash = `#/project/detail?id=${p.id}` }
+            const go = () => { if (sent) return; sent = true; try { document.querySelectorAll('#giInfo').forEach((el) => (el as HTMLElement).remove()) } catch {}; window.location.hash = `#/project/detail?id=${p.id}` }
             if (!canvas || !st) { setTimeout(go, 50); return }
             const rect = tile.getBoundingClientRect()
             const cx = Math.round(rect.left + rect.width / 2)
@@ -645,9 +654,20 @@ function renderHoneycomb(root: HTMLElement, projects: Project[]): void {
         if (h) {
           const label = h.label
           const sub = h.sub
-          const facets = deriveFacets(tone.bg)
+          // Vibrant palette for hub tiles (distinct, eye-catching)
+          const picksIdx = Math.max(0, (picks || []).findIndex(x => x.q === h.q && x.r === h.r))
+          const hubPalette = [
+            'rgba(255, 64, 129, 0.50)', // vivid pink
+            'rgba(0, 200, 255, 0.52)',  // bright cyan
+            'rgba(255, 214, 10, 0.52)', // vivid yellow
+            'rgba(168, 85, 247, 0.52)', // vibrant purple
+            'rgba(255, 128, 0, 0.50)',  // vivid orange
+            'rgba(80, 220, 100, 0.50)', // bright lime green
+          ]
+          const hubBg = hubPalette[picksIdx % hubPalette.length]
+          const facets = deriveFacets(hubBg)
           tile.innerHTML = `
-            <div class="hx-clip hx-plain hx-svgclip" style="color:${tone.bg}; --hx-side:${facets.side}; --hx-hi:${facets.hi}; --hx-edge:${facets.side}">
+            <div class="hx-clip hx-plain hx-svgclip" style="color:${hubBg}; --hx-side:${facets.side}; --hx-hi:${facets.hi}; --hx-edge:${facets.side}; filter: drop-shadow(0 0 10px rgba(255,255,255,0.16))">
               ${honeyHexFilledSvg()}
               <div class="hx-info hx-plain"><div>${escapeHtml(label)}</div><div class="text-[10px] opacity-80 mt-0.5">${escapeHtml(sub)}</div></div>
             </div>`
@@ -927,11 +947,11 @@ function showGroupLocationToast(gid: string, uid?: number): void {
     // Resolve group color for accent using the same layout group ordering
     const groups = layoutGroups(uid)
     const col = colorForGroupId(groups as any, gid)
-    // Use the same solid color used for group icons to keep visuals consistent with area color
-    accentRgb = groupSolid(col as any)
+    // Use the same solid color used for group icons; force white for 共有スペース
+    accentRgb = (gid === 'area-common') ? '#ffffff' : groupSolid(col as any)
   } catch {}
   // Fallback names for virtual areas
-  if (!name && gid === 'area-common') name = 'みんなのひろば'
+  if (!name && gid === 'area-common') name = '共有スペース'
   if (!name) return
   // Recreate to restart animation cleanly
   document.getElementById(overlayId)?.remove()
@@ -1009,9 +1029,9 @@ function showMiniToastList(message: string, opts?: { variant?: 'success' | 'dang
 
 // ----- Group Info Panel (bottom) -----
 function updateGroupInfoPanel(root: HTMLElement, gid: string): void {
-  const info = root.querySelector('#hxwInfo') as HTMLElement | null
-  const body = root.querySelector('#hxwInfoBody') as HTMLElement | null
-  const handle = root.querySelector('#hxwInfoHandle') as HTMLElement | null
+  const info = root.querySelector('#giInfo') as HTMLElement | null
+  const body = root.querySelector('#giInfoBody') as HTMLElement | null
+  const handle = root.querySelector('#giInfoHandle') as HTMLElement | null
   if (!info || !body || !handle) return
   // Hide for common area
   if (!gid || gid === 'area-common') { info.classList.add('hidden'); return }
@@ -1039,7 +1059,7 @@ function updateGroupInfoPanel(root: HTMLElement, gid: string): void {
   body.innerHTML = `${head}<div class="mt-2 space-y-1" id="giList">${projList}</div>`
   // Animated collapse/expand (same behavior as widget info)
   const panelAny: any = info
-  const cont = root.querySelector('#hxwInfoPanel') as HTMLElement | null
+  const cont = root.querySelector('#giInfoPanel') as HTMLElement | null
   info.classList.remove('hidden')
   const applyCollapsed = (on: boolean) => {
     try {
@@ -1409,7 +1429,7 @@ function bindGridInteractions(root: HTMLElement): void {
       el.addEventListener('pointerdown', () => { try { prefetchProjectDetailDeep(pid) } catch {} }, { once: true })
     }
     el.addEventListener('click', () => {
-      try { document.querySelectorAll('#hxwInfo').forEach((n)=> (n as HTMLElement).remove()) } catch {}
+      try { document.querySelectorAll('#giInfo').forEach((n)=> (n as HTMLElement).remove()) } catch {}
       const id = (el as HTMLElement).getAttribute('data-id')
       if (id) {
         try { sessionStorage.setItem('proj-entry-dir', 'right') } catch {}
@@ -1530,7 +1550,7 @@ function ensureDefaultGroups(uid?: number, avatar?: string): Group[] {
 function layoutGroups(uid?: number, avatar?: string): Group[] {
   const base = ensureDefaultGroups(uid, avatar)
   // Friendly common hub name
-  return [{ id: 'area-common', name: 'みんなのひろば' } as Group].concat(base)
+  return [{ id: 'area-common', name: '共有スペース' } as Group].concat(base)
 }
 
 function renderGroupSidebar(root: HTMLElement, me: { id?: number; github_id?: number }): void {
@@ -2461,7 +2481,7 @@ function openCardMenu(root: HTMLElement, anchor: HTMLElement, id: number): void 
   const openBtn = menu.querySelector('[data-act="open"]') as HTMLElement | null
   openBtn?.addEventListener('mousedown', () => { try { prefetchProjectDetailDeep(id) } catch {} }, { once: true })
   openBtn?.addEventListener('click', () => {
-    try { document.querySelectorAll('#hxwInfo').forEach((n)=> (n as HTMLElement).remove()) } catch {}
+    try { document.querySelectorAll('#giInfo').forEach((n)=> (n as HTMLElement).remove()) } catch {}
     try { sessionStorage.setItem('proj-entry-dir', 'right') } catch {}
     try { prefetchProjectDetailDeep(id) } catch {}
     window.location.hash = `#/project/detail?id=${id}`

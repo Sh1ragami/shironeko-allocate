@@ -5,6 +5,8 @@ import { renderLogin } from './pages/login/login'
 import { renderProject } from './pages/project/project'
 import { renderProjectDetail } from './pages/project/detail'
 import { renderTutorial } from './pages/project/tutorial'
+import { renderWidgetShare } from './pages/widgets/share'
+import { renderWidgetManage } from './pages/widgets/manage'
 import { renderProjectCreating } from './pages/project/creating'
 import { renderWidgetCreate } from './pages/project/widget-create'
 import { renderNotFound } from './pages/not-found/not-found'
@@ -23,6 +25,8 @@ if (app) {
     '/project/widget-create': renderWidgetCreate, // backward compat
     '/widget/create': renderWidgetCreate,
     '/project/tutorial': renderTutorial,
+    '/widgets/share': renderWidgetShare,
+    '/widgets/manage': renderWidgetManage,
     '/404': renderNotFound,
   })
   // Capture token in hash and store

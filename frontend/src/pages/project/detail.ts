@@ -3807,7 +3807,11 @@ function openWidgetPickerModal(root: HTMLElement, pid: string, onPick?: (type: s
       const pickFromItem = () => {
         if (it.lib) {
           if (onPick) {
-            try { (window as any)._wpPickedLibName = it.lib.name || '' } catch {}
+            try {
+              (window as any)._wpPickedLibName = it.lib.name || ''
+              ;(window as any)._wpPickedLibRGB = Array.isArray(it.lib.rgb) ? it.lib.rgb : null
+              ;(window as any)._wpPickedLibCells = Array.isArray(it.lib.shape) ? it.lib.shape.length : null
+            } catch {}
             close(); setTimeout(() => { try { onPick('custom') } catch {} }, 0)
             return
           }
@@ -3978,7 +3982,11 @@ function openWidgetPickerModal(root: HTMLElement, pid: string, onPick?: (type: s
       btn.textContent = en.name || (en.type === 'flow' ? 'フロー' : 'カスタム')
       btn.addEventListener('click', () => {
         if (onPick) {
-          try { (window as any)._wpPickedLibName = en.name || '' } catch {}
+          try {
+            (window as any)._wpPickedLibName = en.name || ''
+            ;(window as any)._wpPickedLibRGB = Array.isArray(en.rgb) ? en.rgb : null
+            ;(window as any)._wpPickedLibCells = Array.isArray(en.shape) ? en.shape.length : null
+          } catch {}
           close()
           setTimeout(() => { try { onPick('custom') } catch {} }, 0)
           return
@@ -4583,13 +4591,30 @@ function addWidget(root: HTMLElement, pid: string, type: string): void {
     if (type === 'custom') {
       let pickedName = ''
       try { pickedName = String((window as any)._wpPickedLibName || '') } catch {}
+      let pickedRGB: [number,number,number] | null = null
+      try { const arr = (window as any)._wpPickedLibRGB as any; if (Array.isArray(arr) && arr.length === 3) pickedRGB = [Number(arr[0]), Number(arr[1]), Number(arr[2])] } catch {}
+      let pickedCells: number | null = null
+      try { const n = (window as any)._wpPickedLibCells as any; if (typeof n === 'number' && isFinite(n)) pickedCells = n } catch {}
       if (pickedName) {
         const card = el as HTMLElement
         card.setAttribute('data-locked', '1')
         card.setAttribute('data-name', pickedName)
+        // Apply color hint if available
+        if (pickedRGB) {
+          try { (card.style as any).setProperty('--lib-color', `rgba(${pickedRGB[0]},${pickedRGB[1]},${pickedRGB[2]}, 0.38)`) } catch {}
+        }
+        // Expand initial size roughly based on shape cells
+        if (pickedCells && pickedCells > 1) {
+          try {
+            const span = Math.max(1, Math.round(Math.sqrt(pickedCells)))
+            card.style.gridColumn = `span ${Math.min(12, Math.max(4, span * 4))}`
+            card.style.gridRow = `span ${Math.max(2, span * 2)}`
+          } catch {}
+        }
         const body = card.querySelector('.wg-content') as HTMLElement | null
         if (body) {
-          body.innerHTML = `<button class="w-full h-full grid place-items-center text-center px-2 py-1 rounded bg-neutral-900/40 ring-2 ring-neutral-600 hover:bg-neutral-900/60 text-gray-100 transition shadow-sm hover:shadow-md hover:brightness-110" style="min-height:64px">${escapeHtml(pickedName)}</button>`
+          const bg = pickedRGB ? `style=\"background: var(--lib-color, rgba(${pickedRGB[0]},${pickedRGB[1]},${pickedRGB[2]},0.18))\"` : ''
+          body.innerHTML = `<button class="w-full h-full grid place-items-center text-center px-2 py-1 rounded ring-2 ring-neutral-600 hover:bg-neutral-900/60 text-gray-100 transition shadow-sm hover:shadow-md hover:brightness-110" ${bg} style="min-height:64px">${escapeHtml(pickedName)}</button>`
           const btn = body.querySelector('button') as HTMLButtonElement | null
           btn?.addEventListener('click', (e) => {
             e.stopPropagation()
@@ -4610,8 +4635,10 @@ function addWidget(root: HTMLElement, pid: string, type: string): void {
         ;(card.querySelector('.w-del') as HTMLElement | null)?.classList.add('hidden')
         card.querySelectorAll('.wg-rz').forEach((n) => (n as HTMLElement).classList.add('hidden'))
         ;(card.querySelector('.wg-move') as HTMLElement | null)?.classList.add('hidden')
-        // Clear the global hint to avoid affecting later additions
+        // Clear the global hints to avoid affecting later additions
         try { (window as any)._wpPickedLibName = '' } catch {}
+        try { (window as any)._wpPickedLibRGB = null } catch {}
+        try { (window as any)._wpPickedLibCells = null } catch {}
         try { showMiniToast('ウィジェットを追加しました') } catch {}
       }
     }
@@ -9427,7 +9454,7 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
   const DRAG_TOL = 4
   // Selection state (edit mode)
   let selId: string | null = null
-  const getInfoEl = () => document.getElementById('hxwInfo') as HTMLElement | null
+  const getInfoEl = () => root.querySelector('#hxwInfo') as HTMLElement | null
   const infoShow = (pid: string, id: string) => {
     const panel = getInfoEl(); if (!panel) return
     const body = panel.querySelector('#hxwInfoBody') as HTMLElement | null
@@ -9826,7 +9853,7 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
   // - Click inside any widget: select and show info (stop propagation so it isn't cleared elsewhere)
   // - Click outside: allow event to bubble to wrap's handler which clears selection
   canvas.addEventListener('click', (e) => {
-    if (!editOn) return
+    if (canvas.getAttribute('data-edit') !== '1') return
     const host = (e.target as HTMLElement).closest('.hxw-widget') as HTMLElement | null
     if (host) {
       const pidCur = canvas.getAttribute('data-pid') || '0'
@@ -9915,7 +9942,7 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
     if (!el) return
     // In edit mode, allow selection when clicking background hex OR
     // over the cells/content layer as long as it's not an interactive control
-    if (editOn) {
+    if (canvas.getAttribute('data-edit') === '1') {
       const t = e.target as HTMLElement
       let allow = false
       const bg = t.closest('.hxw-bg') as HTMLElement | null
@@ -10040,7 +10067,7 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
   window.addEventListener('resize', () => hxwApplyTransform(wrap, canvas, st))
   // Click on empty area clears selection in edit mode
   wrap.addEventListener('click', (e) => {
-    if (!editOn) return
+    if (canvas.getAttribute('data-edit') !== '1') return
     const t = e.target as HTMLElement
     if (!t.closest('.hxw-widget')) { setSelected(canvas.getAttribute('data-pid') || '0', null) }
   })
