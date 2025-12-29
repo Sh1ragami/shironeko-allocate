@@ -61,6 +61,19 @@ function createProjectCard(): string {
 }
 
 export function renderProject(container: HTMLElement): void {
+  // Ensure any lingering info panel from other pages is gone before render
+  try { document.querySelectorAll('#hxwInfo').forEach((el) => (el as HTMLElement).remove()) } catch {}
+  // Bind one-time route cleanup to remove the info panel on any navigation
+  try {
+    const w = window as any
+    if (!w._giRouteBound) {
+      const rm = () => { try { document.querySelectorAll('#hxwInfo').forEach((el) => (el as HTMLElement).remove()) } catch {} }
+      window.addEventListener('hashchange', rm)
+      window.addEventListener('popstate', rm)
+      window.addEventListener('beforeunload', rm)
+      w._giRouteBound = true
+    }
+  } catch {}
   // If coming back from detail, optionally run a reverse arrival animation (no loader)
   let shouldHideAnim = false
   try {
@@ -92,11 +105,38 @@ export function renderProject(container: HTMLElement): void {
       <!-- Left edge slide-out group panel removed -->
       <!-- Minimap (top-left) -->
       <div class="hx-mini"><canvas id="hxMini" width="120" height="120"></canvas></div>
+      <!-- Group info panel (bottom) - match widget edit info panel styling -->
+      <aside id="hxwInfo" class="fixed inset-x-0 bottom-0 z-[18] hidden">
+        <div class="mx-auto w-[min(560px,94vw)]">
+          <button id="hxwInfoHandle" class="block mx-auto info-handle mb-1" aria-expanded="true" title="しまう">
+            <span class="ih-ico" aria-hidden="true">
+              <svg width="48" height="28" viewBox="0 0 24 16" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">
+                <g class="up">
+                  <polyline class="chev1" points="3,7 12,3 21,7" />
+                  <polyline class="chev2" points="3,13 12,9 21,13" />
+                </g>
+                <g class="down">
+                  <polyline class="chev1" points="3,3 12,7 21,3" />
+                  <polyline class="chev2" points="3,9 12,13 21,9" />
+                </g>
+              </svg>
+            </span>
+          </button>
+          <div id="hxwInfoPanel" class="rounded-t-xl rounded-b-none border-2 border-neutral-600 border-b-0 bg-neutral-950/70 backdrop-blur px-5 py-3 text-gray-100 shadow-xl">
+            <div class="flex items-center gap-2 mb-2">
+              <div class="text-sm font-semibold">グループ</div>
+            </div>
+            <div id="hxwInfoBody" class="text-sm leading-tight space-y-2"></div>
+          </div>
+        </div>
+      </aside>
     </div>
   `
 
   // Ensure any existing loader is hidden (back-arrival does not use loader)
   try { hideRouteLoading() } catch {}
+  // Ensure group location toasts are not accidentally suppressed on list
+  try { document.body.removeAttribute('data-suppress-group-toast') } catch {}
 
   // Set user name into title if available
   apiFetch<{ id: number; name: string; github_id?: number; email?: string }>(`/me`)
@@ -424,10 +464,22 @@ function renderHoneycomb(root: HTMLElement, projects: Project[]): void {
   if (!st.inited) {
     let pref = null as string | null
     try { pref = sessionStorage.getItem('proj-center-gid') } catch {}
+    const wantAnim = (() => { try { return sessionStorage.getItem('proj-center-anim') === '1' } catch { return false } })()
+    const justCreated = (() => { try { return sessionStorage.getItem('group-just-created') === '1' } catch { return false } })()
     const sel = pref || getSelectedGroup(me?.id) || groups[0]?.id || 'user'
-    centerOnGroup(root, sel, false)
+    centerOnGroup(root, sel, !!wantAnim)
     st.inited = true
+    try { updateGroupInfoPanel(document.getElementById('app') as HTMLElement, sel) } catch {}
+    // Show success toast if it was just created
+    try {
+      if (justCreated) {
+        const delay = wantAnim ? 280 : 0
+        setTimeout(() => { try { showMiniToastList('グループを作成しました') } catch {} }, delay)
+      }
+    } catch {}
     try { if (pref) sessionStorage.removeItem('proj-center-gid') } catch {}
+    try { if (wantAnim) sessionStorage.removeItem('proj-center-anim') } catch {}
+    try { if (justCreated) sessionStorage.removeItem('group-just-created') } catch {}
   }
 
   // Save nodes for minimap rendering
@@ -480,6 +532,7 @@ function renderHoneycomb(root: HTMLElement, projects: Project[]): void {
       // Start deeper prefetch at the earliest selection moment
       tile.addEventListener('pointerdown', () => { try { prefetchProjectDetailDeep(p.id) } catch {} }, { once: true })
       tile.addEventListener('click', () => {
+        try { document.querySelectorAll('#hxwInfo').forEach((el) => (el as HTMLElement).remove()) } catch {}
         // 保存: 戻ってきた時にこのプロジェクトのグループを中心に
         try {
           const me = (root as any)._me as { id?: number } | undefined
@@ -508,7 +561,7 @@ function renderHoneycomb(root: HTMLElement, projects: Project[]): void {
             const canvas = root.querySelector('#honeyCanvas') as HTMLElement | null
             const st: any = (wrap as any)._hx
             let sent = false
-            const go = () => { if (sent) return; sent = true; window.location.hash = `#/project/detail?id=${p.id}` }
+            const go = () => { if (sent) return; sent = true; try { document.querySelectorAll('#hxwInfo').forEach((el) => (el as HTMLElement).remove()) } catch {}; window.location.hash = `#/project/detail?id=${p.id}` }
             if (!canvas || !st) { setTimeout(go, 50); return }
             const rect = tile.getBoundingClientRect()
             const cx = Math.round(rect.left + rect.width / 2)
@@ -824,6 +877,7 @@ function applyHexTransform(wrap: HTMLElement, canvas: HTMLElement, st: HexLayout
           }
         } catch {}
         try { (wrap as any)._locCenter = gidNow } catch {}
+        try { updateGroupInfoPanel(document.getElementById('app') as HTMLElement, gidNow) } catch {}
       }
       // Maintain selected group only for real groups
       const real = getGroupById(uid, gidNow)
@@ -847,7 +901,11 @@ function applyHexTransform(wrap: HTMLElement, canvas: HTMLElement, st: HexLayout
           el.classList.toggle('ring-neutral-600', !on)
           if (on) (el as HTMLElement).style.zIndex = '9000'
         })
+        // Refresh info panel contents for the selected group
+        try { updateGroupInfoPanel(document.getElementById('app') as HTMLElement, gidNow) } catch {}
       }
+      // Ensure info panel reflects current center even if group didn't change
+      try { updateGroupInfoPanel(document.getElementById('app') as HTMLElement, gidNow) } catch {}
     }
   } catch {}
 }
@@ -889,6 +947,219 @@ function showGroupLocationToast(gid: string, uid?: number): void {
   host.appendChild(wrap)
   // Auto remove after animation
   setTimeout(() => { wrap.remove() }, 1100)
+}
+
+// Small success/danger toast for project list (top-right)
+function showMiniToastList(message: string, opts?: { variant?: 'success' | 'danger' }): void {
+  try {
+    const id = 'miniToast'
+    document.getElementById(id)?.remove()
+    const wrap = document.createElement('div')
+    wrap.id = id
+    wrap.className = 'mini-toast'
+    if (opts?.variant === 'danger') wrap.classList.add('is-danger'); else wrap.classList.add('is-success')
+    // Position like detail: under minimap or 10px under modal top; right edge hugged
+    let top = 164
+    let right = -16
+    try {
+      const modal = document.querySelector('.pop-modal') as HTMLElement | null
+      if (modal) {
+        const r = modal.getBoundingClientRect()
+        top = Math.max(10, Math.round(r.top + 10))
+      } else {
+        const miniWrap = document.querySelector('.hx-mini') as HTMLElement | null
+        const mini = document.getElementById('hxMini') as HTMLCanvasElement | null
+        const ref = miniWrap || mini
+        if (ref) {
+          const r = ref.getBoundingClientRect()
+          top = Math.round(r.bottom + 8)
+        }
+      }
+    } catch {}
+    wrap.style.top = `${top}px`
+    wrap.style.right = `${right}px`
+    const inner = document.createElement('div')
+    inner.className = 'mini-inner'
+    const body = document.createElement('div')
+    body.className = 'mini-body'
+    const icon = document.createElement('span')
+    icon.className = 'mini-ico'
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+    svg.setAttribute('width', '16'); svg.setAttribute('height', '16'); svg.setAttribute('viewBox', '0 0 24 24'); svg.setAttribute('fill', 'currentColor'); svg.setAttribute('aria-hidden', 'true')
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+    if (opts?.variant === 'danger') {
+      path.setAttribute('d', 'M12 2a10 10 0 100 20 10 10 0 000-20zm1 5v6h-2V7h2zm0 8v2h-2v-2h2z')
+    } else {
+      path.setAttribute('d', 'M20.285 6.709l-11.1 11.1-5.47-5.47 1.414-1.415 4.056 4.056 9.686-9.686 1.414 1.415z')
+    }
+    svg.appendChild(path)
+    icon.appendChild(svg)
+    const sep = document.createElement('span')
+    sep.className = 'mini-sep'
+    const text = document.createElement('span')
+    text.className = 'mini-text'
+    text.textContent = message
+    body.appendChild(icon)
+    body.appendChild(sep)
+    body.appendChild(text)
+    inner.appendChild(body)
+    wrap.appendChild(inner)
+    document.body.appendChild(wrap)
+  } catch {}
+}
+
+// ----- Group Info Panel (bottom) -----
+function updateGroupInfoPanel(root: HTMLElement, gid: string): void {
+  const info = root.querySelector('#hxwInfo') as HTMLElement | null
+  const body = root.querySelector('#hxwInfoBody') as HTMLElement | null
+  const handle = root.querySelector('#hxwInfoHandle') as HTMLElement | null
+  if (!info || !body || !handle) return
+  // Hide for common area
+  if (!gid || gid === 'area-common') { info.classList.add('hidden'); return }
+  // Resolve group
+  const me = (root as any)._me as { id?: number } | undefined
+  const g = getGroupById(me?.id, gid)
+  if (!g) { info.classList.add('hidden'); return }
+  // Resolve projects in this group
+  const all = ((root as any)._projectsList as Project[]) || []
+  const map = getGroupMap(me?.id)
+  const list = all.filter((p) => (map[String(p.id)] || 'user') === gid)
+  // Build
+  const head = `<div class=\"flex items-center justify-between\">
+    <div class=\"text-[15px] font-semibold\">${escapeHtml(g.name)}</div>
+    <div class=\"flex items-center gap-2\">
+      <button id=\"giDelGroup\" class=\"rounded bg-rose-700 hover:bg-rose-600 text-white text-xs font-medium px-3 py-1\">グループ削除</button>
+    </div>
+  </div>`
+  const projList = list.length
+    ? list.map((p) => `<div class=\"flex items-center justify-between rounded bg-neutral-900/60 ring-2 ring-neutral-600 px-2 py-1\">
+          <div class=\"truncate pr-2\">${escapeHtml(p.alias && p.alias.trim() ? p.alias : p.name)}</div>
+          <button class=\"rounded bg-rose-700 hover:bg-rose-600 text-white text-xs font-medium px-2 py-0.5\" data-del-pid=\"${p.id}\" data-del-name=\"${escapeHtml(p.name)}\">削除</button>
+        </div>`).join('')
+    : '<div class="text-xs text-gray-400">このグループに所属するプロジェクトはありません。</div>'
+  body.innerHTML = `${head}<div class="mt-2 space-y-1" id="giList">${projList}</div>`
+  // Animated collapse/expand (same behavior as widget info)
+  const panelAny: any = info
+  const cont = root.querySelector('#hxwInfoPanel') as HTMLElement | null
+  info.classList.remove('hidden')
+  const applyCollapsed = (on: boolean) => {
+    try {
+      if (!cont || !handle) return
+      handle.setAttribute('aria-expanded', on ? 'false' : 'true')
+      handle.title = on ? '展開' : 'しまう'
+      // measure, then animate
+      const h = cont.scrollHeight
+      cont.style.maxHeight = h + 'px'
+      void cont.offsetHeight
+      if (on) {
+        cont.style.maxHeight = '0px'
+        cont.style.opacity = '0'
+        cont.style.transform = 'translateY(8px)'
+        cont.style.pointerEvents = 'none'
+        info.setAttribute('data-collapsed', '1')
+      } else {
+        const target = cont.scrollHeight || 1
+        cont.style.maxHeight = target + 'px'
+        cont.style.opacity = '1'
+        cont.style.transform = 'translateY(0)'
+        cont.style.pointerEvents = ''
+        info.removeAttribute('data-collapsed')
+      }
+      panelAny._giCollapsed = !!on
+    } catch {}
+  }
+  if (!panelAny._giBound) {
+    panelAny._giBound = true
+    // initialize visual state once
+    try { if (cont) { cont.style.maxHeight = '0px'; cont.style.opacity = '0'; cont.style.transform = 'translateY(8px)'; cont.style.pointerEvents = 'none' } } catch {}
+    const initCollapsed = !!panelAny._giCollapsed
+    requestAnimationFrame(() => applyCollapsed(initCollapsed))
+    handle.addEventListener('click', (e) => { e.preventDefault(); applyCollapsed(!panelAny._giCollapsed) })
+  } else {
+    // preserve current state across updates
+    applyCollapsed(!!panelAny._giCollapsed)
+  }
+  // (old toggle override removed; use unified applyCollapsed above)
+  // Bind delete group
+  const delGroupBtn = body.querySelector('#giDelGroup') as HTMLElement | null
+  delGroupBtn?.addEventListener('click', () => openGroupDeleteConfirm(root, g))
+  // Bind project deletes
+  body.querySelectorAll('[data-del-pid]')?.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const pid = Number((btn as HTMLElement).getAttribute('data-del-pid') || '0')
+      const name = String((btn as HTMLElement).getAttribute('data-del-name') || '')
+      openProjectDeleteConfirm(root, pid, name)
+    })
+  })
+}
+
+function openProjectDeleteConfirm(root: HTMLElement, id: number, requiredName: string): void {
+  const overlay = document.createElement('div')
+  overlay.className = 'fixed inset-0 z-[70] bg-black/60 grid place-items-center'
+  overlay.innerHTML = `
+    <div class="relative w-[min(520px,92vw)] rounded-xl bg-neutral-900 ring-2 ring-neutral-600 shadow-2xl text-gray-100">
+      <header class="h-10 flex items-center px-4 border-b border-neutral-600"><div class="font-semibold">プロジェクトを削除</div><button id="pdelClose" class="ml-auto text-xl">×</button></header>
+      <div class="p-4 space-y-3">
+        <p class="text-sm text-gray-300">削除するには <span class="px-2 py-0.5 rounded bg-neutral-800/70 ring-1 ring-neutral-600">${escapeHtml(requiredName) || '（名前未取得）'}</span> と入力してください。</p>
+        <input id="pdelInput" class="w-full rounded-md bg-neutral-800/70 ring-2 ring-neutral-600 px-3 py-2 text-gray-100" placeholder="プロジェクト名を入力" />
+        <div class="flex justify-end gap-2 pt-2">
+          <button id="pdelCancel" class="px-3 py-1.5 rounded bg-neutral-800/60 text-gray-200 text-sm">キャンセル</button>
+          <button id="pdelOk" class="px-3 py-1.5 rounded bg-rose-700 text-white text-sm opacity-60 pointer-events-none">削除</button>
+        </div>
+      </div>
+    </div>`
+  const close = () => overlay.remove()
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close() })
+  overlay.querySelector('#pdelClose')?.addEventListener('click', close)
+  overlay.querySelector('#pdelCancel')?.addEventListener('click', close)
+  const input = overlay.querySelector('#pdelInput') as HTMLInputElement
+  const ok = overlay.querySelector('#pdelOk') as HTMLButtonElement
+  const apply = () => { const match = input.value.trim() === requiredName && requiredName.length > 0; ok.style.opacity = match ? '1' : '0.6'; ok.style.pointerEvents = match ? 'auto' : 'none' }
+  input.addEventListener('input', apply)
+  ok.addEventListener('click', async () => {
+    try {
+      await apiFetch(`/projects/${id}`, { method: 'DELETE' })
+      close()
+      loadProjects(root)
+      try { showMiniToastList('プロジェクトを削除しました', { variant: 'danger' }) } catch {}
+    } catch { alert('削除に失敗しました') }
+  })
+  document.body.appendChild(overlay)
+}
+
+function openGroupDeleteConfirm(root: HTMLElement, g: Group): void {
+  const overlay = document.createElement('div')
+  overlay.className = 'fixed inset-0 z-[70] bg-black/60 grid place-items-center'
+  overlay.innerHTML = `
+    <div class="relative w-[min(520px,92vw)] rounded-xl bg-neutral-900 ring-2 ring-neutral-600 shadow-2xl text-gray-100">
+      <header class="h-10 flex items-center px-4 border-b border-neutral-600"><div class="font-semibold">グループを削除</div><button id="gidelClose" class="ml-auto text-xl">×</button></header>
+      <div class="p-4 space-y-3">
+        <p class="text-sm text-gray-300">削除するには <span class="px-2 py-0.5 rounded bg-neutral-800/70 ring-1 ring-neutral-600">${escapeHtml(g.name)}</span> と入力してください。</p>
+        <input id="gidelInput" class="w-full rounded-md bg-neutral-800/70 ring-2 ring-neutral-600 px-3 py-2 text-gray-100" placeholder="グループ名を入力" />
+        <div class="flex justify-end gap-2 pt-2">
+          <button id="gidelCancel" class="px-3 py-1.5 rounded bg-neutral-800/60 text-gray-200 text-sm">キャンセル</button>
+          <button id="gidelOk" class="px-3 py-1.5 rounded bg-rose-700 text-white text-sm opacity-60 pointer-events-none">削除</button>
+        </div>
+      </div>
+    </div>`
+  const close = () => overlay.remove()
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close() })
+  overlay.querySelector('#gidelClose')?.addEventListener('click', close)
+  overlay.querySelector('#gidelCancel')?.addEventListener('click', close)
+  const input = overlay.querySelector('#gidelInput') as HTMLInputElement
+  const ok = overlay.querySelector('#gidelOk') as HTMLButtonElement
+  const apply = () => { const match = input.value.trim() === g.name; ok.style.opacity = match ? '1' : '0.6'; ok.style.pointerEvents = match ? 'auto' : 'none' }
+  input.addEventListener('input', apply)
+  ok.addEventListener('click', () => {
+    const me = (root as any)._me as { id?: number } | undefined
+    deleteGroup(me?.id, g.id)
+    close()
+    renderGroupQuickbar(root, (root as any)._me)
+    loadProjects(root)
+    try { (root.querySelector('#hxwInfo') as HTMLElement | null)?.classList.add('hidden') } catch {}
+    try { showMiniToastList('グループを削除しました', { variant: 'danger' }) } catch {}
+  })
+  document.body.appendChild(overlay)
 }
 
 function drawMiniMap(wrap: HTMLElement, st: HexLayout): void {
@@ -1114,6 +1385,8 @@ function loadProjects(root: HTMLElement): void {
       const items = all.map(toCard)
       // Cache snapshot (best-effort) but do not use cache for rendering to avoid showing non-existent projects
       try { localStorage.setItem('projects-cache', JSON.stringify(items)) } catch {}
+      // Cache for group-info usage
+      try { (root as any)._projectsList = items } catch {}
       renderHoneycomb(root, items)
     })
     .catch(() => {
@@ -1137,6 +1410,7 @@ function bindGridInteractions(root: HTMLElement): void {
       el.addEventListener('pointerdown', () => { try { prefetchProjectDetailDeep(pid) } catch {} }, { once: true })
     }
     el.addEventListener('click', () => {
+      try { document.querySelectorAll('#hxwInfo').forEach((n)=> (n as HTMLElement).remove()) } catch {}
       const id = (el as HTMLElement).getAttribute('data-id')
       if (id) {
         try { sessionStorage.setItem('proj-entry-dir', 'right') } catch {}
@@ -1361,6 +1635,11 @@ function renderGroupQuickbar(root: HTMLElement, me: { id?: number; github_id?: n
       updateListTitle(root, (root as any)._me)
       centerOnGroup(root, g.id, true)
     })
+    // 右クリックでグループメニュー（削除など）
+    el.addEventListener('contextmenu', (ev) => {
+      ev.preventDefault()
+      openGroupMenu(root, me, g, el)
+    })
     return el
   }
   groups.forEach((g, idx) => host.appendChild(makeBtn(g, idx)))
@@ -1438,11 +1717,42 @@ function openGroupMenu(root: HTMLElement, me: { id?: number }, g: Group, anchor:
   setTimeout(() => document.addEventListener('click', onDoc), 0)
   document.body.appendChild(menu)
   menu.querySelector('#gdel')?.addEventListener('click', () => {
-    if (!confirm(`グループ「${g.name}」を削除しますか？`)) return
-    deleteGroup(me.id, g.id)
-    renderGroupQuickbar(root, (root as any)._me)
-    loadProjects(root)
-    close()
+    const overlay = document.createElement('div')
+    overlay.className = 'fixed inset-0 z-[70] bg-black/60 grid place-items-center'
+    overlay.innerHTML = `
+      <div class="relative w-[min(520px,92vw)] rounded-xl bg-neutral-900 ring-2 ring-neutral-600 shadow-2xl text-gray-100">
+        <header class="h-10 flex items-center px-4 border-b border-neutral-600"><div class="font-semibold">グループを削除</div><button id="gdelClose" class="ml-auto text-xl">×</button></header>
+        <div class="p-4 space-y-3">
+          <p class="text-sm text-gray-300">削除するには <span class="px-2 py-0.5 rounded bg-neutral-800/70 ring-1 ring-neutral-600">${g.name}</span> と入力してください。</p>
+          <input id="gdelInput" class="w-full rounded-md bg-neutral-800/70 ring-2 ring-neutral-600 px-3 py-2 text-gray-100" placeholder="グループ名を入力" />
+          <div class="flex justify-end gap-2 pt-2">
+            <button id="gdelCancel" class="px-3 py-1.5 rounded bg-neutral-800/60 text-gray-200 text-sm">キャンセル</button>
+            <button id="gdelOk" class="px-3 py-1.5 rounded bg-rose-700 text-white text-sm opacity-60 pointer-events-none">削除</button>
+          </div>
+        </div>
+      </div>
+    `
+    const closeModal = () => overlay.remove()
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) closeModal() })
+    overlay.querySelector('#gdelClose')?.addEventListener('click', closeModal)
+    overlay.querySelector('#gdelCancel')?.addEventListener('click', closeModal)
+    const input = overlay.querySelector('#gdelInput') as HTMLInputElement
+    const okBtn = overlay.querySelector('#gdelOk') as HTMLButtonElement
+    const applyState = () => {
+      const match = input.value.trim() === g.name
+      okBtn.style.opacity = match ? '1' : '0.6'
+      okBtn.style.pointerEvents = match ? 'auto' : 'none'
+    }
+    input.addEventListener('input', applyState)
+    okBtn.addEventListener('click', () => {
+      deleteGroup(me.id, g.id)
+      renderGroupQuickbar(root, (root as any)._me)
+      loadProjects(root)
+      closeModal()
+      close()
+      try { showMiniToastList('グループを削除しました', { variant: 'danger' }) } catch {}
+    })
+    document.body.appendChild(overlay)
   })
 }
 
@@ -1493,6 +1803,12 @@ function openCreateGroupPopover(root: HTMLElement, me: { id?: number }): void {
     list.push({ id, name })
     saveGroups(me.id, list)
     setSelectedGroup(me.id, id)
+    // Prepare centering and success toast after reload
+    try { sessionStorage.setItem('proj-center-gid', id) } catch {}
+    try { sessionStorage.setItem('proj-center-anim', '1') } catch {}
+    try { sessionStorage.setItem('group-just-created', '1') } catch {}
+    // Force next render to run initial centering again
+    try { const wrap = root.querySelector('#honeyWrap') as HTMLElement | null; if (wrap && (wrap as any)._hx) (wrap as any)._hx.inited = false } catch {}
     renderGroupQuickbar(root, (root as any)._me)
     loadProjects(root)
     close()
@@ -2146,6 +2462,7 @@ function openCardMenu(root: HTMLElement, anchor: HTMLElement, id: number): void 
   const openBtn = menu.querySelector('[data-act="open"]') as HTMLElement | null
   openBtn?.addEventListener('mousedown', () => { try { prefetchProjectDetailDeep(id) } catch {} }, { once: true })
   openBtn?.addEventListener('click', () => {
+    try { document.querySelectorAll('#hxwInfo').forEach((n)=> (n as HTMLElement).remove()) } catch {}
     try { sessionStorage.setItem('proj-entry-dir', 'right') } catch {}
     try { prefetchProjectDetailDeep(id) } catch {}
     window.location.hash = `#/project/detail?id=${id}`
@@ -2179,16 +2496,53 @@ function openCardMenu(root: HTMLElement, anchor: HTMLElement, id: number): void 
     })
   })
   menu.querySelector('[data-act="delete"]')?.addEventListener('click', async () => {
-    if (!confirm('このプロジェクトを削除しますか？（GitHubリポジトリは削除されません）')) return
+    let requiredName = ''
     try {
-      await apiFetch(`/projects/${id}`, { method: 'DELETE' })
-      // remove card from UI
-      const btn = root.querySelector(`[data-id="${id}"]`)
-      btn?.parentElement?.removeChild(btn)
+      const p = await apiFetch<any>(`/projects/${id}`)
+      requiredName = (p?.name || '').toString()
     } catch {
-      alert('削除に失敗しました')
+      const host = root.querySelector(`[data-id="${id}"]`) as HTMLElement | null
+      requiredName = host?.querySelector('.text-base')?.textContent?.trim() || ''
     }
-    remove()
+    const overlay = document.createElement('div')
+    overlay.className = 'fixed inset-0 z-[70] bg-black/60 grid place-items-center'
+    overlay.innerHTML = `
+      <div class="relative w-[min(520px,92vw)] rounded-xl bg-neutral-900 ring-2 ring-neutral-600 shadow-2xl text-gray-100">
+        <header class="h-10 flex items-center px-4 border-b border-neutral-600"><div class="font-semibold">プロジェクトを削除</div><button id="delClose" class="ml-auto text-xl">×</button></header>
+        <div class="p-4 space-y-3">
+          <p class="text-sm text-gray-300">削除するには <span class="px-2 py-0.5 rounded bg-neutral-800/70 ring-1 ring-neutral-600">${requiredName || '（名前未取得）'}</span> と入力してください。</p>
+          <input id="delInput" class="w-full rounded-md bg-neutral-800/70 ring-2 ring-neutral-600 px-3 py-2 text-gray-100" placeholder="プロジェクト名を入力" />
+          <div class="flex justify-end gap-2 pt-2">
+            <button id="delCancel" class="px-3 py-1.5 rounded bg-neutral-800/60 text-gray-200 text-sm">キャンセル</button>
+            <button id="delOk" class="px-3 py-1.5 rounded bg-rose-700 text-white text-sm opacity-60 pointer-events-none">削除</button>
+          </div>
+        </div>
+      </div>
+    `
+    const closeModal = () => overlay.remove()
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) closeModal() })
+    overlay.querySelector('#delClose')?.addEventListener('click', closeModal)
+    overlay.querySelector('#delCancel')?.addEventListener('click', closeModal)
+    const input = overlay.querySelector('#delInput') as HTMLInputElement
+    const okBtn = overlay.querySelector('#delOk') as HTMLButtonElement
+    const applyState = () => {
+      const match = input.value.trim() === requiredName && requiredName.length > 0
+      okBtn.style.opacity = match ? '1' : '0.6'
+      okBtn.style.pointerEvents = match ? 'auto' : 'none'
+    }
+    input.addEventListener('input', applyState)
+    okBtn.addEventListener('click', async () => {
+      try {
+        await apiFetch(`/projects/${id}`, { method: 'DELETE' })
+        closeModal()
+        remove()
+        loadProjects(root)
+        try { showMiniToastList('プロジェクトを削除しました', { variant: 'danger' }) } catch {}
+      } catch {
+        alert('削除に失敗しました')
+      }
+    })
+    document.body.appendChild(overlay)
   })
   // Append group actions
   try {

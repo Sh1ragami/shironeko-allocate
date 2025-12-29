@@ -988,6 +988,8 @@ function parseHashQuery(): Record<string, string> {
 }
 
 export async function renderProjectDetail(container: HTMLElement): Promise<void> {
+  // Clean up any list-page info panel that might linger (remove unconditionally before rendering)
+  try { document.querySelectorAll('#hxwInfo').forEach((el) => (el as HTMLElement).remove()) } catch {}
   const { id } = parseHashQuery()
   // ID validation: ensure it's a numeric string
   if (!id || !/^\d+$/.test(id)) {
@@ -1600,6 +1602,13 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
       // Let finishSeamless control close timing; do nothing here
     } else {
       hideRouteLoading()
+    }
+  } catch {}
+  // Show success toast if we just created this project
+  try {
+    if (sessionStorage.getItem('pj-created') === '1') {
+      sessionStorage.removeItem('pj-created')
+      try { showMiniToast('プロジェクトを作成しました') } catch {}
     }
   } catch {}
 }
@@ -4390,19 +4399,21 @@ function openWidgetPickerModal(root: HTMLElement, pid: string, onPick?: (type: s
       hostItem.style.transition = 'transform .12s ease, filter .12s ease'
       const addToProject = async () => {
         let newId: string | undefined
+        let existed = false
         try {
           await wsLoadAll(pid)
           const cur = (wsGet(pid, 'lib_widgets') as any[]) || []
           const id = `shr-${uid}-${it.lib.id}`
           newId = id
-          if (!cur.find((x: any) => x && x.id === id)) {
+          existed = !!cur.find((x: any) => x && x.id === id)
+          if (!existed) {
             const copy = { ...it.lib, id, owner: uid }
             await wsSet(pid, 'lib_widgets', cur.concat(copy))
           }
         } catch {}
-        try { showMiniToast('ウィジェットを追加しました') } catch {}
+        try { showMiniToast(existed ? '既に追加されています' : 'ウィジェットを追加しました', { variant: existed ? 'danger' : 'default' }) } catch {}
         try { renderProjLibList() } catch {}
-        // Slide back and rebuild main field focusing the newly added item
+        // Slide back and rebuild main field focusing the item (existing or new)
         try { setMode('browse') } catch {}
         const fid = newId
         setTimeout(() => { try { rebuildPickerField(fid) } catch {} }, 260)

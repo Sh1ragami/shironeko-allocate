@@ -63,6 +63,8 @@ export async function renderProjectCreating(container: HTMLElement): Promise<voi
         localStorage.removeItem('createTargetGroup')
       }
     } catch {}
+    // Mark just-created for success toast in detail, then go to detail
+    try { sessionStorage.setItem('pj-created', '1') } catch {}
     // Go to detail immediately (route-loading overlay closes on route change)
     window.location.hash = `#/project/detail?id=${encodeURIComponent(String(id))}`
   } catch (e) {
