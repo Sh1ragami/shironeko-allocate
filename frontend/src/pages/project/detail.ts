@@ -3585,23 +3585,38 @@ function openWidgetPickerModal(root: HTMLElement, pid: string, onPick?: (type: s
   const overlay = document.createElement('div')
   overlay.className = 'fixed inset-0 z-[66] bg-black/60 backdrop-blur-[1px] grid place-items-center fade-overlay'
   overlay.innerHTML = `
-    <div class="relative w-[min(1200px,96vw)] overflow-hidden rounded-xl bg-neutral-900 ring-2 ring-neutral-600 shadow-2xl text-gray-100 pop-modal modal-fixed">
+    <div class="relative w-[min(1200px,96vw)] overflow-hidden rounded-xl bg-neutral-900 ring-2 ring-neutral-600 shadow-2xl text-gray-100 pop-modal modal-fixed" data-mode="browse">
       <header class="h-12 flex items-center px-5 border-b border-neutral-600">
-        <h3 class="text-lg font-semibold">ウィジェットを選択</h3>
+        <h3 class="text-lg font-semibold" id="wp-title">ウィジェットを選択</h3>
         <button id=\"wp-close\" class=\"ml-auto text-2xl text-neutral-300 hover:text-white\">×</button>
       </header>
       <div class="flex h-[calc(86vh-3rem)]">
         <section class="flex-1 relative p-2 overflow-hidden">
-          <div id=\"wp-field\" class=\"absolute inset-0 overflow-hidden\"></div>
+          <div id="wp-slides" class="absolute inset-0 flex" style="width:200%; transform: translateX(0%); transition: transform .24s ease">
+            <div class="wp-slide relative w-1/2 h-full">
+              <div id=\"wp-field\" class=\"absolute inset-0 overflow-hidden\"></div>
+            </div>
+            <div class="wp-slide relative w-1/2 h-full">
+              <div id=\"wp-myfield\" class=\"absolute inset-0 overflow-hidden\"></div>
+            </div>
+          </div>
           <div class=\"absolute left-2 bottom-2 pointer-events-none\"> 
-            <button id=\"wp-create\" class=\"pointer-events-auto inline-flex items-center gap-2 rounded-md bg-emerald-700 hover:bg-emerald-600 text-white text-sm font-medium px-3 py-2 shadow-lg\" title=\"自由にウィジェットを作成\"> 
-              <span class=\"text-base leading-none\">＋</span> 
-              <span>ウィジェット作成</span> 
-            </button> 
-            <button id=\"wp-my-add\" class=\"ml-2 pointer-events-auto inline-flex items-center gap-2 rounded-md bg-sky-700 hover:bg-sky-600 text-white text-sm font-medium px-3 py-2 shadow-lg\" title=\"手持ちのウィジェットをプロジェクトに追加\"> 
-              <span class=\"text-base leading-none\">↪</span> 
-              <span>手持ちから追加</span> 
-            </button> 
+            <div id=\"wp-ctl-browse\" class=\"pointer-events-auto inline-flex items-center gap-2\">
+              <button id=\"wp-create\" class=\"inline-flex items-center gap-2 rounded-md bg-emerald-700 hover:bg-emerald-600 text-white text-sm font-medium px-3 py-2 shadow-lg\" title=\"自由にウィジェットを作成\"> 
+                <span class=\"text-base leading-none\">＋</span> 
+                <span>ウィジェット作成</span> 
+              </button> 
+              <button id=\"wp-my-add\" class=\"inline-flex items-center gap-2 rounded-md bg-sky-700 hover:bg-sky-600 text-white text-sm font-medium px-3 py-2 shadow-lg\" title=\"手持ちのウィジェットをプロジェクトに追加\"> 
+                <span class=\"text-base leading-none\">↪</span> 
+                <span>手持ちから追加</span> 
+              </button> 
+            </div>
+            <div id=\"wp-ctl-mylib\" class=\"hidden pointer-events-auto inline-flex items-center gap-2\">
+              <button id=\"wp-back\" class=\"inline-flex items-center gap-2 rounded-md bg-neutral-700 hover:bg-neutral-600 text-white text-sm font-medium px-3 py-2 shadow-lg\" title=\"前の一覧に戻る\"> 
+                <span class=\"text-base leading-none\">←</span> 
+                <span>一覧に戻る</span> 
+              </button> 
+            </div>
           </div>
         </section>
         <aside class="w-80 shrink-0 p-4 border-l border-neutral-600">
@@ -3617,7 +3632,301 @@ function openWidgetPickerModal(root: HTMLElement, pid: string, onPick?: (type: s
 
   
 
-  // Build compact field (no background mask) with pannable canvas
+  // Helpers for switching modes with slide animation
+  const modal = overlay.querySelector('.pop-modal') as HTMLElement
+  const slides = overlay.querySelector('#wp-slides') as HTMLElement
+  const titleEl = overlay.querySelector('#wp-title') as HTMLElement
+  const ctlBrowse = overlay.querySelector('#wp-ctl-browse') as HTMLElement
+  const ctlMylib = overlay.querySelector('#wp-ctl-mylib') as HTMLElement
+  // Rebuild main (browse) field and optionally focus a specific lib-id
+  const rebuildPickerField = (focusLibId?: string) => {
+    // Replace field to drop previous listeners
+    const oldField = overlay.querySelector('#wp-field') as HTMLElement | null
+    if (!oldField || !oldField.parentElement) return
+    const field = oldField.cloneNode(false) as HTMLElement
+    field.id = 'wp-field'
+    oldField.parentElement.replaceChild(field, oldField)
+    try { (field.style as any).touchAction = 'none'; (field.style as any).webkitUserSelect = 'none'; (field.style as any).userSelect = 'none' } catch {}
+
+    // Desc refs
+    const descTitle = overlay.querySelector('#wp-desc-title') as HTMLElement
+    const descBody = overlay.querySelector('#wp-desc-body') as HTMLElement
+    const titleOf = (t: string) => widgetTitle(t)
+    const descOf = (t: string): string => {
+      switch (t) {
+        case 'readme': return 'リポジトリの README を直接表示します。'
+        case 'contrib': return 'GitHub のコントリビューションヒートマップを表示します。'
+        case 'committers': return '主要なコミッターの活動量を棒グラフで表示します。'
+        case 'markdown': return '自由なメモや説明を Markdown で配置します。'
+        case 'tasksum': return 'TODO/DOING/DONE の件数など、タスクの概要を表示します。'
+        case 'links': return 'よく使うページへのショートカットリンクを並べます。'
+        case 'skin': return 'ハニカムの色味やアクセントを切り替える着せ替え設定です。'
+        case 'tabnew': return '新しいタブを作成します。'
+        case 'invite': return 'メンバー招待や共有用のエントリーポイントです。'
+        case 'account': return 'ユーザー設定を開くショートカットです。'
+        case 'clock': return 'アナログ時計を表示します。'
+        case 'clock-digital': return 'デジタル時計を表示します。'
+        case 'spacer': return 'レイアウト調整用の空きセルです。'
+        default: return 'ウィジェット'
+      }
+    }
+    const showDesc = (t: string) => {
+      try {
+        if (t.startsWith('lib:')) {
+          const parts = t.split(':')
+          const id = parts[1]
+          const arr = (wsGet(pid, 'lib_widgets') as any[]) || []
+          const entry = arr.find((x: any) => x.id === id)
+          if (entry) {
+            descTitle.textContent = entry.name || (entry.type === 'flow' ? 'フロー' : 'カスタム')
+            descBody.innerHTML = `<div class="space-y-2">
+              <div class="text-sm text-gray-300">自作ウィジェット</div>
+              <div class="text-xs text-gray-400">クリックで配置。既にプロジェクトに共有済みです。</div>
+            </div>`
+            return
+          }
+        }
+        descTitle.textContent = titleOf(t)
+        descBody.textContent = descOf(t)
+      } catch {}
+    }
+
+    // Geometry and palette
+    const TILE = 100
+    const W = TILE
+    const H = Math.round(TILE * 0.866)
+    const stepX = Math.round(TILE * 0.75)
+    const stepY = H
+    const palette: Array<[number,number,number]> = [[59,130,246],[16,185,129],[239,68,68],[168,85,247],[251,146,60],[234,179,8],[99,102,241],[20,184,166],[14,165,233]]
+    const hsh = (s: string) => { let h = 0; for (let i=0;i<s.length;i++){ h = ((h<<5)-h) + s.charCodeAt(i); h|=0 } return Math.abs(h) }
+    const fillFor = (id: string) => { const [r,g,b] = palette[hsh(id) % palette.length]; const light = (document.documentElement.getAttribute('data-theme') || 'dark') !== 'dark'; const a = light ? 0.42 : 0.38; return { flat: `rgba(${r},${g},${b}, ${a})`, solid: `rgb(${r},${g},${b})` } }
+
+    // Items compose
+    const types: string[] = ['readme','contrib','committers','markdown','tasksum','links','skin','tabnew','invite','account','clock','clock-digital','spacer']
+    const occ = new Set<string>()
+    const key = (q:number,r:number) => `${q},${r}`
+    const lib: any[] = ((wsGet(pid, 'lib_widgets') as any[]) || [])
+    const anchors = axGrow((types.length + lib.length) * 30)
+    const neighbors = (q:number,r:number): Array<{q:number;r:number}> => {
+      const odd = (q & 1) === 1
+      return [
+        { q, r: r-1 },
+        odd ? { q:q+1, r } : { q:q+1, r:r-1 },
+        odd ? { q:q+1, r:r+1 } : { q:q+1, r },
+        { q, r: r+1 },
+        odd ? { q:q-1, r:r+1 } : { q:q-1, r },
+        odd ? { q:q-1, r } : { q:q-1, r:r-1 },
+      ]
+    }
+    type Item = { type: string; cells: Array<{q:number;r:number}>, label?: string, rgba?: string, lib?: any }
+    const items: Item[] = []
+    types.forEach((type) => {
+      const rel = hxwShapeFor(type)
+      if (type === 'clock-digital') {
+        let best: { cells: Array<{q:number;r:number}>; touches: number } | null = null
+        for (const [ax, az] of anchors) {
+          const cells = rel.map(([sx,sz]) => axialToOddq(ax+sx, az+sz))
+          if (cells.some(c => occ.has(key(c.q,c.r)))) continue
+          let t = 0
+          cells.forEach((c) => { neighbors(c.q,c.r).forEach(nb => { if (occ.has(key(nb.q, nb.r))) t++ }) })
+          if (!best || t > best.touches) best = { cells, touches: t }
+          if (best && best.touches >= 3) break
+        }
+        const pick = best || { cells: rel.map(([sx,sz]) => axialToOddq(sx, sz)), touches: 0 }
+        pick.cells.forEach(c => occ.add(key(c.q,c.r)))
+        items.push({ type, cells: pick.cells, label: titleOf(type) })
+      } else {
+        for (const [ax, az] of anchors) {
+          const cells = rel.map(([sx,sz]) => axialToOddq(ax+sx, az+sz))
+          if (cells.some(c => occ.has(key(c.q,c.r)))) continue
+          cells.forEach(c => occ.add(key(c.q,c.r)))
+          items.push({ type, cells, label: titleOf(type) })
+          break
+        }
+      }
+    })
+    const px = (q:number, r:number) => ({ x: q * stepX, y: Math.round((r + (q % 2 ? 0.5 : 0)) * stepY) })
+    // Insert lib entries
+    lib.forEach((en: any) => {
+      const rel = (en.shape && en.shape.length) ? en.shape : [[0,0]]
+      for (const [ax, az] of anchors) {
+        const cells = rel.map(([sx,sz]) => axialToOddq(ax+sx, az+sz))
+        if (cells.some(c => occ.has(key(c.q,c.r)))) continue
+        cells.forEach(c => occ.add(key(c.q,c.r)))
+        const rgba = en.rgb ? `rgba(${en.rgb[0]},${en.rgb[1]},${en.rgb[2]}, ${typeof en.alpha==='number'? en.alpha : 0.38})` : fillFor('lib').flat
+        items.push({ type: `lib:${en.id}:${en.type || 'custom'}`, cells, label: en.name || (en.type==='flow'?'フロー':'カスタム'), rgba, lib: en })
+        break
+      }
+    })
+
+    // Bounds and canvas
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+    items.forEach((it) => { it.cells.forEach((c) => { const p = px(c.q, c.r); minX = Math.min(minX, p.x); minY = Math.min(minY, p.y); maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y) }) })
+    if (!isFinite(minX) || !isFinite(minY)) { minX = 0; minY = 0; maxX = stepX; maxY = stepY }
+    const PAD = 20
+    const width = (maxX - minX) + W + PAD * 2
+    const height = (maxY - minY) + H + PAD * 2
+    const canvas = document.createElement('div')
+    canvas.id = 'wpCanvas'
+    canvas.style.position = 'absolute'
+    canvas.style.left = '0px'
+    canvas.style.top = '0px'
+    canvas.style.width = `${width}px`
+    canvas.style.height = `${height}px`
+    field.appendChild(canvas)
+
+    // Host draw
+    items.forEach((it) => {
+      const col = it.rgba ? { flat: it.rgba, solid: it.rgba } : fillFor(it.type)
+      const points = it.cells.map(c => px(c.q, c.r))
+      const bx = Math.min(...points.map(p => p.x))
+      const by = Math.min(...points.map(p => p.y))
+      const bw = (Math.max(...points.map(p => p.x)) - bx) + W
+      const bh = (Math.max(...points.map(p => p.y)) - by) + H
+      const host = document.createElement('div')
+      host.className = 'wp-item'
+      host.setAttribute('data-type', it.type)
+      host.style.position = 'absolute'
+      host.style.left = `${(bx - minX) + PAD}px`
+      host.style.top = `${(by - minY) + PAD}px`
+      host.style.width = `${bw}px`
+      host.style.height = `${bh}px`
+      host.style.cursor = 'pointer'
+      host.style.transition = 'transform .12s ease, filter .12s ease, box-shadow .12s ease'
+      host.addEventListener('mouseenter', () => { host.style.filter = 'brightness(1.08)'; showDesc(it.type) })
+      host.addEventListener('mouseleave', () => { host.style.filter = '' })
+      const pickFromItem = () => {
+        if (it.lib) {
+          if (onPick) {
+            try { (window as any)._wpPickedLibName = it.lib.name || '' } catch {}
+            close(); setTimeout(() => { try { onPick('custom') } catch {} }, 0)
+            return
+          }
+          ;(window as any)._hxwPending = { shape: it.lib.shape, rgb: it.lib.rgb, alpha: it.lib.alpha, name: it.lib.name, flowGraph: it.lib.flowGraph }
+          const t = it.lib.type
+          close(); setTimeout(() => { try { hxwStartPlacement(root, pid, t) } catch {} }, 0)
+        } else {
+          close(); setTimeout(() => { if (onPick) onPick(it.type); else try { hxwStartPlacement(root, pid, it.type) } catch {} }, 0)
+        }
+      }
+      host.addEventListener('click', pickFromItem)
+      host.tabIndex = 0
+      host.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pickFromItem() } })
+      it.cells.forEach((c) => {
+        const p = px(c.q, c.r)
+        const cell = document.createElement('div')
+        cell.className = 'hxw-hex hxw-filled'
+        cell.style.position = 'absolute'
+        cell.style.left = `${(p.x - bx)}px`
+        cell.style.top = `${(p.y - by)}px`
+        cell.style.width = `${W}px`
+        cell.style.height = `${H}px`
+        const clip = document.createElement('div')
+        clip.className = 'hxw-clip hx-svgclip'
+        clip.style.color = col.flat
+        { const f = deriveFacets(col.flat); (clip.style as any).setProperty('--hx-side', f.side); (clip.style as any).setProperty('--hx-hi', f.hi); (clip.style as any).setProperty('--hx-edge', f.side) }
+        clip.innerHTML = honeyHexFilledSvg()
+        cell.appendChild(clip)
+        host.appendChild(cell)
+      })
+      const lab = document.createElement('div')
+      lab.textContent = it.label || titleOf(it.type)
+      lab.style.position = 'absolute'; lab.style.inset = '0'
+      lab.style.display = 'grid'; lab.style.placeItems = 'center'; lab.style.pointerEvents = 'none'
+      lab.style.color = 'var(--gh-contrast)'; lab.style.textShadow = '0 1px 2px rgba(0,0,0,.18)'; lab.style.fontSize = '12px'
+      host.appendChild(lab)
+      canvas.appendChild(host)
+    })
+
+    // Pan/zoom and focusing
+    const viewport = field
+    const state = { scale: 1, offsetX: 0, offsetY: 0 }
+    const apply = () => { const tr = `translate(${state.offsetX}px, ${state.offsetY}px) scale(${state.scale})`; canvas.style.transform = tr }
+    const centerOn = (x: number, y: number) => {
+      try { const vpW = viewport.clientWidth, vpH = viewport.clientHeight; state.offsetX = Math.round(vpW / 2 - x); state.offsetY = Math.round(vpH / 2 - y); apply() } catch {}
+    }
+    const centerDefault = () => {
+      try {
+        const vpW = viewport.clientWidth, vpH = viewport.clientHeight
+        const nodes = Array.from(canvas.querySelectorAll('.wp-item')) as HTMLElement[]
+        let tx = width / 2, ty = height / 2
+        if (nodes.length) {
+          const cx = width / 2, cy = height / 2
+          let best: { d2: number; x: number; y: number } | null = null
+          nodes.forEach((n) => { const x = (parseFloat(n.style.left || '0') || 0) + (n.offsetWidth || 0) / 2; const y = (parseFloat(n.style.top || '0') || 0) + (n.offsetHeight || 0) / 2; const d2 = (x - cx) * (x - cx) + (y - cy) * (y - cy); if (!best || d2 < best.d2) best = { d2, x, y } })
+          if (best) { tx = best.x; ty = best.y }
+        }
+        state.offsetX = Math.round(vpW / 2 - tx)
+        state.offsetY = Math.round(vpH / 2 - ty)
+        apply()
+      } catch {}
+    }
+    // Pointer pan
+    const touches = new Map<number, { x: number; y: number }>()
+    let twoPan = false
+    let cx = 0, cy = 0
+    const centroid = () => { let sx2 = 0, sy2 = 0, n = 0; touches.forEach((p) => { sx2 += p.x; sy2 += p.y; n++ }); return { x: sx2 / Math.max(1, n), y: sy2 / Math.max(1, n) } }
+    const onDown = (e: PointerEvent) => { touches.set(e.pointerId, { x: e.clientX, y: e.clientY }); if (touches.size >= 2 && !twoPan) { const c = centroid(); cx = c.x; cy = c.y; twoPan = true } }
+    const onMove = (e: PointerEvent) => { if (!touches.has(e.pointerId)) return; touches.set(e.pointerId, { x: e.clientX, y: e.clientY }); if (twoPan && touches.size >= 2) { const c = centroid(); state.offsetX += (c.x - cx); state.offsetY += (c.y - cy); cx = c.x; cy = c.y; apply() } }
+    const onUp = (e: PointerEvent) => { touches.delete(e.pointerId); if (touches.size < 2) twoPan = false }
+    viewport.addEventListener('pointerdown', onDown as any)
+    viewport.addEventListener('pointermove', onMove as any)
+    viewport.addEventListener('pointerup', onUp as any)
+    viewport.addEventListener('pointercancel', onUp as any)
+    viewport.addEventListener('pointerleave', onUp as any)
+    viewport.addEventListener('wheel', (e: WheelEvent) => { e.preventDefault(); const pinchZoom = (e as any).ctrlKey || Math.abs((e as any).deltaZ || 0) > 0; if (pinchZoom) { const z = Math.exp(-e.deltaY / 600); state.scale = Math.min(2.0, Math.max(0.6, state.scale * z)) } else { state.offsetX -= (e as any).deltaX || 0; state.offsetY -= (e as any).deltaY || 0 } apply() }, { passive: false })
+
+    // Focus on target if specified
+    try {
+      if (focusLibId) {
+        const target = canvas.querySelector(`.wp-item[data-type^="lib:${focusLibId}:"]`) as HTMLElement | null
+        if (target) {
+          const x = (parseFloat(target.style.left || '0') || 0) + (target.offsetWidth || 0) / 2
+          const y = (parseFloat(target.style.top || '0') || 0) + (target.offsetHeight || 0) / 2
+          centerOn(x, y)
+          // Drop-in animation
+          target.style.transform = 'translateY(-18px) scale(1.02)'
+          target.style.boxShadow = '0 0 0 2px rgba(16,185,129,.85) inset'
+          target.focus?.()
+          setTimeout(() => { try { target.style.transform = ''; target.style.boxShadow = '' } catch {} }, 140)
+        } else {
+          centerDefault()
+        }
+      } else {
+        centerDefault()
+      }
+    } catch { centerDefault() }
+  }
+  const setMode = (mode: 'browse' | 'mylib') => {
+    modal?.setAttribute('data-mode', mode)
+    if (slides) slides.style.transform = mode === 'mylib' ? 'translateX(-50%)' : 'translateX(0%)'
+    if (mode === 'mylib') {
+      titleEl.textContent = '手持ちから追加'
+      ctlBrowse.classList.add('hidden')
+      ctlMylib.classList.remove('hidden')
+      // Default description for mylib
+      try {
+        const t = overlay.querySelector('#wp-desc-title') as HTMLElement
+        const b = overlay.querySelector('#wp-desc-body') as HTMLElement
+        if (t) t.textContent = '手持ちのウィジェット'
+        if (b) b.textContent = '自作したウィジェットをハニカムから選んでプロジェクトに追加します。'
+      } catch {}
+      renderMyLib()
+    } else {
+      titleEl.textContent = 'ウィジェットを選択'
+      ctlMylib.classList.add('hidden')
+      ctlBrowse.classList.remove('hidden')
+      // Reset description
+      try {
+        const t = overlay.querySelector('#wp-desc-title') as HTMLElement
+        const b = overlay.querySelector('#wp-desc-body') as HTMLElement
+        if (t) t.textContent = 'ウィジェットを選択'
+        if (b) b.textContent = '左のハニカムからウィジェットを選んでください。カーソルを合わせるとここに説明が表示されます。'
+      } catch {}
+    }
+  }
+
+  // Build compact field (no background mask) with pannable canvas (browse slide)
   const field = overlay.querySelector('#wp-field') as HTMLElement
   field.innerHTML = ''
   try { (field.style as any).touchAction = 'none'; (field.style as any).webkitUserSelect = 'none'; (field.style as any).userSelect = 'none' } catch {}
@@ -3636,52 +3945,11 @@ function openWidgetPickerModal(root: HTMLElement, pid: string, onPick?: (type: s
     window.location.hash = '#/widget/create'
   })
 
-  // Add from user's library into this project
+  // Controls
   const myAddBtn = overlay.querySelector('#wp-my-add') as HTMLElement | null
-  myAddBtn?.addEventListener('click', async (ev) => {
-    ev.preventDefault(); ev.stopPropagation()
-    const pickWrap = document.createElement('div')
-    pickWrap.className = 'fixed inset-0 z-[70] grid place-items-center'
-    pickWrap.innerHTML = `
-      <div class=\"absolute inset-0 bg-black/40\"></div>
-      <div class=\"relative w-[min(520px,92vw)] max-h-[70vh] overflow-hidden rounded-xl bg-neutral-900 ring-2 ring-neutral-600 shadow-2xl text-gray-100\">\n        <header class=\"h-10 flex items-center px-4 border-b border-neutral-600\"><div class=\"font-semibold\">手持ちのウィジェット</div><button class=\"ml-auto text-xl\" id=\"mylib-close\">×</button></header>\n        <div class=\"p-3 space-y-2 overflow-auto\" id=\"mylib-list\"></div>\n      </div>`
-    overlay.appendChild(pickWrap)
-    const closePick = () => pickWrap.remove()
-    pickWrap.querySelector('#mylib-close')?.addEventListener('click', closePick)
-    const listEl = pickWrap.querySelector('#mylib-list') as HTMLElement
-    // Resolve current user id
-    const getUid = async (): Promise<number | null> => {
-      try { const app: any = document.getElementById('app'); const m = app?._me; if (m && m.id) return Number(m.id) } catch {}
-      try { const me = await apiFetch<{ id: number }>(`/me`); try { (document.getElementById('app') as any)._me = me } catch {}; return me?.id ?? null } catch { return null }
-    }
-    const uid = await getUid()
-    const my = uid != null ? userLibGet(uid) : []
-    if (!my.length) {
-      listEl.innerHTML = `<div class=\"text-sm text-gray-400\">手持ちのウィジェットがありません。先に作成してください。</div>`
-    } else {
-      my.forEach((en) => {
-        const item = document.createElement('div')
-        item.className = 'flex items-center gap-2 p-2 rounded hover:bg-neutral-800/60 cursor-pointer'
-        item.innerHTML = `<div class=\"flex-1\">${en.name || (en.type==='flow'?'フロー':'カスタム')}</div><div class=\"text-xs text-gray-400\">${en.type}</div>`
-        item.addEventListener('click', async () => {
-          try {
-            await wsLoadAll(pid)
-            const cur = (wsGet(pid, 'lib_widgets') as any[]) || []
-            const id = `shr-${uid}-${en.id}`
-            if (!cur.find((x: any) => x && x.id === id)) {
-              const copy = { ...en, id, owner: uid }
-              await wsSet(pid, 'lib_widgets', cur.concat(copy))
-            }
-          } catch {}
-          try { showMiniToast('ウィジェットを追加しました') } catch {}
-          try { close() } catch {}
-          setTimeout(() => { try { openWidgetPickerModal(root, pid) } catch {} }, 0)
-          closePick()
-        })
-        listEl.appendChild(item)
-      })
-    }
-  })
+  const backBtn = overlay.querySelector('#wp-back') as HTMLElement | null
+  myAddBtn?.addEventListener('click', (ev) => { ev.preventDefault(); ev.stopPropagation(); setMode('mylib') })
+  backBtn?.addEventListener('click', (ev) => { ev.preventDefault(); ev.stopPropagation(); setMode('browse') })
 
   // Aside: render project-shared library list
   const renderProjLibList = () => {
@@ -4049,6 +4317,164 @@ function openWidgetPickerModal(root: HTMLElement, pid: string, onPick?: (type: s
     }
     apply()
   }, { passive: false })
+
+  // Prepare and render my library slide
+  const renderMyLib = async () => {
+    const host = overlay.querySelector('#wp-myfield') as HTMLElement
+    if (!host) return
+    host.innerHTML = ''
+    try { (host.style as any).touchAction = 'none'; (host.style as any).webkitUserSelect = 'none'; (host.style as any).userSelect = 'none' } catch {}
+    // Resolve current user id
+    const getUid = async (): Promise<number | null> => {
+      try { const app: any = document.getElementById('app'); const m = app?._me; if (m && m.id) return Number(m.id) } catch {}
+      try { const me = await apiFetch<{ id: number }>(`/me`); try { (document.getElementById('app') as any)._me = me } catch {}; return me?.id ?? null } catch { return null }
+    }
+    const uid = await getUid()
+    const my = uid != null ? userLibGet(uid) : []
+    if (!my || my.length === 0) {
+      const empty = document.createElement('div')
+      empty.className = 'w-full h-full grid place-items-center text-sm text-gray-400'
+      empty.textContent = '手持ちのウィジェットがありません。先に作成してください。'
+      host.appendChild(empty)
+      return
+    }
+    // Compute items from my library; arrange like honeycomb tiles
+    const anchors2 = axGrow(Math.max(60, my.length * 30))
+    const occ2 = new Set<string>()
+    const key2 = (q:number,r:number) => `${q},${r}`
+    type MyItem = { lib: any; cells: Array<{q:number;r:number}>; rgba: string }
+    const items2: MyItem[] = []
+    my.forEach((en) => {
+      const rel = (en.shape && en.shape.length) ? en.shape as Array<[number,number]> : [[0,0]]
+      for (const [ax, az] of anchors2) {
+        const cells = rel.map(([sx,sz]) => axialToOddq(ax+sx, az+sz))
+        if (cells.some(c => occ2.has(key2(c.q,c.r)))) continue
+        cells.forEach(c => occ2.add(key2(c.q,c.r)))
+        const rgba = en.rgb ? `rgba(${en.rgb[0]},${en.rgb[1]},${en.rgb[2]}, ${typeof en.alpha==='number'? en.alpha : 0.38})` : fillFor('lib').flat
+        items2.push({ lib: en, cells, rgba })
+        break
+      }
+    })
+    // Bounds
+    const px2 = (q:number, r:number) => ({ x: q * stepX, y: Math.round((r + (q % 2 ? 0.5 : 0)) * stepY) })
+    let minX2 = Infinity, minY2 = Infinity, maxX2 = -Infinity, maxY2 = -Infinity
+    items2.forEach((it) => { it.cells.forEach((c) => { const p = px2(c.q, c.r); minX2 = Math.min(minX2, p.x); minY2 = Math.min(minY2, p.y); maxX2 = Math.max(maxX2, p.x); maxY2 = Math.max(maxY2, p.y) }) })
+    if (!isFinite(minX2) || !isFinite(minY2)) { minX2 = 0; minY2 = 0; maxX2 = stepX; maxY2 = stepY }
+    const PAD2 = 20
+    const width2 = (maxX2 - minX2) + W + PAD2 * 2
+    const height2 = (maxY2 - minY2) + H + PAD2 * 2
+    const canvas2 = document.createElement('div')
+    canvas2.id = 'wpCanvasMy'
+    canvas2.style.position = 'absolute'
+    canvas2.style.left = '0px'
+    canvas2.style.top = '0px'
+    canvas2.style.width = `${width2}px`
+    canvas2.style.height = `${height2}px`
+    host.appendChild(canvas2)
+    const px = px2
+    items2.forEach((it) => {
+      const col = { flat: it.rgba, solid: it.rgba }
+      const points = it.cells.map(c => px(c.q, c.r))
+      const bx = Math.min(...points.map(p => p.x))
+      const by = Math.min(...points.map(p => p.y))
+      const bw = (Math.max(...points.map(p => p.x)) - bx) + W
+      const bh = (Math.max(...points.map(p => p.y)) - by) + H
+      const hostItem = document.createElement('div')
+      hostItem.className = 'wp-item'
+      hostItem.style.position = 'absolute'
+      hostItem.style.left = `${(bx - minX2) + PAD2}px`
+      hostItem.style.top = `${(by - minY2) + PAD2}px`
+      hostItem.style.width = `${bw}px`
+      hostItem.style.height = `${bh}px`
+      hostItem.style.cursor = 'pointer'
+      hostItem.style.transition = 'transform .12s ease, filter .12s ease'
+      const addToProject = async () => {
+        let newId: string | undefined
+        try {
+          await wsLoadAll(pid)
+          const cur = (wsGet(pid, 'lib_widgets') as any[]) || []
+          const id = `shr-${uid}-${it.lib.id}`
+          newId = id
+          if (!cur.find((x: any) => x && x.id === id)) {
+            const copy = { ...it.lib, id, owner: uid }
+            await wsSet(pid, 'lib_widgets', cur.concat(copy))
+          }
+        } catch {}
+        try { showMiniToast('ウィジェットを追加しました') } catch {}
+        try { renderProjLibList() } catch {}
+        // Slide back and rebuild main field focusing the newly added item
+        try { setMode('browse') } catch {}
+        const fid = newId
+        setTimeout(() => { try { rebuildPickerField(fid) } catch {} }, 260)
+      }
+      hostItem.addEventListener('click', addToProject)
+      hostItem.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); addToProject() } })
+      const descTitle = overlay.querySelector('#wp-desc-title') as HTMLElement
+      const descBody = overlay.querySelector('#wp-desc-body') as HTMLElement
+      hostItem.addEventListener('mouseenter', () => {
+        try { descTitle.textContent = it.lib.name || (it.lib.type === 'flow' ? 'フロー' : 'カスタム') } catch {}
+        try { descBody.textContent = 'クリックしてプロジェクトに追加します。' } catch {}
+      })
+      it.cells.forEach((c) => {
+        const p = px(c.q, c.r)
+        const cell = document.createElement('div')
+        cell.className = 'hxw-hex hxw-filled'
+        cell.style.position = 'absolute'
+        cell.style.left = `${(p.x - bx)}px`
+        cell.style.top = `${(p.y - by)}px`
+        cell.style.width = `${W}px`
+        cell.style.height = `${H}px`
+        const clip = document.createElement('div')
+        clip.className = 'hxw-clip hx-svgclip'
+        clip.style.color = col.flat
+        { const f = deriveFacets(col.flat); (clip.style as any).setProperty('--hx-side', f.side); (clip.style as any).setProperty('--hx-hi', f.hi); (clip.style as any).setProperty('--hx-edge', f.side) }
+        clip.innerHTML = honeyHexFilledSvg()
+        cell.appendChild(clip)
+        hostItem.appendChild(cell)
+      })
+      const lab = document.createElement('div')
+      lab.textContent = it.lib.name || (it.lib.type === 'flow' ? 'フロー' : 'カスタム')
+      lab.style.position = 'absolute'; lab.style.inset = '0'
+      lab.style.display = 'grid'; lab.style.placeItems = 'center'; lab.style.pointerEvents = 'none'
+      lab.style.color = 'var(--gh-contrast)'; lab.style.textShadow = '0 1px 2px rgba(0,0,0,.18)'; lab.style.fontSize = '12px'
+      hostItem.appendChild(lab)
+      canvas2.appendChild(hostItem)
+    })
+    // Pan/zoom for mylib canvas
+    const viewport2 = host
+    const state2 = { scale: 1, offsetX: 0, offsetY: 0 }
+    const apply2 = () => { const tr = `translate(${state2.offsetX}px, ${state2.offsetY}px) scale(${state2.scale})`; canvas2.style.transform = tr }
+    const center2 = () => {
+      try {
+        const vpW = viewport2.clientWidth, vpH = viewport2.clientHeight
+        const nodes = Array.from(canvas2.querySelectorAll('.wp-item')) as HTMLElement[]
+        let tx = width2 / 2, ty = height2 / 2
+        if (nodes.length) {
+          const cx = width2 / 2, cy = height2 / 2
+          let best: { d2: number; x: number; y: number } | null = null
+          nodes.forEach((n) => { const x = (parseFloat(n.style.left || '0') || 0) + (n.offsetWidth || 0) / 2; const y = (parseFloat(n.style.top || '0') || 0) + (n.offsetHeight || 0) / 2; const d2 = (x - cx) * (x - cx) + (y - cy) * (y - cy); if (!best || d2 < best.d2) best = { d2, x, y } })
+          if (best) { tx = best.x; ty = best.y }
+        }
+        state2.offsetX = Math.round(vpW / 2 - tx)
+        state2.offsetY = Math.round(vpH / 2 - ty)
+        apply2()
+      } catch {}
+    }
+    const touches = new Map<number, { x: number; y: number }>()
+    let twoPan = false
+    let cx = 0, cy = 0
+    const centroid = () => { let sx2 = 0, sy2 = 0, n = 0; touches.forEach((p) => { sx2 += p.x; sy2 += p.y; n++ }); return { x: sx2 / Math.max(1, n), y: sy2 / Math.max(1, n) } }
+    const onDown = (e: PointerEvent) => { touches.set(e.pointerId, { x: e.clientX, y: e.clientY }); if (touches.size >= 2 && !twoPan) { const c = centroid(); cx = c.x; cy = c.y; twoPan = true } }
+    const onMove = (e: PointerEvent) => { if (!touches.has(e.pointerId)) return; touches.set(e.pointerId, { x: e.clientX, y: e.clientY }); if (twoPan && touches.size >= 2) { const c = centroid(); state2.offsetX += (c.x - cx); state2.offsetY += (c.y - cy); cx = c.x; cy = c.y; apply2() } }
+    const onUp = (e: PointerEvent) => { touches.delete(e.pointerId); if (touches.size < 2) twoPan = false }
+    viewport2.addEventListener('pointerdown', onDown as any)
+    viewport2.addEventListener('pointermove', onMove as any)
+    viewport2.addEventListener('pointerup', onUp as any)
+    viewport2.addEventListener('pointercancel', onUp as any)
+    viewport2.addEventListener('pointerleave', onUp as any)
+    viewport2.addEventListener('wheel', (e: WheelEvent) => { e.preventDefault(); const pinchZoom = (e as any).ctrlKey || Math.abs((e as any).deltaZ || 0) > 0; if (pinchZoom) { const z = Math.exp(-e.deltaY / 600); state2.scale = Math.min(2.0, Math.max(0.6, state2.scale * z)) } else { state2.offsetX -= (e as any).deltaX || 0; state2.offsetY -= (e as any).deltaY || 0 } apply2() }, { passive: false })
+    try { requestAnimationFrame(center2) } catch { center2() }
+  }
 
   document.body.appendChild(overlay); (function () { const c = +(document.body.getAttribute('data-lock') || '0'); if (c === 0) { document.body.style.overflow = 'hidden' } document.body.setAttribute('data-lock', String(c + 1)) })()
   // Center after DOM is attached and sizes are known
