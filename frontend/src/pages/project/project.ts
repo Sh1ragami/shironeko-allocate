@@ -452,7 +452,6 @@ function renderHoneycomb(root: HTMLElement, projects: Project[]): void {
     const arr = groupedNodes[gid] || []
     const defs: Array<{ label: string; sub: string; route: string }> = [
       { label: 'チュートリアル', sub: '使い方を学ぶ', route: '#/project/tutorial' },
-      { label: 'みんなでお絵かき', sub: '色を塗って絵を描く', route: '#/project/paint' },
       { label: 'ウィジェット作成', sub: '自作ウィジェットを作る', route: '#/widget/create' },
     ]
     if (arr.length) {
