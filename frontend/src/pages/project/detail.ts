@@ -4625,8 +4625,19 @@ function addWidget(root: HTMLElement, pid: string, type: string): void {
         }
         const body = card.querySelector('.wg-content') as HTMLElement | null
         if (body) {
-          const styleStr = pickedRGB ? `min-height:64px; background: var(--lib-color, rgba(${pickedRGB[0]},${pickedRGB[1]},${pickedRGB[2]},0.18))` : 'min-height:64px'
-          body.innerHTML = `<button class=\"w-full h-full grid place-items-center text-center px-2 py-1 rounded ring-2 ring-neutral-600 hover:bg-neutral-900/60 text-gray-100 transition shadow-sm hover:shadow-md hover:brightness-110\" style=\"${styleStr}\">${escapeHtml(pickedName)}</button>`
+          let styleStr = 'min-height:64px'
+          if (pickedRGB) {
+            const [r,g,b] = pickedRGB
+            const lr = Math.min(255, Math.round(r * 1.12))
+            const lg = Math.min(255, Math.round(g * 1.12))
+            const lb = Math.min(255, Math.round(b * 1.12))
+            const dr = Math.max(0, Math.round(r * 0.88))
+            const dg = Math.max(0, Math.round(g * 0.88))
+            const db = Math.max(0, Math.round(b * 0.88))
+            styleStr += `; background: linear-gradient(135deg, rgba(${lr},${lg},${lb},0.26), rgba(${dr},${dg},${db},0.32))`
+            styleStr += `; -webkit-backdrop-filter: saturate(140%) blur(6px); backdrop-filter: saturate(140%) blur(6px); box-shadow: inset 0 0 0 1px rgba(255,255,255,.16), 0 10px 20px rgba(0,0,0,.30)`
+          }
+          body.innerHTML = `<button class=\"w-full h-full grid place-items-center text-center px-2 py-1 rounded ring-2 ring-white/20 hover:bg-neutral-900/40 text-gray-100 transition shadow-sm hover:shadow-md hover:brightness-110\" style=\"${styleStr}\">${escapeHtml(pickedName)}</button>`
           const btn = body.querySelector('button') as HTMLButtonElement | null
           btn?.addEventListener('click', (e) => {
             e.stopPropagation()
@@ -10489,7 +10500,7 @@ function hxwPlaceWidgets(root: HTMLElement, pid: string, st: HexWLayout): void {
       const rgb: [number,number,number] = (conf && Array.isArray(conf.rgb) && conf.rgb.length === 3)
         ? (conf.rgb as [number,number,number])
         : palette[hsh(type) % palette.length]
-      const alpha = (conf && typeof conf.alpha === 'number') ? Math.max(0, Math.min(1, conf.alpha)) : (lightBg ? 0.42 : 0.38)
+      const alpha = (conf && typeof conf.alpha === 'number') ? Math.max(0, Math.min(1, conf.alpha)) : (lightBg ? 0.32 : 0.28)
       const fillFlat = `rgba(${rgb[0]},${rgb[1]},${rgb[2]}, ${alpha})`
       host!.style.setProperty('--hxw-fill', fillFlat)
       // annotate each cell with base rgb so minimap can color-match
@@ -10500,9 +10511,48 @@ function hxwPlaceWidgets(root: HTMLElement, pid: string, st: HexWLayout): void {
       bgFlat.style.top = '0px'
       bgFlat.style.width = `${boxW}px`
       bgFlat.style.height = `${boxH}px`
-      bgFlat.style.background = fillFlat
+      // Apply subtle gradient based on the widget's base color for depth
+      try {
+        const lr = Math.min(255, Math.round(rgb[0] * 1.12))
+        const lg = Math.min(255, Math.round(rgb[1] * 1.12))
+        const lb = Math.min(255, Math.round(rgb[2] * 1.12))
+        const dr = Math.max(0, Math.round(rgb[0] * 0.88))
+        const dg = Math.max(0, Math.round(rgb[1] * 0.88))
+        const db = Math.max(0, Math.round(rgb[2] * 0.88))
+        const aHi = Math.min(1, Math.max(0, alpha + 0.04))
+        const aLo = alpha
+        bgFlat.style.background = `linear-gradient(135deg, rgba(${lr},${lg},${lb}, ${aHi}), rgba(${dr},${dg},${db}, ${aLo}))`
+      } catch {
+        bgFlat.style.background = fillFlat
+      }
       ;(bgFlat.style as any).clipPath = `url(#${cid})`
       ;(bgFlat.style as any).webkitClipPath = `url(#${cid})`
+      // Glass effect for futuristic transparency
+      try {
+        (bgFlat.style as any).backdropFilter = 'saturate(140%) blur(8px)'
+        ;(bgFlat.style as any).webkitBackdropFilter = 'saturate(140%) blur(8px)'
+        // Accent edge + subtle inner white to restore contrast (merihari)
+        const lr = Math.min(255, Math.round(rgb[0] * 1.08))
+        const lg = Math.min(255, Math.round(rgb[1] * 1.08))
+        const lb = Math.min(255, Math.round(rgb[2] * 1.08))
+        bgFlat.style.boxShadow = `inset 0 0 0 1px rgba(255,255,255,.16), inset 0 0 0 2px rgba(${lr},${lg},${lb},.18), 0 12px 28px rgba(0,0,0,.32)`
+      } catch {}
+
+      // Gloss highlight overlay for punchy contrast
+      try {
+        let gloss = host!.querySelector('.hxw-gloss') as HTMLElement | null
+        if (!gloss) { gloss = document.createElement('div'); gloss.className = 'hxw-gloss'; host!.insertBefore(gloss, body) }
+        gloss.style.position = 'absolute'
+        gloss.style.left = '0px'
+        gloss.style.top = '0px'
+        gloss.style.width = `${boxW}px`
+        gloss.style.height = `${boxH}px`
+        ;(gloss.style as any).clipPath = `url(#${cid})`
+        ;(gloss.style as any).webkitClipPath = `url(#${cid})`
+        gloss.style.pointerEvents = 'none'
+        gloss.style.background = `radial-gradient(60% 60% at 20% 15%, rgba(255,255,255,.22), rgba(255,255,255,0) 55%), linear-gradient(160deg, rgba(255,255,255,.10), rgba(255,255,255,0) 65%)`
+        gloss.style.mixBlendMode = 'screen'
+      } catch {}
       // Ensure pointer-event routing remains correct even after re-building during edit mode:
       // when editing, clicks should go to the hex background only (for selection/move),
       // and inner rectangular content should not intercept clicks.
