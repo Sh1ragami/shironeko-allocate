@@ -1631,6 +1631,64 @@ function widgetShell(id: string, title: string, body: string): string {
   `
 }
 
+// Small toast below the minimap (top-right) for quick feedback like deletions
+function showMiniToast(message: string, opts?: { variant?: 'default' | 'danger' }): void {
+  try {
+    const id = 'miniToast'
+    document.getElementById(id)?.remove()
+    const mini = document.querySelector('.hxw-mini') as HTMLElement | null
+    // Default position roughly under the minimap if not found
+    let top = 164
+    let right = -16 // pull slightly further beyond the edge
+    try {
+      const modal = document.querySelector('.pop-modal') as HTMLElement | null
+      if (modal) {
+        const r = modal.getBoundingClientRect()
+        top = Math.max(10, Math.round(r.top + 10))
+        right = -16
+      } else if (mini) {
+        const r = mini.getBoundingClientRect()
+        top = Math.round(r.bottom + 8)
+        // Pull a bit further right to visually hug the edge
+        right = -16
+      }
+    } catch { }
+    const wrap = document.createElement('div')
+    wrap.id = id
+    wrap.className = 'mini-toast'
+    if (opts?.variant === 'danger') wrap.classList.add('is-danger'); else wrap.classList.add('is-success')
+    wrap.style.top = `${top}px`
+    wrap.style.right = `${right}px`
+    const inner = document.createElement('div')
+    inner.className = 'mini-inner'
+    const body = document.createElement('div')
+    body.className = 'mini-body'
+    // Build icon | text structure
+    const icon = document.createElement('span')
+    icon.className = 'mini-ico'
+    // Choose icon by variant
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+    svg.setAttribute('width', '16'); svg.setAttribute('height', '16'); svg.setAttribute('viewBox', '0 0 24 24'); svg.setAttribute('fill', 'currentColor'); svg.setAttribute('aria-hidden', 'true')
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+    if (opts?.variant === 'danger') {
+      // trash-ish icon
+      path.setAttribute('d', 'M9 3h6a1 1 0 0 1 1 1v1h4v2h-1l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 7H4V5h4V4a1 1 0 0 1 1-1zm2 4h2v12h-2V7zm-4 0h2v12H7V7zm8 0h2v12h-2V7zM9 5h6V4H9v1z')
+    } else {
+      // check mark
+      path.setAttribute('d', 'M20.285 6.709l-11.1 11.1-5.47-5.47 1.414-1.415 4.056 4.056 9.686-9.686 1.414 1.415z')
+    }
+    svg.appendChild(path)
+    icon.appendChild(svg)
+    const sep = document.createElement('span'); sep.className = 'mini-sep'; sep.setAttribute('aria-hidden', 'true')
+    const text = document.createElement('span'); text.className = 'mini-text'; text.textContent = message
+    body.appendChild(icon); body.appendChild(sep); body.appendChild(text)
+    inner.appendChild(body)
+    wrap.appendChild(inner)
+    ;(document.body || document.documentElement).appendChild(wrap)
+    setTimeout(() => { try { wrap.remove() } catch { } }, 3800)
+  } catch { }
+}
+
 function addWidgetCard(): string {
   // Always stay at the bottom and take full width on desktop so it doesn't get in the way
   return `<button id="addWidget" class="order-last md:col-span-12 rounded-xl bg-neutral-800/50 shadow-[0_1px_0_rgba(255,255,255,0.04)_inset,0_6px_18px_rgba(0,0,0,0.3)] grid place-items-center text-gray-400 h-24 md:h-28 hover:bg-neutral-800/60">ウィジェット追加<br/><span class="text-2xl md:text-3xl">＋</span></button>`
@@ -2539,7 +2597,8 @@ function enableDragAndDrop(root: HTMLElement): void {
     item.className = 'px-3 py-1.5 hover:bg-neutral-800 rounded'
     item.textContent = on ? 'ショートカットから削除' : 'ショートカットに追加'
     item.addEventListener('click', () => {
-      if (on) scRemove(pidOnly, idKey); else scAdd(pidOnly, idKey)
+      if (on) { scRemove(pidOnly, idKey); try { showMiniToast('ショートカットを削除しました', { variant: 'danger' }) } catch {} }
+      else { scAdd(pidOnly, idKey); try { showMiniToast('ショートカットに追加しました') } catch {} }
       try { hxwRenderShortcuts(root, pidOnly) } catch {}
       menu.remove(); document.removeEventListener('click', onDoc)
     })
@@ -3031,6 +3090,7 @@ function enableDragAndDrop(root: HTMLElement): void {
     // Remove meta
     const meta = getWidgetMeta(pid)
     if (meta[id]) { delete meta[id]; setWidgetMeta(pid, meta) }
+    try { showMiniToast('ウィジェットを削除しました', { variant: 'danger' }) } catch {}
   })
 
   // Markdown widget delegated handlers
@@ -3613,6 +3673,7 @@ function openWidgetPickerModal(root: HTMLElement, pid: string, onPick?: (type: s
               await wsSet(pid, 'lib_widgets', cur.concat(copy))
             }
           } catch {}
+          try { showMiniToast('ウィジェットを追加しました') } catch {}
           try { close() } catch {}
           setTimeout(() => { try { openWidgetPickerModal(root, pid) } catch {} }, 0)
           closePick()
@@ -3662,6 +3723,7 @@ function openWidgetPickerModal(root: HTMLElement, pid: string, onPick?: (type: s
           await wsSet(pid, 'lib_widgets', next)
           renderProjLibList()
         } catch {}
+        try { showMiniToast('ウィジェットを削除しました', { variant: 'danger' }) } catch {}
       })
       row.appendChild(btn)
       row.appendChild(del)
@@ -3811,6 +3873,7 @@ function openWidgetPickerModal(root: HTMLElement, pid: string, onPick?: (type: s
               const next = cur.filter((x: any) => x && x.id !== entry.id)
               await wsSet(pid, 'lib_widgets', next)
             } catch {}
+            try { showMiniToast('ウィジェットを削除しました', { variant: 'danger' }) } catch {}
             close()
             setTimeout(() => { try { openWidgetPickerModal(root, pid) } catch {} }, 0)
           })
@@ -3876,6 +3939,7 @@ function openWidgetPickerModal(root: HTMLElement, pid: string, onPick?: (type: s
           const next = cur.filter((x: any) => x && x.id !== it.lib!.id)
           await wsSet(pid, 'lib_widgets', next)
         } catch {}
+        try { showMiniToast('ウィジェットを削除しました', { variant: 'danger' }) } catch {}
         ;(document.getElementById('wp-close') as HTMLButtonElement | null)?.click()
         setTimeout(() => { try { openWidgetPickerModal(root, pid) } catch {} }, 0)
       })()
@@ -4111,6 +4175,7 @@ function addWidget(root: HTMLElement, pid: string, type: string): void {
         ;(card.querySelector('.wg-move') as HTMLElement | null)?.classList.add('hidden')
         // Clear the global hint to avoid affecting later additions
         try { (window as any)._wpPickedLibName = '' } catch {}
+        try { showMiniToast('ウィジェットを追加しました') } catch {}
       }
     }
     // markdown: popup mode → 初期同期は不要
@@ -8398,6 +8463,7 @@ function renderPickerLibrary(pid: string): void {
         const nextP = wpLibGet(pid).filter(x => x.id !== en.id)
         wpLibSet(pid, nextP)
       }
+      try { showMiniToast('ウィジェットを削除しました', { variant: 'danger' }) } catch {}
       // Reopen picker to rebuild field honeycomb with lib items removed
       try { (document.getElementById('wp-close') as HTMLButtonElement | null)?.click() } catch {}
       try { const root = (window as any)._hxwPickerRoot as HTMLElement | null; const pid2 = (window as any)._hxwPickerPid as string | null; if (root && pid2) setTimeout(()=>openWidgetPickerModal(root, pid2!),0) } catch {}
@@ -8998,6 +9064,7 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
       addBtn?.addEventListener('click', () => {
         try { scAdd(pid, id); const v = (nameInput?.value || '').trim(); if (v) scNameSet(pid, id, v) } catch {}
         try { hxwRenderShortcuts(root, pid) } catch {}
+        try { showMiniToast('ショートカットに追加しました') } catch {}
         // re-render panel UI to reflect new state
         infoShow(pid, id)
       })
@@ -9008,6 +9075,7 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
       delBtn?.addEventListener('click', () => {
         try { scRemove(pid, id) } catch {}
         try { hxwRenderShortcuts(root, pid) } catch {}
+        try { showMiniToast('ショートカットを削除しました', { variant: 'danger' }) } catch {}
         infoShow(pid, id)
       })
     }
@@ -9018,6 +9086,7 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
         if (!ok) return
         try { delete meta[id]; hxwSetMeta(pid, meta); try { hxwCustomDelete(pid, id) } catch {} } catch {}
         selId = null; infoHide(); hxwPlaceWidgets(root, pid, st); try { hxwRecolorBackground(root, pid) } catch {} ; try { refreshDynamicWidgets(root, pid) } catch {}; try { hxwRehydrate(root, pid) } catch {}
+        try { showMiniToast('ウィジェットを削除しました', { variant: 'danger' }) } catch {}
       }
     }
     panel.classList.remove('hidden')
@@ -9514,6 +9583,7 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
       try { hxwSyncEditPointerEvents(root) } catch {}
       try { refreshDynamicWidgets(root, pid) } catch {}
       try { hxwRehydrate(root, pid) } catch { }
+      try { showMiniToast('ウィジェットを削除しました', { variant: 'danger' }) } catch {}
       hideGhost(); didDrag = false; return
     }
     // If cannot place due to collisions, cancel (do not delete)
@@ -9628,10 +9698,11 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
       scAdd(pid2, wid)
       if (name) scNameSet(pid2, wid, name)
       try { hxwRenderShortcuts(root, pid2) } catch {}
+      try { showMiniToast('ショートカットに追加しました') } catch {}
       close()
     })
     cancelBtn?.addEventListener('click', close)
-    delBtn?.addEventListener('click', () => { scRemove(pid2, wid); try { hxwRenderShortcuts(root, pid2) } catch {}; close() })
+    delBtn?.addEventListener('click', () => { scRemove(pid2, wid); try { hxwRenderShortcuts(root, pid2) } catch {}; try { showMiniToast('ショートカットを削除しました', { variant: 'danger' }) } catch {}; close() })
     nameInput?.focus()
   })
   canvas.addEventListener('click', (e) => {
@@ -10614,6 +10685,7 @@ function hxwStartPlacement(root: HTMLElement, pid: string, type: string): void {
     try { hxwSyncEditPointerEvents(root) } catch {}
     try { refreshDynamicWidgets(root, pid) } catch {}
     try { hxwRehydrate(root, pid) } catch {}
+    try { showMiniToast('ウィジェットを追加しました') } catch {}
     cleanup()
   }
   const key = (e: KeyboardEvent) => { if (e.key === 'Escape') { cleanup() } }

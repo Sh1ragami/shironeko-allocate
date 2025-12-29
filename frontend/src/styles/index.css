@@ -594,6 +594,65 @@ body[data-lock]:not([data-lock="0"]) .hxw-wrap { pointer-events: none; }
 :root[data-theme="warm"] .hxw-mini, :root[data-theme="sakura"] .hxw-mini { background: rgba(255,255,255,.45); }
 .hxw-mini canvas { width: 120px; height: 120px; border-radius: 50%; }
 
+/* ---- Mini toast (below minimap) ---- */
+.mini-toast { position: fixed; z-index: 20000; pointer-events: none; transform: translateX(140%); animation: mini-toast-slide 3.6s cubic-bezier(.2,.9,.24,1) both; }
+.mini-toast .mini-inner {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: 10px;
+  background: rgba(0,0,0,.72);
+  color: var(--gh-contrast, #e5e7eb);
+  border: 1px solid var(--gh-border);
+  box-shadow: 0 8px 24px rgba(0,0,0,.28);
+  backdrop-filter: blur(4px) saturate(120%);
+  font-size: 13px;
+  letter-spacing: .02em;
+  min-width: 280px;
+  max-width: min(420px, 96vw);
+  /* Parallelogram via skew to allow rounded corners */
+  transform: skewX(4deg);
+  overflow: hidden;
+}
+.mini-toast .mini-body {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  transform: skewX(-4deg);
+}
+.mini-toast .mini-ico { display:inline-grid; place-items:center; width: 18px; height: 18px; opacity: .95; }
+.mini-toast .mini-ico svg { display:block; width: 16px; height: 16px; }
+.mini-toast .mini-sep { display:inline-block; width:1px; height: 1.1em; background: currentColor; opacity: .35; margin: 0 8px; }
+.mini-toast .mini-text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mini-toast.is-danger .mini-inner {
+  background: rgba(244,63,94,.92); /* rose-500-ish */
+  border-color: rgba(244,63,94,.85);
+  color: #fff;
+}
+:root[data-theme="warm"] .mini-toast.is-danger .mini-inner,
+:root[data-theme="sakura"] .mini-toast.is-danger .mini-inner {
+  background: rgba(244,63,94,.95);
+  color: #fff;
+}
+.mini-toast.is-success .mini-inner {
+  background: rgba(16,185,129,.92); /* emerald-500-ish */
+  border-color: rgba(16,185,129,.85);
+  color: #fff;
+}
+:root[data-theme="warm"] .mini-toast.is-success .mini-inner,
+:root[data-theme="sakura"] .mini-toast.is-success .mini-inner {
+  background: rgba(16,185,129,.95);
+  color: #fff;
+}
+@keyframes mini-toast-slide {
+  0%   { opacity: 0; transform: translateX(140%); }
+  18%  { opacity: 1; transform: translateX(0); }
+  82%  { opacity: 1; transform: translateX(0); }
+  100% { opacity: 0; transform: translateX(140%); }
+}
+
 /* ---- Group Location Toast (Projects) ---- */
 .loc-toast { position: fixed; inset: 0; display: grid; place-items: center; pointer-events: none; z-index: 40; }
 :root[data-theme="warm"] .loc-inner, :root[data-theme="sakura"] .loc-inner { color: var(--loc-color, rgb(22,22,22)); }
