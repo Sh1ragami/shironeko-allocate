@@ -127,7 +127,7 @@ export function renderProject(container: HTMLElement): void {
               </svg>
             </span>
           </button>
-          <div id="giInfoPanel" class="rounded-t-xl rounded-b-none border-2 border-neutral-600 border-b-0 bg-neutral-950/70 backdrop-blur px-5 py-3 text-gray-100 shadow-xl">
+          <div id="giInfoPanel" class="rounded-t-xl rounded-b-none border-2 border-neutral-600 border-b-0 bg-neutral-950/70 backdrop-blur px-6 py-4 text-gray-100 shadow-xl">
             <div class="flex items-center gap-2 mb-2">
               <div class="text-sm font-semibold">グループ</div>
             </div>
@@ -1065,7 +1065,16 @@ function updateGroupInfoPanel(root: HTMLElement, gid: string): void {
           <button class=\"rounded bg-rose-700 hover:bg-rose-600 text-white text-xs font-medium px-2 py-0.5\" data-del-pid=\"${p.id}\" data-del-name=\"${escapeHtml(p.name)}\">削除</button>
         </div>`).join('')
     : '<div class="text-xs text-gray-400">このグループに所属するプロジェクトはありません。</div>'
-  body.innerHTML = `${head}<div class="mt-2 space-y-1" id="giList">${projList}</div>`
+  body.innerHTML = `${head}<div class="mt-2 space-y-2" id="giList">${projList}</div>`
+  // Mild spacing polish for generated rows (increase internal padding)
+  try {
+    const listWrap = body.querySelector('#giList') as HTMLElement | null
+    listWrap?.querySelectorAll(':scope > div')?.forEach((row) => {
+      const el = row as HTMLElement
+      el.classList.remove('px-2'); el.classList.remove('py-1')
+      el.classList.add('px-3'); el.classList.add('py-1.5')
+    })
+  } catch {}
   // Animated collapse/expand (same behavior as widget info)
   const panelAny: any = info
   const cont = root.querySelector('#giInfoPanel') as HTMLElement | null
