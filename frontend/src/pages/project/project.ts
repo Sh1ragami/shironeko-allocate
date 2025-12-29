@@ -413,6 +413,7 @@ function renderHoneycomb(root: HTMLElement, projects: Project[]): void {
     const defs: Array<{ label: string; sub: string; route: string }> = [
       { label: 'チュートリアル', sub: '使い方を学ぶ', route: '#/project/tutorial' },
       { label: 'みんなでお絵かき', sub: '色を塗って絵を描く', route: '#/project/paint' },
+      { label: 'ウィジェット作成', sub: '自作ウィジェットを作る', route: '#/widget/create' },
     ]
     if (arr.length) {
       hubs[gid] = arr.slice(0, defs.length).map((n, i) => ({ q: n.q, r: n.r, ...defs[i] }))
@@ -600,6 +601,7 @@ function renderHoneycomb(root: HTMLElement, projects: Project[]): void {
             </div>`
           tile.addEventListener('click', () => {
             try { sessionStorage.setItem('proj-center-gid', gid) } catch {}
+            try { showRouteLoading(h.label, 'blue', { style: 'single', spinMs: 1200, minMs: 900 }) } catch {}
             window.location.hash = h.route
           })
         } else {

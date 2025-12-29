@@ -7,6 +7,7 @@ import { renderProjectDetail } from './pages/project/detail'
 import { renderTutorial } from './pages/project/tutorial'
 import { renderPaint } from './pages/project/paint'
 import { renderProjectCreating } from './pages/project/creating'
+import { renderWidgetCreate } from './pages/project/widget-create'
 import { renderNotFound } from './pages/not-found/not-found'
 import { getTheme, applyTheme } from './utils/theme'
 
@@ -20,6 +21,8 @@ if (app) {
     '/project': renderProject,
     '/project/detail': renderProjectDetail,
     '/project/creating': renderProjectCreating,
+    '/project/widget-create': renderWidgetCreate, // backward compat
+    '/widget/create': renderWidgetCreate,
     '/project/tutorial': renderTutorial,
     '/project/paint': renderPaint,
     '/404': renderNotFound,

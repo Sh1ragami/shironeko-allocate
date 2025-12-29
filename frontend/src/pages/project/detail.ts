@@ -1294,6 +1294,15 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
       // nothing to bind globally; tab switching is handled by widgets and top-left buttons
     }
   } catch { }
+
+  // Reopen widget picker if returning from create screen via back
+  try {
+    const r = sessionStorage.getItem('wc-return-to-picker')
+    if (r === '1') {
+      sessionStorage.removeItem('wc-return-to-picker')
+      setTimeout(() => { try { openWidgetPickerModal(container, String(project.id)) } catch {} }, 0)
+    }
+  } catch {}
   // Apply saved view mode (2D/3D)
   try {
     const wrap = container.querySelector('#hxwWrap') as HTMLElement | null
@@ -3508,6 +3517,11 @@ function ensureWidgets(root: HTMLElement, pid: string): void {
 }
 
 function openWidgetPickerModal(root: HTMLElement, pid: string, onPick?: (type: string) => void): void {
+  try {
+    // Ensure project widget-state is loaded so project library can be included as tiles
+    const has = (WS_CACHE as any).has ? (WS_CACHE as any).has(pid) : false
+    if (!has) { try { wsLoadAll(pid).then(() => { try { openWidgetPickerModal(root, pid, onPick) } catch {} }) } catch {}; return }
+  } catch {}
   const overlay = document.createElement('div')
   overlay.className = 'fixed inset-0 z-[66] bg-black/60 backdrop-blur-[1px] grid place-items-center fade-overlay'
   overlay.innerHTML = `
@@ -3519,11 +3533,15 @@ function openWidgetPickerModal(root: HTMLElement, pid: string, onPick?: (type: s
       <div class="flex h-[calc(86vh-3rem)]">
         <section class="flex-1 relative p-2 overflow-hidden">
           <div id=\"wp-field\" class=\"absolute inset-0 overflow-hidden\"></div>
-          <div class=\"absolute left-2 bottom-2 pointer-events-none\">
-            <button id=\"wp-create\" class=\"pointer-events-auto inline-flex items-center gap-2 rounded-md bg-emerald-700 hover:bg-emerald-600 text-white text-sm font-medium px-3 py-2 shadow-lg\" title=\"自由にウィジェットを作成\">
-              <span class=\"text-base leading-none\">＋</span>
-              <span>ウィジェット作成</span>
-            </button>
+          <div class=\"absolute left-2 bottom-2 pointer-events-none\"> 
+            <button id=\"wp-create\" class=\"pointer-events-auto inline-flex items-center gap-2 rounded-md bg-emerald-700 hover:bg-emerald-600 text-white text-sm font-medium px-3 py-2 shadow-lg\" title=\"自由にウィジェットを作成\"> 
+              <span class=\"text-base leading-none\">＋</span> 
+              <span>ウィジェット作成</span> 
+            </button> 
+            <button id=\"wp-my-add\" class=\"ml-2 pointer-events-auto inline-flex items-center gap-2 rounded-md bg-sky-700 hover:bg-sky-600 text-white text-sm font-medium px-3 py-2 shadow-lg\" title=\"手持ちのウィジェットをプロジェクトに追加\"> 
+              <span class=\"text-base leading-none\">↪</span> 
+              <span>手持ちから追加</span> 
+            </button> 
           </div>
         </section>
         <aside class="w-80 shrink-0 p-4 border-l border-neutral-600">
@@ -3549,7 +3567,108 @@ function openWidgetPickerModal(root: HTMLElement, pid: string, onPick?: (type: s
 
   // Create button → open creator modal (stacks above; picker remains open underneath)
   const createBtn = overlay.querySelector('#wp-create') as HTMLElement | null
-  createBtn?.addEventListener('click', (ev) => { ev.preventDefault(); ev.stopPropagation(); openWidgetCreatorModal(root, pid) })
+  createBtn?.addEventListener('click', (ev) => {
+    ev.preventDefault(); ev.stopPropagation();
+    try { showRouteLoading('ウィジェット作成', 'blue', { style: 'single', spinMs: 1200, minMs: 900 }) } catch {}
+    try { sessionStorage.setItem('wc-target-pid', pid) } catch {}
+    try { sessionStorage.setItem('wc-return-to-picker', '1') } catch {}
+    try { close() } catch {}
+    window.location.hash = '#/widget/create'
+  })
+
+  // Add from user's library into this project
+  const myAddBtn = overlay.querySelector('#wp-my-add') as HTMLElement | null
+  myAddBtn?.addEventListener('click', async (ev) => {
+    ev.preventDefault(); ev.stopPropagation()
+    const pickWrap = document.createElement('div')
+    pickWrap.className = 'fixed inset-0 z-[70] grid place-items-center'
+    pickWrap.innerHTML = `
+      <div class=\"absolute inset-0 bg-black/40\"></div>
+      <div class=\"relative w-[min(520px,92vw)] max-h-[70vh] overflow-hidden rounded-xl bg-neutral-900 ring-2 ring-neutral-600 shadow-2xl text-gray-100\">\n        <header class=\"h-10 flex items-center px-4 border-b border-neutral-600\"><div class=\"font-semibold\">手持ちのウィジェット</div><button class=\"ml-auto text-xl\" id=\"mylib-close\">×</button></header>\n        <div class=\"p-3 space-y-2 overflow-auto\" id=\"mylib-list\"></div>\n      </div>`
+    overlay.appendChild(pickWrap)
+    const closePick = () => pickWrap.remove()
+    pickWrap.querySelector('#mylib-close')?.addEventListener('click', closePick)
+    const listEl = pickWrap.querySelector('#mylib-list') as HTMLElement
+    // Resolve current user id
+    const getUid = async (): Promise<number | null> => {
+      try { const app: any = document.getElementById('app'); const m = app?._me; if (m && m.id) return Number(m.id) } catch {}
+      try { const me = await apiFetch<{ id: number }>(`/me`); try { (document.getElementById('app') as any)._me = me } catch {}; return me?.id ?? null } catch { return null }
+    }
+    const uid = await getUid()
+    const my = uid != null ? userLibGet(uid) : []
+    if (!my.length) {
+      listEl.innerHTML = `<div class=\"text-sm text-gray-400\">手持ちのウィジェットがありません。先に作成してください。</div>`
+    } else {
+      my.forEach((en) => {
+        const item = document.createElement('div')
+        item.className = 'flex items-center gap-2 p-2 rounded hover:bg-neutral-800/60 cursor-pointer'
+        item.innerHTML = `<div class=\"flex-1\">${en.name || (en.type==='flow'?'フロー':'カスタム')}</div><div class=\"text-xs text-gray-400\">${en.type}</div>`
+        item.addEventListener('click', async () => {
+          try {
+            await wsLoadAll(pid)
+            const cur = (wsGet(pid, 'lib_widgets') as any[]) || []
+            const id = `shr-${uid}-${en.id}`
+            if (!cur.find((x: any) => x && x.id === id)) {
+              const copy = { ...en, id, owner: uid }
+              await wsSet(pid, 'lib_widgets', cur.concat(copy))
+            }
+          } catch {}
+          try { close() } catch {}
+          setTimeout(() => { try { openWidgetPickerModal(root, pid) } catch {} }, 0)
+          closePick()
+        })
+        listEl.appendChild(item)
+      })
+    }
+  })
+
+  // Aside: render project-shared library list
+  const renderProjLibList = () => {
+    const box = overlay.querySelector('#wp-proj-lib') as HTMLElement | null
+    if (!box) return
+    const arr = (wsGet(pid, 'lib_widgets') as any[]) || []
+    box.innerHTML = ''
+    if (!arr.length) {
+      box.innerHTML = '<div class="text-xs text-gray-400">まだ追加されていません。</div>'
+      return
+    }
+    arr.forEach((en: any) => {
+      const row = document.createElement('div')
+      row.className = 'flex items-center gap-2'
+      const btn = document.createElement('button')
+      btn.className = 'flex-1 text-left px-2 py-1.5 rounded bg-neutral-800/60 ring-1 ring-neutral-600 hover:bg-neutral-800 text-sm'
+      btn.textContent = en.name || (en.type === 'flow' ? 'フロー' : 'カスタム')
+      btn.addEventListener('click', () => {
+        if (onPick) {
+          try { (window as any)._wpPickedLibName = en.name || '' } catch {}
+          close()
+          setTimeout(() => { try { onPick('custom') } catch {} }, 0)
+          return
+        }
+        ;(window as any)._hxwPending = { shape: en.shape, rgb: en.rgb, alpha: en.alpha, name: en.name, flowGraph: en.flowGraph }
+        close()
+        setTimeout(() => { try { hxwStartPlacement(root, pid, en.type || 'custom') } catch {} }, 0)
+      })
+      const del = document.createElement('button')
+      del.className = 'px-2 py-1 text-sm text-rose-400 hover:text-rose-300'
+      del.textContent = '×'
+      del.title = 'プロジェクトから削除'
+      del.addEventListener('click', async (ev) => {
+        ev.stopPropagation()
+        try {
+          await wsLoadAll(pid)
+          const cur = (wsGet(pid, 'lib_widgets') as any[]) || []
+          const next = cur.filter((x: any) => x && x.id !== en.id)
+          await wsSet(pid, 'lib_widgets', next)
+          renderProjLibList()
+        } catch {}
+      })
+      row.appendChild(btn)
+      row.appendChild(del)
+      box.appendChild(row)
+    })
+  }
+  try { wsLoadAll(pid).then(() => { try { renderProjLibList() } catch {} }) } catch {}
 
   const types: string[] = ['readme','contrib','committers','markdown','tasksum','links','skin','tabnew','invite','account','clock','clock-digital','spacer']
   const titleOf = (t: string) => widgetTitle(t)
@@ -3584,8 +3703,8 @@ function openWidgetPickerModal(root: HTMLElement, pid: string, onPick?: (type: s
   // Occupancy and anchor search (compact field centered in its container)
   const occ = new Set<string>()
   const key = (q:number,r:number) => `${q},${r}`
-  // include user library entries
-  const lib = wpLibGet(pid)
+  // Include project-shared library items (server-backed) as tiles in the field
+  const lib: any[] = ((wsGet(pid, 'lib_widgets') as any[]) || [])
   const anchors = axGrow((types.length + lib.length) * 30)
   const items: Array<{ type: string; cells: Array<{q:number;r:number}>, label?: string, rgba?: string, lib?: LibEntry }> = []
   // neighbor helper for odd-q grid
@@ -3631,14 +3750,14 @@ function openWidgetPickerModal(root: HTMLElement, pid: string, onPick?: (type: s
     }
   })
   // place library entries with their saved shapes/colors
-  lib.forEach((en) => {
+  lib.forEach((en: any) => {
     const rel = (en.shape && en.shape.length) ? en.shape : [[0,0]]
     for (const [ax, az] of anchors) {
       const cells = rel.map(([sx,sz]) => axialToOddq(ax+sx, az+sz))
       if (cells.some(c => occ.has(key(c.q,c.r)))) continue
       cells.forEach(c => occ.add(key(c.q,c.r)))
       const rgba = en.rgb ? `rgba(${en.rgb[0]},${en.rgb[1]},${en.rgb[2]}, ${typeof en.alpha==='number'? en.alpha : 0.38})` : fillFor('lib').flat
-      items.push({ type: `lib:${en.id}:${en.type}`, cells, label: en.name || (en.type==='flow'?'フロー':'カスタム'), rgba, lib: en })
+      items.push({ type: `lib:${en.id}:${en.type || 'custom'}`, cells, label: en.name || (en.type==='flow'?'フロー':'カスタム'), rgba, lib: en })
       break
     }
   })
@@ -3684,14 +3803,16 @@ function openWidgetPickerModal(root: HTMLElement, pid: string, onPick?: (type: s
             <div><button id="lib-del" class="rounded bg-rose-700 hover:bg-rose-600 text-white text-xs font-medium px-3 py-1.5">削除</button></div>
           </div>`
           const del = descBody.querySelector('#lib-del') as HTMLElement | null
-          del?.addEventListener('click', () => {
+          del?.addEventListener('click', async () => {
             if (!confirm(`${entry.name || 'ウィジェット'} を削除しますか？`)) return
             try {
-              const next = wpLibGet(pid).filter(x => x.id !== entry.id)
-              wpLibSet(pid, next)
-              close()
-              setTimeout(() => { try { openWidgetPickerModal(root, pid) } catch {} }, 0)
+              await wsLoadAll(pid)
+              const cur = (wsGet(pid, 'lib_widgets') as any[]) || []
+              const next = cur.filter((x: any) => x && x.id !== entry.id)
+              await wsSet(pid, 'lib_widgets', next)
             } catch {}
+            close()
+            setTimeout(() => { try { openWidgetPickerModal(root, pid) } catch {} }, 0)
           })
           return
         }
@@ -3748,12 +3869,16 @@ function openWidgetPickerModal(root: HTMLElement, pid: string, onPick?: (type: s
       ev.preventDefault(); ev.stopPropagation()
       const ok = confirm(`${it.lib.name || 'ウィジェット'} を削除しますか？`)
       if (!ok) return
-      try {
-        const next = wpLibGet(pid).filter(x => x.id !== it.lib!.id)
-        wpLibSet(pid, next)
+      ;(async () => {
+        try {
+          await wsLoadAll(pid)
+          const cur = (wsGet(pid, 'lib_widgets') as any[]) || []
+          const next = cur.filter((x: any) => x && x.id !== it.lib!.id)
+          await wsSet(pid, 'lib_widgets', next)
+        } catch {}
         ;(document.getElementById('wp-close') as HTMLButtonElement | null)?.click()
         setTimeout(() => { try { openWidgetPickerModal(root, pid) } catch {} }, 0)
-      } catch {}
+      })()
     })
     host.tabIndex = 0
     it.cells.forEach((c) => {
@@ -8212,6 +8337,17 @@ type LibEntry = { id: string; type: 'custom'|'flow'; name: string; shape: Array<
 function wpLibKey(pid: string): string { return `pj-wp-lib-${pid}` }
 function wpLibGet(pid: string): LibEntry[] { try { const v = JSON.parse(localStorage.getItem(wpLibKey(pid))||'[]') as LibEntry[]; return Array.isArray(v)? v: [] } catch { return [] } }
 function wpLibSet(pid: string, list: LibEntry[]): void { try { localStorage.setItem(wpLibKey(pid), JSON.stringify(list)) } catch {} }
+function userLibKey(uid: number): string { return `pj-wp-lib-user-${uid}` }
+function userLibGet(uid: number): LibEntry[] { try { const v = JSON.parse(localStorage.getItem(userLibKey(uid))||'[]') as LibEntry[]; return Array.isArray(v)? v: [] } catch { return [] } }
+function userLibSet(uid: number, list: LibEntry[]): void { try { localStorage.setItem(userLibKey(uid), JSON.stringify(list)) } catch {} }
+function wpLibGlobalKey(): string { return 'pj-wp-lib-global' }
+function wpLibGlobalGet(): LibEntry[] { try { const v = JSON.parse(localStorage.getItem(wpLibGlobalKey())||'[]') as LibEntry[]; return Array.isArray(v)? v: [] } catch { return [] } }
+function wpLibGlobalSet(list: LibEntry[]): void { try { localStorage.setItem(wpLibGlobalKey(), JSON.stringify(list)) } catch {} }
+function wpLibAll(pid: string): Array<LibEntry & { __src?: 'global'|'pid' }> {
+  const g = wpLibGlobalGet().map((x) => ({ ...x, __src: 'global' as const }))
+  const p = wpLibGet(pid).map((x) => ({ ...x, __src: 'pid' as const }))
+  return g.concat(p)
+}
 function renderPickerLibrary(pid: string): void {
   const field = document.querySelector('#wp-field') as HTMLElement | null
   if (!field) return
@@ -8220,7 +8356,7 @@ function renderPickerLibrary(pid: string): void {
   wrap.style.position = 'absolute'; wrap.style.left = '8px'; wrap.style.right = '8px'; wrap.style.bottom = '8px'
   wrap.style.display = 'flex'; wrap.style.gap = '8px'; wrap.style.flexWrap = 'wrap'
   wrap.style.zIndex = '20'
-  const list = wpLibGet(pid)
+  const list = wpLibAll(pid)
   wrap.innerHTML = ''
   list.forEach((en) => {
     const item = document.createElement('div')
@@ -8254,8 +8390,14 @@ function renderPickerLibrary(pid: string): void {
     del.style.padding = '0 2px'
     del.addEventListener('click', (ev) => {
       ev.stopPropagation()
-      const next = wpLibGet(pid).filter(x => x.id !== en.id)
-      wpLibSet(pid, next)
+      const src = (en as any).__src
+      if (src === 'global') {
+        const nextG = wpLibGlobalGet().filter(x => x.id !== en.id)
+        wpLibGlobalSet(nextG)
+      } else {
+        const nextP = wpLibGet(pid).filter(x => x.id !== en.id)
+        wpLibSet(pid, nextP)
+      }
       // Reopen picker to rebuild field honeycomb with lib items removed
       try { (document.getElementById('wp-close') as HTMLButtonElement | null)?.click() } catch {}
       try { const root = (window as any)._hxwPickerRoot as HTMLElement | null; const pid2 = (window as any)._hxwPickerPid as string | null; if (root && pid2) setTimeout(()=>openWidgetPickerModal(root, pid2!),0) } catch {}

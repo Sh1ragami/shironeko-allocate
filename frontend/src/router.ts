@@ -28,6 +28,12 @@ export class Router {
     const path = this.normalize(window.location.hash)
     const prev = this.lastPath
     this.lastPath = path
+    // Ensure loader for widget-create screen even on direct navigation
+    try {
+      if (path === '/widget/create' || path === '/project/widget-create') {
+        showRouteLoading('ウィジェット作成', 'blue', { style: 'single', spinMs: 1200, minMs: 900 })
+      }
+    } catch {}
     // When returning from project detail to list, show a brief transition overlay
     if (prev && prev.startsWith('/project/detail') && path === '/project') {
       let bc: string | undefined
