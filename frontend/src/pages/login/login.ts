@@ -51,6 +51,26 @@ export function renderLogin(container: HTMLElement): void {
       </main>
     </div>
   `
+  // Fallback token capture when returning from OAuth, in case app boot hook missed it
+  try {
+    const hash = window.location.hash || ''
+    let [, query = ''] = hash.split('?')
+    let token = ''
+    if (query) token = new URLSearchParams(query).get('token') || ''
+    if (!token) {
+      const search = window.location.search || ''
+      if (search) token = new URLSearchParams(search).get('token') || ''
+    }
+    if (!token) {
+      const m = /[?#&]token=([^&#]+)/.exec(window.location.href)
+      token = m ? decodeURIComponent(m[1]) : ''
+    }
+    if (token) {
+      try { localStorage.setItem('apiToken', token) } catch {}
+      window.location.hash = '#/project'
+      return
+    }
+  } catch {}
   // If explicitly logged out, force re-auth on next click
   const link = container.querySelector('#loginLink') as HTMLAnchorElement | null
   const forced = localStorage.getItem('justLoggedOut') === '1'
