@@ -51,6 +51,11 @@ export class Router {
     // Auth guard: allow only public paths when not logged in
     const publicPaths = new Set<string>(['/', '/login', '/404'])
     const token = localStorage.getItem('apiToken')
+    // If already authenticated, avoid showing the login page
+    if (token && path === '/login') {
+      window.location.hash = '#/project'
+      return
+    }
     if (!token && !publicPaths.has(path)) {
       window.location.hash = '#/login'
       return
