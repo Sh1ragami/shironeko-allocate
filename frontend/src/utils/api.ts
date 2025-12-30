@@ -33,7 +33,7 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
   const headers = new Headers(init.headers)
   if (token) headers.set('Authorization', `Bearer ${token}`)
 
-  const res = await fetch(joinApi(path), { ...init, headers })
+  const res = await fetch(joinApi(path), { ...init, headers, credentials: 'include' })
   if (!res.ok) {
     // If auth fails, clear token and redirect to login
     if (res.status === 401) {
