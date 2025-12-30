@@ -67,6 +67,9 @@ export function renderLogin(container: HTMLElement): void {
     }
     if (token) {
       try { localStorage.setItem('apiToken', token) } catch {}
+      // Clean URL completely to remove any token in search/hash
+      const cleanUrl = `${window.location.origin}${window.location.pathname}#/project`
+      try { history.replaceState(null, '', cleanUrl) } catch {}
       window.location.hash = '#/project'
       return
     }

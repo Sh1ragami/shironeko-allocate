@@ -54,8 +54,8 @@ function captureTokenFromHash(): void {
   }
   if (token) {
     try { localStorage.setItem('apiToken', token) } catch {}
-    // Clean URL: drop token param from hash if present
-    const base = hash.split('?')[0] || '#/project'
-    try { history.replaceState(null, '', base) } catch {}
+    // Clean URL completely: drop search (?token=...) and hash query
+    const cleanUrl = `${window.location.origin}${window.location.pathname}#/project`
+    try { history.replaceState(null, '', cleanUrl) } catch {}
   }
 }
