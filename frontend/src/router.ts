@@ -28,6 +28,12 @@ export class Router {
     const path = this.normalize(window.location.hash)
     const prev = this.lastPath
     this.lastPath = path
+    // Ensure loader for widget-create screen even on direct navigation
+    try {
+      if (path === '/widget/create' || path === '/project/widget-create') {
+        showRouteLoading('ウィジェット作成', 'blue', { style: 'single', spinMs: 1200, minMs: 900 })
+      }
+    } catch {}
     // When returning from project detail to list, show a brief transition overlay
     if (prev && prev.startsWith('/project/detail') && path === '/project') {
       let bc: string | undefined
@@ -35,10 +41,11 @@ export class Router {
       try { showRouteLoading('プロジェクト一覧', (bc as any), { style: 'single', spinMs: 950 }) } catch {}
     }
     this.cleanupFloatingUI()
-    // Clear route-loading unless single-hex animation is controlling its own end
+    // Clear route-loading unless an animation is controlling its own end (single / seamless)
     try {
       const rl = document.getElementById('routeLoading') as HTMLElement | null
-      const controlled = !!rl && rl.getAttribute('data-style') === 'single'
+      const mode = rl?.getAttribute('data-style') || ''
+      const controlled = !!rl && (mode === 'single' || mode === 'seamless')
       if (!controlled) hideRouteLoading()
     } catch {}
     // Auth guard: allow only public paths when not logged in

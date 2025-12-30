@@ -2,7 +2,8 @@ import { apiFetch, ApiError } from '../../utils/api'
 import { openTaskModal, openTaskModalGh } from './task-modal'
 import { renderNotFound } from '../not-found/not-found'
 import { getTheme, setTheme } from '../../utils/theme'
-import { hideRouteLoading, showRouteLoading } from '../../utils/route-loading'
+import { hideRouteLoading, showRouteLoading, finishSeamless } from '../../utils/route-loading'
+import { honeyHexEmptySvg, honeyHexFilledSvg } from '../../utils/honeycomb'
 import { consumePrefetchedProject } from '../../utils/prefetch'
 // (no component-level imports; keep in-page implementations)
 // Account modal helpers (duplicated to open over current page)
@@ -31,6 +32,21 @@ function tintHex(hex: string, pct = 0.2): string {
   g = Math.min(255, Math.round(g + (255 - g) * pct))
   b = Math.min(255, Math.round(b + (255 - b) * pct))
   return `rgb(${r}, ${g}, ${b})`
+}
+// Derive darker side and lighter highlight from a base rgba()/rgb() color
+function deriveFacets(main: string): { side: string; hi: string } {
+  const m = main.match(/^rgba?\((\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([0-9.]+))?\)$/)
+  if (!m) return { side: main, hi: main }
+  const r = parseInt(m[1], 10), g = parseInt(m[2], 10), b = parseInt(m[3], 10)
+  const a = m[4] != null ? Math.max(0, Math.min(1, parseFloat(m[4]))) : 1
+  const clamp = (x: number) => Math.max(0, Math.min(255, Math.round(x)))
+  const sr = clamp(r * 0.35), sg = clamp(g * 0.35), sb = clamp(b * 0.35)
+  const sa = Math.max(0.65, Math.min(0.9, a + 0.30))
+  const hr = clamp(r + (255 - r) * 0.12)
+  const hg = clamp(g + (255 - g) * 0.12)
+  const hb = clamp(b + (255 - b) * 0.12)
+  const ha = Math.max(0.16, Math.min(0.3, a + 0.06))
+  return { side: `rgba(${sr},${sg},${sb},${sa})`, hi: `rgba(${hr},${hg},${hb},${ha})` }
 }
 const ICON_BELL = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="36" height="36" fill="currentColor" aria-hidden="true"><path d="M12 22a2 2 0 002-2h-4a2 2 0 002 2zm6-6v-5a6 6 0 00-4.5-5.82V4a1.5 1.5 0 10-3 0v1.18A6 6 0 006 11v5l-2 2v1h16v-1l-2-2z"/></svg>'
 const ICON_PALETTE = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="36" height="36" fill="currentColor" aria-hidden="true"><path d="M12 3a9 9 0 100 18h1a2 2 0 002-2 2 2 0 012-2h1a4 4 0 100-8h-1a1 1 0 01-1-1 4 4 0 00-4-4zm-5.5 8A1.5 1.5 0 118 9.5 1.5 1.5 0 016.5 11zm3 3A1.5 1.5 0 1111 12.5 1.5 1.5 0 019.5 14zm5-6A1.5 1.5 0 1116 6.5 1.5 1.5 0 0114.5 8zm2 4A1.5 1.5 0 1118 10.5 1.5 1.5 0 0116.5 12z"/></svg>'
@@ -972,6 +988,8 @@ function parseHashQuery(): Record<string, string> {
 }
 
 export async function renderProjectDetail(container: HTMLElement): Promise<void> {
+  // Clean up any list-page info panel that might linger (remove unconditionally before rendering)
+  try { document.querySelectorAll('#giInfo').forEach((el) => (el as HTMLElement).remove()) } catch {}
   const { id } = parseHashQuery()
   // ID validation: ensure it's a numeric string
   if (!id || !/^\d+$/.test(id)) {
@@ -1011,17 +1029,212 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
   const owner = fullName.includes('/') ? fullName.split('/')[0] : me?.name || 'User'
   const repoName = fullName.includes('/') ? fullName.split('/')[1] : project.name
 
-  // Render the full layout once with all available data
-  container.innerHTML = detailLayout({ id: project.id, name: project.name, fullName, owner, repo: repoName })
-  // Intercept breadcrumb click to add a back animation to project list
+  // Determine if we are entering from project list with native slide
+  // (flag is set in project list before navigating)
+  let entryDir: string | null = null
+  try { entryDir = sessionStorage.getItem('proj-entry-dir') } catch {}
+  const entryHidden = (entryDir === 'left' || entryDir === 'right')
+  // Render the full layout once with all available data. Hide the hex field initially
+  // when coming from list to prevent a one-frame central flash before animation setup.
+  container.innerHTML = detailLayout({ id: project.id, name: project.name, fullName, owner, repo: repoName }, { entryHidden })
+  // Default to non-edit mode when:
+  // - arriving from list (entry animation flag present), OR
+  // - the initial page load is a direct navigation to this detail (NavigationType 'navigate').
+  // Do NOT override on reload/back-forward, and do NOT override when re-entering the
+  // same project within the same SPA session.
+  let navType: string | null = null
+  try {
+    const entries = (performance as any)?.getEntriesByType?.('navigation') || []
+    if (entries && entries.length) navType = (entries[0] as any).type || null
+    else if ((performance as any).navigation) {
+      const t = (performance as any).navigation.type
+      navType = (t === 0 ? 'navigate' : t === 1 ? 'reload' : t === 2 ? 'back_forward' : 'prerender')
+    }
+  } catch {}
+  const prevPid = (window as any).__pdCurrentProjectId
+  const sameProjectInSession = String(prevPid || '') === String(project.id)
+  const isInitialNavigate = navType === 'navigate'
+  if (entryHidden || (isInitialNavigate && !sameProjectInSession)) {
+    try { localStorage.setItem(`wg-edit-${project.id}`, '0') } catch {}
+  }
+  ;(window as any).__pdCurrentProjectId = String(project.id)
+  // Helper: Intro title float-up (will be invoked when arrival reaches center)
+  const showIntroTitle = () => {
+    try {
+      const old = document.getElementById('pdIntroTitle'); if (old) old.remove()
+      const el = document.createElement('div')
+      el.id = 'pdIntroTitle'
+      const title = (project?.github_meta?.ui?.alias || project?.name || repoName || '').toString()
+      el.textContent = title
+      document.body.appendChild(el)
+      el.classList.add('pd-in')
+      setTimeout(() => { el.classList.remove('pd-in'); el.classList.add('pd-out'); setTimeout(()=>el.remove(), 420) }, 1200)
+    } catch {}
+  }
+  // If coming from list with native transition, slide in actual detail honeycomb and fade dimmer
+  try {
+    const dir = (entryDir || sessionStorage.getItem('proj-entry-dir'))
+    if (dir === 'left' || dir === 'right') {
+      try { (container as HTMLElement).setAttribute('data-arriving', '1') } catch {}
+      const wrapD = container.querySelector('#hxwWrap') as HTMLElement | null
+      const canvasD = container.querySelector('#hxwCanvas') as HTMLElement | null
+      if (wrapD) wrapD.style.visibility = 'hidden'
+      const durationMove = 800
+      const durationGrow = 400
+      // S-curve easing (easeInOutCubic): 徐々に加速→徐々に減速
+      const ease = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2)
+      const now = () => performance.now()
+      const animate = (dur: number, step: (t:number)=>void, done: ()=>void) => {
+        const t0 = now()
+        const tick = () => { const t = Math.min(1, (now()-t0)/dur); step(ease(t)); if (t<1) requestAnimationFrame(tick); else done() }
+        requestAnimationFrame(tick)
+      }
+      const startArrival = () => {
+        const stD: any = (wrapD as any)?._hxw
+        if (!wrapD || !canvasD || !stD) { setTimeout(startArrival, 16); return }
+        const origScale = stD.scale || 1
+        const origX = stD.offsetX || 0
+        // Set initial: small; compute centered Y at small scale
+        // Prefer absolute unit size recorded in list (tile*scale) to match visual size exactly
+        let targetScale = origScale * 0.6
+        try {
+          const unitSmall = parseFloat(sessionStorage.getItem('proj-small-unit') || '')
+          const tile = stD.tile || 200
+          if (isFinite(unitSmall) && unitSmall > 1) {
+            targetScale = unitSmall / tile
+          } else {
+            const r = parseFloat(sessionStorage.getItem('proj-shrink-ratio') || '')
+            if (isFinite(r) && r > 0.1 && r < 2.0) targetScale = origScale * r
+          }
+        } catch {}
+        stD.scale = Math.max(0.1, targetScale)
+        const viewW = wrapD.clientWidth || 0
+        const viewH = wrapD.clientHeight || 0
+        const contentWSmall = (stD.width || 0) * (stD.scale || 1)
+        const contentHSmall = (stD.height || 0) * (stD.scale || 1)
+        const targetXSmall = Math.round((viewW - contentWSmall) / 2)
+        const targetYSmall = Math.round((viewH - contentHSmall) / 2)
+        // Place offscreen horizontally, but vertically already centered → pure horizontal motion
+        stD.offsetX = origX + (dir === 'left' ? -wrapD.clientWidth * 1.2 : wrapD.clientWidth * 1.2)
+        stD.offsetY = targetYSmall
+        try { (hxwApplyTransform as any)(wrapD, canvasD, stD) } catch {}
+        wrapD.style.visibility = ''
+        try { (wrapD.style as any).opacity = '0' } catch {}
+        // Phase A: move in while small (horizontal only)
+        const startXOff = stD.offsetX
+        animate(durationMove, (t) => {
+          stD.offsetX = Math.round(startXOff + (targetXSmall - startXOff) * t)
+          stD.offsetY = targetYSmall
+          try { (hxwApplyTransform as any)(wrapD, canvasD, stD) } catch {}
+        }, () => {
+          // Show intro title right after reaching center (small scale)
+          try { showIntroTitle() } catch {}
+          // Phase B: grow to normal scale centered on viewport
+          const startS = stD.scale
+          const zoomAtCenter = (s: number) => {
+            const rect = wrapD.getBoundingClientRect()
+            const cx2 = rect.width / 2
+            const cy2 = rect.height / 2
+            const prev = stD.scale
+            const wx = (cx2 - stD.offsetX) / prev
+            const wy = (cy2 - stD.offsetY) / prev
+            stD.scale = s
+            stD.offsetX = cx2 - wx * s
+            stD.offsetY = cy2 - wy * s
+            try { (hxwApplyTransform as any)(wrapD, canvasD, stD) } catch {}
+          }
+          animate(durationGrow, (t2) => {
+            const s = startS + (origScale - startS) * t2
+            zoomAtCenter(s)
+          }, () => {
+            // Re-enable group toast after transition fully completes
+            try { sessionStorage.removeItem('suppress-group-toast'); document.body.removeAttribute('data-suppress-group-toast') } catch {}
+            // Reveal entry-hidden UI parts (e.g., minimap wrapper)
+            try { (container.querySelector('.hxw-mini') as HTMLElement | null)?.style.removeProperty('visibility') } catch {}
+            // Let deferred hydration proceed
+            try { window.dispatchEvent(new CustomEvent('pd-arrived', { detail: { id: project?.id } })) } catch {}
+            // Clear entry flags now that animation is fully done
+            try { (container as HTMLElement).removeAttribute('data-arriving') } catch {}
+            try { sessionStorage.removeItem('proj-entry-dir') } catch {}
+          })
+        })
+        // Fade out and remove pageDimmer quickly, fade in wrap
+        const dim = document.getElementById('pageDimmer') as HTMLElement | null
+        if (dim) { setTimeout(() => { dim.style.opacity = '0'; setTimeout(() => dim.remove(), 120) }, 10) }
+        try { requestAnimationFrame(() => { (wrapD.style as any).opacity = '1' }) } catch {}
+      }
+      setTimeout(startArrival, 0)
+    }
+  } catch {}
+  // Intercept breadcrumb click to run a reverse transition back to list (shrink then slide right)
   try {
     const bc = container.querySelector('#topPathUser') as HTMLAnchorElement | null
     bc?.addEventListener('click', (ev) => {
       ev.preventDefault()
+      const wrap = container.querySelector('#hxwWrap') as HTMLElement | null
+      const canvas = container.querySelector('#hxwCanvas') as HTMLElement | null
+      const st: any = (wrap as any)?._hxw
+      // Set flags for list arrival and suppress toasts during transition
       try { sessionStorage.setItem('pj-back-anim', '1') } catch {}
       try { sessionStorage.setItem('pj-back-color', String(project.color || '')) } catch {}
-      try { showRouteLoading('プロジェクト一覧', project.color as any, { style: 'single', spinMs: 950 }) } catch {}
-      window.location.hash = '#/project'
+      // Remember which project tile to center on in the list
+      try { sessionStorage.setItem('pj-back-focus-id', String(project.id)) } catch {}
+      try { sessionStorage.setItem('suppress-group-toast', '1') } catch {}
+      try { document.body.setAttribute('data-suppress-group-toast', '1') } catch {}
+      // No route loading overlay when returning to list
+      // If layout not ready, fallback to immediate navigation
+      if (!wrap || !canvas || !st) { window.location.hash = '#/project'; return }
+      const ease = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2)
+      const now = () => performance.now()
+      const animate = (dur: number, step: (t:number)=>void, done: ()=>void) => {
+        const t0 = now()
+        const tick = () => { const tt = Math.min(1, (now()-t0)/dur); step(ease(tt)); if (tt<1) requestAnimationFrame(tick); else done() }
+        requestAnimationFrame(tick)
+      }
+      const zoomAtCenter = (s: number) => {
+        const rect = wrap.getBoundingClientRect()
+        const cx2 = rect.width / 2
+        const cy2 = rect.height / 2
+        const effBefore = (function(){ try { return (hxwEffectiveScale as any)(wrap, st) } catch { return st.scale || 1 } })()
+        const wx = (cx2 - st.offsetX) / (effBefore || 1)
+        const wy = (cy2 - st.offsetY) / (effBefore || 1)
+        st.scale = s
+        try {
+          const effAfter = (hxwEffectiveScale as any)(wrap, st)
+          st.offsetX = Math.round(cx2 - wx * (effAfter || s))
+          st.offsetY = Math.round(cy2 - wy * (effAfter || s))
+        } catch {
+          st.offsetX = Math.round(cx2 - wx * s)
+          st.offsetY = Math.round(cy2 - wy * s)
+        }
+        try { (hxwApplyTransform as any)(wrap, canvas, st) } catch {}
+      }
+      const startScale = st.scale || 1
+      const endScale = Math.max(0.1, startScale * 0.6)
+      // Persist the ratio so list can mirror our small state if desired
+      try { sessionStorage.setItem('pj-back-shrink-ratio', String(endScale / Math.max(0.0001, startScale))) } catch {}
+      let sent = false
+      const go = () => { if (sent) return; sent = true; window.location.hash = '#/project' }
+      const durationShrink = 400
+      const durationMove = 800
+      // Phase 1: shrink around viewport center
+      animate(durationShrink, (t) => {
+        const s = startScale + (endScale - startScale) * t
+        zoomAtCenter(s)
+      }, () => {
+        // Phase 2: pan right while small
+        const startX = st.offsetX || 0
+        const targetX = startX + Math.max(wrap.clientWidth * 1.2, 600)
+        const startY = st.offsetY || 0
+        animate(durationMove, (t2) => {
+          st.offsetX = Math.round(startX + (targetX - startX) * t2)
+          st.offsetY = startY
+          try { (hxwApplyTransform as any)(wrap, canvas, st) } catch {}
+        }, () => {})
+        // Navigate near end of move so edge is gone
+        setTimeout(go, Math.max(600, durationMove - 180))
+        setTimeout(go, durationMove + 700) // absolute fallback
+      })
     })
   } catch {}
   // expose project color for honeycomb widget field tone alignment
@@ -1029,8 +1242,8 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
   // Persist back color so browser back/gesture also uses vivid color
   try { sessionStorage.setItem('pj-back-color', String(project.color || 'blue')) } catch {}
   if (fullName) (container as HTMLElement).setAttribute('data-repo-full', fullName)
-  // Hide route-loading once base layout is mounted; hydration continues in background
-  try { hideRouteLoading() } catch {}
+  // For seamless transition: complete final move (from offscreen to center) then fade out overlay
+  try { finishSeamless() } catch { try { hideRouteLoading() } catch {} }
 
   // Store user data if fetched
   if (me) {
@@ -1083,34 +1296,16 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
       // nothing to bind globally; tab switching is handled by widgets and top-left buttons
     }
   } catch { }
-  // Apply saved view mode (2D/3D)
+
+  // Reopen widget picker if returning from create screen via back
   try {
-    const wrap = container.querySelector('#hxwWrap') as HTMLElement | null
-    const canvas = container.querySelector('#hxwCanvas') as HTMLElement | null
-    const key = `hxw-view-${project.id}`
-    const iso = localStorage.getItem(key) === 'iso'
-    if (iso) wrap?.classList.add('hxw-iso')
-    const btn = container.querySelector('#hxwView3d') as HTMLElement | null
-    const applyLabel = () => {
-      if (!btn) return
-      const on = !!wrap?.classList.contains('hxw-iso')
-      btn.setAttribute('aria-pressed', on ? 'true' : 'false')
-      btn.setAttribute('title', on ? '3D モード' : '2D モード')
-      btn.setAttribute('aria-label', on ? '3D モード' : '2D モード')
-      btn.classList.toggle('is-on', on)
-      const lab = btn.querySelector('.ctl-label') as HTMLElement | null
-      if (lab) lab.textContent = on ? '3D' : '2D'
+    const r = sessionStorage.getItem('wc-return-to-picker')
+    if (r === '1') {
+      sessionStorage.removeItem('wc-return-to-picker')
+      setTimeout(() => { try { openWidgetPickerModal(container, String(project.id)) } catch {} }, 0)
     }
-    applyLabel()
-    btn?.addEventListener('click', () => {
-      if (!wrap || !canvas) return
-      const toIso = !wrap.classList.contains('hxw-iso')
-      const st = (wrap as any)._hxw as any
-      try { if (st) hxwToggleIsoKeepCenter(wrap, canvas, st, toIso) } catch {}
-      localStorage.setItem(key, wrap.classList.contains('hxw-iso') ? 'iso' : '2d')
-      applyLabel()
-    })
   } catch {}
+  // 3Dモードは廃止: 2D固定（関連UI/保存は無効化）
   // Bind Add (green hex)
   const fabBtn = container.querySelector('#hxwFab') as HTMLElement | null
   fabBtn?.addEventListener('click', () => {
@@ -1120,7 +1315,7 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
   })
 
   // Global edit toggle (applies to current visible panel)
-  const edt = container.querySelector('#wgEditToggle') as HTMLElement | null
+  const edt = container.querySelector('#wgEditSwitch') as HTMLElement | null
   const applyEditTo = (on: boolean, name: string) => {
     const panel = container.querySelector(`section[data-tab="${name}"]`) as HTMLElement | null
     const grid = panel?.querySelector('#widgetGrid') as HTMLElement | null
@@ -1161,22 +1356,24 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
     if (hx && (hx as any)._setEdit) (hx as any)._setEdit(saved)
   } catch {}
 
-  // DnD (Summary widgets)
-  enableDragAndDrop(container)
-
-  // Kanban board
-  renderKanban(container, String(project.id))
-  // Load saved custom tabs first so dependent widgets (e.g., 新規タブ) can link to them
-  loadCustomTabs(container, String(project.id))
-  // Apply saved tab order (core + custom)
-  try { applySavedTabOrder(container, String(project.id)) } catch { }
-  // Load server-backed widget state (for tabnew/invite, etc.), then refresh dynamic widgets
-  try { await wsLoadAll(String(project.id)) } catch {}
-  try { refreshDynamicWidgets(container, String(project.id)) } catch { }
-  // Enable DnD for tabs
-  try { enableTabDnD(container, String(project.id)) } catch { }
-  // Enable tab drag & drop reordering for custom tabs
-  try { enableTabDnD(container, String(project.id)) } catch { }
+  // Defer heavy hydration if we are in entry animation; show area only until arrival finishes
+  const deferHydration = (entryDir === 'left' || entryDir === 'right')
+  const resumeHydration = async () => {
+    try { enableDragAndDrop(container) } catch {}
+    try { renderKanban(container, String(project.id)) } catch {}
+    try { loadCustomTabs(container, String(project.id)) } catch {}
+    try { applySavedTabOrder(container, String(project.id)) } catch {}
+    try { await wsLoadAll(String(project.id)) } catch {}
+    try { refreshDynamicWidgets(container, String(project.id)) } catch {}
+    try { enableTabDnD(container, String(project.id)) } catch {}
+    try { enableTabDnD(container, String(project.id)) } catch {}
+  }
+  if (deferHydration) {
+    const once = () => { window.removeEventListener('pd-arrived', once as any); resumeHydration() }
+    window.addEventListener('pd-arrived', once as any, { once: true })
+  } else {
+    await resumeHydration()
+  }
 
   // Global top-left quick tab switch (always accessible)
   const showTab = (name: string) => {
@@ -1324,7 +1521,8 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
   } catch { }
 
   // Load data for widgets from GitHub proxy (independent fallbacks)
-  if (fullName) {
+  const hydrateRepo = async () => {
+    if (!fullName) return
     // Overview (repo meta)
     try {
       const repo = await apiFetch<any>(`/github/repo?full_name=${encodeURIComponent(fullName)}`)
@@ -1355,6 +1553,12 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
       await hydrateContribHeatmap(container, fullName)
     } catch { }
   }
+  if (deferHydration) {
+    const runOnce = () => { window.removeEventListener('pd-arrived', runOnce as any); hydrateRepo() }
+    window.addEventListener('pd-arrived', runOnce as any, { once: true })
+  } else {
+    await hydrateRepo()
+  }
 
   // Update avatar image if user was fetched
   if (me?.github_id) {
@@ -1362,7 +1566,22 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
     const url = `https://avatars.githubusercontent.com/u/${me.github_id}?s=96`
     if (accImg) { accImg.src = url; accImg.classList.remove('hidden') }
   }
-  try { hideRouteLoading() } catch {}
+  try {
+    const ov = document.getElementById('routeLoading') as HTMLElement | null
+    if (!ov) { /* already closed */ }
+    else if (ov.getAttribute('data-style') === 'seamless') {
+      // Let finishSeamless control close timing; do nothing here
+    } else {
+      hideRouteLoading()
+    }
+  } catch {}
+  // Show success toast if we just created this project
+  try {
+    if (sessionStorage.getItem('pj-created') === '1') {
+      sessionStorage.removeItem('pj-created')
+      try { showMiniToast('プロジェクトを作成しました') } catch {}
+    }
+  } catch {}
 }
 
 // ---------- Widgets helpers ----------
@@ -1392,6 +1611,64 @@ function widgetShell(id: string, title: string, body: string): string {
   `
 }
 
+// Small toast below the minimap (top-right) for quick feedback like deletions
+function showMiniToast(message: string, opts?: { variant?: 'default' | 'danger' }): void {
+  try {
+    const id = 'miniToast'
+    document.getElementById(id)?.remove()
+    const mini = document.querySelector('.hxw-mini') as HTMLElement | null
+    // Default position roughly under the minimap if not found
+    let top = 164
+    let right = -16 // pull slightly further beyond the edge
+    try {
+      const modal = document.querySelector('.pop-modal') as HTMLElement | null
+      if (modal) {
+        const r = modal.getBoundingClientRect()
+        top = Math.max(10, Math.round(r.top + 10))
+        right = -16
+      } else if (mini) {
+        const r = mini.getBoundingClientRect()
+        top = Math.round(r.bottom + 8)
+        // Pull a bit further right to visually hug the edge
+        right = -16
+      }
+    } catch { }
+    const wrap = document.createElement('div')
+    wrap.id = id
+    wrap.className = 'mini-toast'
+    if (opts?.variant === 'danger') wrap.classList.add('is-danger'); else wrap.classList.add('is-success')
+    wrap.style.top = `${top}px`
+    wrap.style.right = `${right}px`
+    const inner = document.createElement('div')
+    inner.className = 'mini-inner'
+    const body = document.createElement('div')
+    body.className = 'mini-body'
+    // Build icon | text structure
+    const icon = document.createElement('span')
+    icon.className = 'mini-ico'
+    // Choose icon by variant
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+    svg.setAttribute('width', '16'); svg.setAttribute('height', '16'); svg.setAttribute('viewBox', '0 0 24 24'); svg.setAttribute('fill', 'currentColor'); svg.setAttribute('aria-hidden', 'true')
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+    if (opts?.variant === 'danger') {
+      // trash-ish icon
+      path.setAttribute('d', 'M9 3h6a1 1 0 0 1 1 1v1h4v2h-1l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 7H4V5h4V4a1 1 0 0 1 1-1zm2 4h2v12h-2V7zm-4 0h2v12H7V7zm8 0h2v12h-2V7zM9 5h6V4H9v1z')
+    } else {
+      // check mark
+      path.setAttribute('d', 'M20.285 6.709l-11.1 11.1-5.47-5.47 1.414-1.415 4.056 4.056 9.686-9.686 1.414 1.415z')
+    }
+    svg.appendChild(path)
+    icon.appendChild(svg)
+    const sep = document.createElement('span'); sep.className = 'mini-sep'; sep.setAttribute('aria-hidden', 'true')
+    const text = document.createElement('span'); text.className = 'mini-text'; text.textContent = message
+    body.appendChild(icon); body.appendChild(sep); body.appendChild(text)
+    inner.appendChild(body)
+    wrap.appendChild(inner)
+    ;(document.body || document.documentElement).appendChild(wrap)
+    setTimeout(() => { try { wrap.remove() } catch { } }, 3800)
+  } catch { }
+}
+
 function addWidgetCard(): string {
   // Always stay at the bottom and take full width on desktop so it doesn't get in the way
   return `<button id="addWidget" class="order-last md:col-span-12 rounded-xl bg-neutral-800/50 shadow-[0_1px_0_rgba(255,255,255,0.04)_inset,0_6px_18px_rgba(0,0,0,0.3)] grid place-items-center text-gray-400 h-24 md:h-28 hover:bg-neutral-800/60">ウィジェット追加<br/><span class="text-2xl md:text-3xl">＋</span></button>`
@@ -1414,7 +1691,8 @@ function overviewSkeleton(): string {
 }
 
 function barSkeleton(): string {
-  return `<div class="h-60 grid place-items-center text-gray-400">Loading...</div>`
+  // Minimal placeholder (no persistent Loading text)
+  return `<div class="h-60"></div>`
 }
 
 function readmeSkeleton(): string {
@@ -1561,13 +1839,10 @@ function committersRender(root: HTMLElement, stats: Array<{ login: string; avata
       if (i === 0) return
       const login = users[i - 1] || ''
       if (!login) {
-        if (edit) {
-          s.innerHTML = `<button class=\"cm-add text-2xl md:text-3xl text-gray-100\">＋</button>`
-          const btn = s.querySelector('.cm-add') as HTMLElement | null
-          btn?.addEventListener('click', () => openPicker(i))
-        } else {
-          s.innerHTML = `<div class=\"text-[12px] text-gray-100\">未設定</div>`
-        }
+        // 非編集モードでも追加できるように常に＋ボタンを表示
+        s.innerHTML = `<button class=\"cm-add text-2xl md:text-3xl text-gray-100\">＋</button>`
+        const btn = s.querySelector('.cm-add') as HTMLElement | null
+        btn?.addEventListener('click', () => openPicker(i))
       } else {
         if (edit) {
           s.innerHTML = `<div class=\"relative grid place-items-center\">\n          <button title=\"解除\" class=\"cm-del absolute top-0.5 right-0.5 text-[12px] text-gray-300 hover:text-white\">×</button>\n          <img src=\"https://avatars.githubusercontent.com/${login}?s=96\" class=\"rounded-full ring-2 ring-[rgba(255,255,255,0.22)] object-cover\" style=\"width:56px;height:56px\" alt=\"${login}\"/>\n          <div class=\"mt-1 text-[12px] text-gray-200 truncate max-w-[96%]\">${login}</div>\n          <div class=\"cm-count text-[13px] font-semibold text-emerald-300\">…</div>\n        </div>`
@@ -1585,7 +1860,9 @@ function committersRender(root: HTMLElement, stats: Array<{ login: string; avata
             try { hydrateCommittersSelected(root) } catch {}
           })
         } else {
-          s.innerHTML = `<div class=\"relative grid place-items-center\">\n          <img src=\"https://avatars.githubusercontent.com/${login}?s=96\" class=\"rounded-full ring-2 ring-[rgba(255,255,255,0.22)] object-cover\" style=\"width:56px;height:56px\" alt=\"${login}\"/>\n          <div class=\"mt-1 text-[12px] text-gray-200 truncate max-w-[96%]\">${login}</div>\n          <div class=\"cm-count text-[13px] font-semibold text-emerald-300\">…</div>\n        </div>`
+          s.innerHTML = `<div class=\"relative grid place-items-center\">\n          <button title=\"解除\" class=\"cm-del absolute top-0.5 right-0.5 text-[12px] text-gray-300 hover:text-white\">×</button>\n          <img src=\"https://avatars.githubusercontent.com/${login}?s=96\" class=\"cm-avatar rounded-full ring-2 ring-[rgba(255,255,255,0.22)] object-cover\" style=\"width:56px;height:56px\" alt=\"${login}\"/>\n          <div class=\"mt-1 text-[12px] text-gray-200 truncate max-w-[96%]\">${login}</div>\n          <div class=\"cm-count text-[13px] font-semibold text-emerald-300\">…</div>\n        </div>`
+          const del2 = s.querySelector('.cm-del') as HTMLElement | null
+          del2?.addEventListener('click', (ev) => { ev.stopPropagation(); const next = users.slice(); next[i - 1] = '' as any; cmSet(next); s.innerHTML = `<button class=\\\"cm-add text-2xl md:text-3xl text-gray-100\\\">＋</button>`; (s.querySelector('.cm-add') as HTMLElement | null)?.addEventListener('click', () => openPicker(i)) })
         }
       }
     })
@@ -1667,22 +1944,26 @@ async function hydrateCommittersSelected(root: HTMLElement): Promise<void> {
   const full = host.getAttribute('data-repo-full') || (document.querySelector('[data-repo-full]') as HTMLElement | null)?.getAttribute('data-repo-full') || ''
   if (!full) return
   const pid = (document.getElementById('hxwCanvas') as HTMLElement | null)?.getAttribute('data-pid') || (root.getAttribute('data-pid') || '')
-  const countObj = await ensureCommitCounts(full)
   const widgets = Array.from(root.querySelectorAll('.hxw-widget[data-type="committers"]')) as HTMLElement[]
-  widgets.forEach((widEl) => {
+  for (const widEl of widgets) {
     const wid = widEl.getAttribute('data-widget') || ''
+    const pid = (document.getElementById('hxwCanvas') as HTMLElement | null)?.getAttribute('data-pid') || (root.getAttribute('data-pid') || '')
+    const rKey = (p: string, w: string) => `pj-cm-range-${p}-${w}`
+    const days = Math.max(7, parseInt(localStorage.getItem(rKey(pid, wid)) || '90', 10))
+    const countObj = await ensureCommitCounts(full, days)
+    const slotsWrap = widEl.querySelector('.hxw-cells') as HTMLElement | null
+    if (!slotsWrap) continue
+    const outers = Array.from(slotsWrap.querySelectorAll('.hxw-slot .slot-inner')).slice(1) as HTMLElement[]
     const cmKey = (p: string, w: string) => `pj-cm-users-${p}-${w}`
     let users: string[] = []
     try { users = JSON.parse(localStorage.getItem(cmKey(pid, wid)) || '[]') as string[] } catch { users = [] }
-    const slotsWrap = widEl.querySelector('.hxw-cells') as HTMLElement | null
-    if (!slotsWrap) return
-    const outers = Array.from(slotsWrap.querySelectorAll('.hxw-slot .slot-inner')).slice(1) as HTMLElement[]
     outers.forEach((s, idx) => {
       const login = users[idx] || ''
       const el = s.querySelector('.cm-count') as HTMLElement | null
       if (el) el.textContent = login ? String(countObj[login] || 0) : ''
     })
-  })
+    try { if (widget) densifyCommitters(widget, 1) } catch {}
+  }
 }
 
 async function committersPopulate(root: HTMLElement): Promise<void> {
@@ -1691,7 +1972,7 @@ async function committersPopulate(root: HTMLElement): Promise<void> {
   const pid = (document.getElementById('hxwCanvas') as HTMLElement | null)?.getAttribute('data-pid') || (root.getAttribute('data-pid') || '')
   const widgets = Array.from(root.querySelectorAll('.hxw-widget[data-type="committers"]')) as HTMLElement[]
   if (widgets.length === 0) return
-  const counts = full ? await ensureCommitCounts(full) : {}
+  const countsByDays = new Map<number, Record<string, number>>()
   for (const widEl of widgets) {
     const slotsWrap = widEl.querySelector('.hxw-cells') as HTMLElement | null
     if (!slotsWrap) continue
@@ -1704,8 +1985,10 @@ async function committersPopulate(root: HTMLElement): Promise<void> {
     let users: string[] = []
     try { users = JSON.parse(localStorage.getItem(cmKey(pid, wid)) || '[]') as string[] } catch { users = [] }
     const slots = Array.from(slotsWrap.querySelectorAll('.hxw-slot .slot-inner')) as HTMLElement[]
-    // center label
-    if (slots[0]) slots[0].innerHTML = `<div class=\"text-center text-gray-100\"><div class=\"text-[12px]\">コミット数</div><div class=\"text-[11px] text-gray-300\">過去90日</div></div>`
+    const rKey = (p: string, w: string) => `pj-cm-range-${p}-${w}`
+    let days = Math.max(7, parseInt(localStorage.getItem(rKey(pid, wid)) || '90', 10))
+    // center label with range toggle
+    if (slots[0]) slots[0].innerHTML = `<div class=\"text-center text-gray-100\"><div class=\"text-[12px]\">コミット数</div><button class=\"cm-range text-[11px] text-gray-300 hover:text-white underline decoration-dotted\">過去${days}日</button></div>`
     const openPicker = async (slotIdx: number) => {
       document.getElementById('cmPicker')?.remove()
       const overlay = document.createElement('div')
@@ -1734,26 +2017,46 @@ async function committersPopulate(root: HTMLElement): Promise<void> {
       overlay.addEventListener('click', (e) => { if (e.target === overlay) overlay.remove() })
     }
     // outer cells
+    // click center range to cycle [30, 90, 180, 365]
+    try {
+      const rngBtn = slots[0]?.querySelector('.cm-range') as HTMLElement | null
+      rngBtn?.addEventListener('click', async (ev) => {
+        ev.preventDefault()
+        const list = [30, 90, 180, 365]
+        const cur = Math.max(7, parseInt(localStorage.getItem(rKey(pid, wid)) || String(days), 10))
+        const next = list[(list.indexOf(cur) + 1) % list.length] || 90
+        localStorage.setItem(rKey(pid, wid), String(next))
+        // refresh this widget only
+        await committersPopulate(root)
+        await hydrateCommittersSelected(root)
+      })
+    } catch {}
+    // outer cells
     slots.forEach((s, idx) => {
       if (idx === 0) return
       const login = users[idx - 1] || ''
       if (!login) {
-        if (edit) {
-          s.innerHTML = `<button class=\"cm-add text-2xl md:text-3xl text-gray-100\">＋</button>`
-          ;(s.querySelector('.cm-add') as HTMLElement | null)?.addEventListener('click', () => openPicker(idx))
-        } else {
-          s.innerHTML = `<div class=\"text-[12px] text-gray-100\">未設定</div>`
-        }
+        // 非編集モードでも追加できるように常に＋ボタンを表示
+        s.innerHTML = `<button class=\"cm-add text-2xl md:text-3xl text-gray-100\">＋</button>`
+        ;(s.querySelector('.cm-add') as HTMLElement | null)?.addEventListener('click', () => openPicker(idx))
       } else {
         if (edit) {
-          s.innerHTML = `<div class=\"relative grid place-items-center\">\n          <button title=\"解除\" class=\"cm-del absolute top-0.5 right-0.5 text-[12px] text-gray-300 hover:text-white\">×</button>\n          <img src=\"https://avatars.githubusercontent.com/${login}?s=96\" class=\"rounded-full ring-2 ring-[rgba(255,255,255,0.22)] object-cover\" style=\"width:56px;height:56px\" alt=\"${login}\"/>\n          <div class=\"mt-1 text-[12px] text-gray-200 truncate max-w-[96%]\">${login}</div>\n          <div class=\"cm-count text-[13px] font-semibold text-emerald-300\">${counts[login]||0}</div>\n        </div>`
+          s.innerHTML = `<div class=\"relative grid place-items-center\">\n          <button title=\"解除\" class=\"cm-del absolute top-0.5 right-0.5 text-[12px] text-gray-300 hover:text-white\">×</button>\n          <img src=\"https://avatars.githubusercontent.com/${login}?s=96\" class=\"cm-avatar rounded-full ring-2 ring-[rgba(255,255,255,0.22)] object-cover\" style=\"width:56px;height:56px\" alt=\"${login}\"/>\n          <div class=\"mt-1 text-[12px] text-gray-200 truncate max-w-[96%]\">${login}</div>\n          <div class=\"cm-count text-[13px] font-semibold text-emerald-300\">${(countsByDays.get(days)||{})[login]||0}</div>\n        </div>`
           s.addEventListener('click', (ev) => { const t = ev.target as HTMLElement; if (!t.closest('.cm-del')) openPicker(idx) })
           ;(s.querySelector('.cm-del') as HTMLElement | null)?.addEventListener('click', (ev) => { ev.stopPropagation(); const next = users.slice(); next[idx - 1] = ''; localStorage.setItem(cmKey(pid, wid), JSON.stringify(next)); committersPopulate(root) })
         } else {
-          s.innerHTML = `<div class=\"relative grid place-items-center\">\n          <img src=\"https://avatars.githubusercontent.com/${login}?s=96\" class=\"rounded-full ring-2 ring-[rgba(255,255,255,0.22)] object-cover\" style=\"width:56px;height:56px\" alt=\"${login}\"/>\n          <div class=\"mt-1 text-[12px] text-gray-200 truncate max-w-[96%]\">${login}</div>\n          <div class=\"cm-count text-[13px] font-semibold text-emerald-300\">${counts[login]||0}</div>\n        </div>`
+          // 非編集でも削除（×）できるように統一
+          s.innerHTML = `<div class=\"relative grid place-items-center\">\n          <button title=\"解除\" class=\"cm-del absolute top-0.5 right-0.5 text-[12px] text-gray-300 hover:text-white\">×</button>\n          <img src=\"https://avatars.githubusercontent.com/${login}?s=96\" class=\"cm-avatar rounded-full ring-2 ring-[rgba(255,255,255,0.22)] object-cover\" style=\"width:56px;height:56px\" alt=\"${login}\"/>\n          <div class=\"mt-1 text-[12px] text-gray-200 truncate max-w-[96%]\">${login}</div>\n          <div class=\"cm-count text-[13px] font-semibold text-emerald-300\">${(countsByDays.get(days)||{})[login]||0}</div>\n        </div>`
+          ;(s.querySelector('.cm-del') as HTMLElement | null)?.addEventListener('click', (ev) => { ev.stopPropagation(); const next = users.slice(); next[idx - 1] = ''; localStorage.setItem(cmKey(pid, wid), JSON.stringify(next)); committersPopulate(root) })
         }
       }
     })
+    // Apply sizing
+    try { densifyCommitters(widEl, 1) } catch {}
+    // fetch counts for chosen range (cache per range during this populate)
+    if (full) {
+      if (!countsByDays.has(days)) countsByDays.set(days, await ensureCommitCounts(full, days))
+    }
   }
 }
 
@@ -1779,13 +2082,13 @@ function ccGet(full: string): CommitCountsCache | null {
 function ccSet(full: string, data: CommitCountsCache): void {
   try { localStorage.setItem(ccKey(full), JSON.stringify(data)) } catch { }
 }
-async function ensureCommitCounts(full: string): Promise<Record<string, number>> {
+async function ensureCommitCounts(full: string, days: number = 90): Promise<Record<string, number>> {
   const ttl = 60 * 60 * 1000 // 1h
-  const cached = ccGet(full)
+  const cached = ccGet(full + `-d${days}`)
   const now = Date.now()
   if (cached && (now - cached.at) < ttl) return cached.counts || {}
-  // fetch last 90 days commits and aggregate
-  const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString()
+  // fetch commits in the last N days and aggregate
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()
   const commits = await fetchCommitsPaged(full, since)
   const map = new Map<string, number>()
   ;(commits || []).forEach(c => {
@@ -1795,7 +2098,7 @@ async function ensureCommitCounts(full: string): Promise<Record<string, number>>
   })
   const counts: Record<string, number> = {}
   map.forEach((v, k) => { counts[k] = v })
-  ccSet(full, { at: now, counts })
+  ccSet(full + `-d${days}`, { at: now, counts })
   return counts
 }
 
@@ -2157,12 +2460,12 @@ function enableDragAndDrop(root: HTMLElement): void {
   document.addEventListener('mouseup', () => { dragAllowed = false })
   grid.addEventListener('mousedown', (e) => {
     if (!isEdit()) return
+    const widget = (e.target as HTMLElement).closest('.widget') as HTMLElement | null
     const onHandle = (e.target as HTMLElement).closest('.wg-move') as HTMLElement | null
-    dragAllowed = !!onHandle
-    if (onHandle) {
-      const w = onHandle.closest('.widget') as HTMLElement | null
-      if (w) w.setAttribute('draggable', 'true')
-    }
+    const locked = widget?.getAttribute('data-locked') === '1'
+    // Locked custom widgets can start drag from anywhere; others require the move handle
+    dragAllowed = locked ? true : !!onHandle
+    if (widget && dragAllowed) widget.setAttribute('draggable', 'true')
   })
 
   grid.addEventListener('dragstart', (e) => {
@@ -2274,7 +2577,8 @@ function enableDragAndDrop(root: HTMLElement): void {
     item.className = 'px-3 py-1.5 hover:bg-neutral-800 rounded'
     item.textContent = on ? 'ショートカットから削除' : 'ショートカットに追加'
     item.addEventListener('click', () => {
-      if (on) scRemove(pidOnly, idKey); else scAdd(pidOnly, idKey)
+      if (on) { scRemove(pidOnly, idKey); try { showMiniToast('ショートカットを削除しました', { variant: 'danger' }) } catch {} }
+      else { scAdd(pidOnly, idKey); try { showMiniToast('ショートカットに追加しました') } catch {} }
       try { hxwRenderShortcuts(root, pidOnly) } catch {}
       menu.remove(); document.removeEventListener('click', onDoc)
     })
@@ -2359,6 +2663,7 @@ function enableDragAndDrop(root: HTMLElement): void {
     if (!isEdit()) return
     const widget = (e.target as HTMLElement).closest('.widget') as HTMLElement | null
     if (!widget) return
+    if (widget.getAttribute('data-locked') === '1') return
     e.preventDefault()
     openBgMenu((e as MouseEvent).clientX, (e as MouseEvent).clientY, widget)
   })
@@ -2380,14 +2685,13 @@ function enableDragAndDrop(root: HTMLElement): void {
   // Edit mode toggle
   const setEdit = (on: boolean) => {
     grid.setAttribute('data-edit', on ? '1' : '0')
-    grid.querySelectorAll('.widget').forEach((w) => (w as HTMLElement).setAttribute('draggable', on ? 'true' : 'false'))
-    const btn = root.querySelector('#wgEditToggle') as HTMLElement | null
+    grid.querySelectorAll('.widget').forEach((w) => {
+      ;(w as HTMLElement).setAttribute('draggable', on ? 'true' : 'false')
+    })
+    const btn = root.querySelector('#wgEditSwitch') as HTMLElement | null
     if (btn) {
       btn.setAttribute('aria-pressed', on ? 'true' : 'false')
       btn.setAttribute('title', on ? '編集中' : '編集モード')
-      btn.classList.toggle('is-on', on)
-      const lab = btn.querySelector('.ctl-label') as HTMLElement | null
-      if (lab) lab.textContent = on ? '編集中' : '編集'
     }
     if (!on) closeBgMenu()
     localStorage.setItem(`wg-edit-${pid}`, on ? '1' : '0')
@@ -2414,18 +2718,21 @@ function enableDragAndDrop(root: HTMLElement): void {
     grid.querySelectorAll('.widget').forEach((w) => {
       const el = w as HTMLElement
       // ドラッグを示すカーソルはハンドル側にのみ付与
-      el.classList.toggle('border', on)
-      el.classList.toggle('border-dashed', on)
-      el.classList.toggle('border-amber-500/40', on)
+      const locked = el.getAttribute('data-locked') === '1'
+      el.classList.toggle('border', on && !locked)
+      el.classList.toggle('border-dashed', on && !locked)
+      el.classList.toggle('border-amber-500/40', on && !locked)
       const delBtn = el.querySelector('.w-del') as HTMLElement | null
       const resHandles = el.querySelectorAll('.wg-rz') as NodeListOf<HTMLElement>
       const move = el.querySelector('.wg-move') as HTMLElement | null
-      if (delBtn) delBtn.classList.toggle('hidden', !on)
-      resHandles.forEach(h => h.classList.toggle('hidden', !on))
-      if (move) move.classList.toggle('hidden', !on)
+      if (delBtn) delBtn.classList.toggle('hidden', !on || locked)
+      resHandles.forEach(h => h.classList.toggle('hidden', !on || locked))
+      if (move) move.classList.toggle('hidden', !on || locked)
     })
     // Toggle elements that are explicitly edit-only
     grid.querySelectorAll('.edit-only').forEach((el) => (el as HTMLElement).classList.toggle('hidden', !on))
+    // Disable inner content interactions while editing (buttons/links inside widgets)
+    grid.querySelectorAll('.widget .wg-content').forEach((cnt) => { (cnt as HTMLElement).style.pointerEvents = on ? 'none' : '' })
     // no reorder on toggle (reverted)
     // Sync markdown widgets' editor/preview visibility to edit state
     try { setTimeout(() => { try { (syncMdWidgets as any)(on) } catch { } }, 0) } catch { }
@@ -2473,6 +2780,14 @@ function enableDragAndDrop(root: HTMLElement): void {
   // Add widget button (grid context): use picker to add into this grid
   grid.querySelector('#addWidget')?.addEventListener('click', () => openWidgetPickerModal(root, pid, (type) => addWidget(root, pid, type)))
 
+  // In edit mode, swallow clicks in grid so inner buttons/links won't act
+  grid.addEventListener('click', (e) => {
+    if (!isEdit()) return
+    const t = e.target as HTMLElement
+    if (t.closest('#addWidget')) return
+    e.stopPropagation(); e.preventDefault()
+  }, true)
+
   // Resize: edges and corners (handles with .wg-rz [data-rz])
   // Helper: detect resize direction from pointer proximity to widget edges
   const EDGE_TOL = 8
@@ -2508,6 +2823,7 @@ function enableDragAndDrop(root: HTMLElement): void {
     let widget = handle?.closest('.widget') as HTMLElement | null
     if (!widget) widget = (e.target as HTMLElement).closest('.widget') as HTMLElement | null
     if (!widget) return
+    if (widget.getAttribute('data-locked') === '1') return
     // If user grabbed the move handle, do not treat as resize
     if ((e.target as HTMLElement).closest('.wg-move')) return
     // no-op (reverted reorder)
@@ -2733,25 +3049,49 @@ function enableDragAndDrop(root: HTMLElement): void {
     }
   })
 
-  // Delete widget
+  // Delete widget (grid) with modal confirm
   grid.addEventListener('click', (e) => {
     const del = (e.target as HTMLElement).closest('.w-del') as HTMLElement | null
     if (!del) return
     const widget = del.closest('.widget') as HTMLElement | null
     if (!widget) return
     const id = widget.getAttribute('data-widget') || ''
-    // Confirm deletion
-    const ok = confirm('このウィジェットを削除しますか？')
-    if (!ok) return
-    // Remove DOM
-    widget.remove()
-    // Persist order
-    const order = Array.from(grid.querySelectorAll('.widget')).map((w) => (w as HTMLElement).getAttribute('data-widget'))
-    localStorage.setItem(`pj-widgets-${pid}`, JSON.stringify(order))
-    // Remove meta
-    const meta = getWidgetMeta(pid)
-    if (meta[id]) { delete meta[id]; setWidgetMeta(pid, meta) }
+    openGridWidgetDeleteConfirm(root, pid, id, widget)
   })
+
+  function openGridWidgetDeleteConfirm(root: HTMLElement, pid: string, id: string, widgetEl: HTMLElement): void {
+    const overlay = document.createElement('div')
+    overlay.className = 'fixed inset-0 z-[70] bg-black/60 grid place-items-center'
+    const title = (widgetEl.querySelector('.wg-title') as HTMLElement | null)?.textContent?.trim() || 'ウィジェット'
+    overlay.innerHTML = `
+      <div class="relative w-[min(520px,92vw)] rounded-xl bg-neutral-900 ring-2 ring-neutral-600 shadow-2xl text-gray-100">
+        <header class="h-10 flex items-center px-4 border-b border-neutral-600"><div class="font-semibold">ウィジェットを削除</div><button id="gwDelClose" class="ml-auto text-xl">×</button></header>
+        <div class="p-4 space-y-3">
+          <p class="text-sm text-gray-300">${escapeHtml(title)} を削除しますか？この操作は元に戻せません。</p>
+          <div class="flex justify-end gap-2 pt-2">
+            <button id="gwDelCancel" class="px-3 py-1.5 rounded bg-neutral-800/60 text-gray-200 text-sm">キャンセル</button>
+            <button id="gwDelOk" class="px-3 py-1.5 rounded bg-rose-700 hover:bg-rose-600 text-white text-sm">削除</button>
+          </div>
+        </div>
+      </div>`
+    const close = () => overlay.remove()
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) close() })
+    overlay.querySelector('#gwDelClose')?.addEventListener('click', close)
+    overlay.querySelector('#gwDelCancel')?.addEventListener('click', close)
+    overlay.querySelector('#gwDelOk')?.addEventListener('click', () => {
+      // Remove DOM
+      widgetEl.remove()
+      // Persist order
+      const order = Array.from(grid.querySelectorAll('.widget')).map((w) => (w as HTMLElement).getAttribute('data-widget'))
+      localStorage.setItem(`pj-widgets-${pid}`, JSON.stringify(order))
+      // Remove meta
+      const meta = getWidgetMeta(pid)
+      if (meta[id]) { delete meta[id]; setWidgetMeta(pid, meta) }
+      try { showMiniToast('ウィジェットを削除しました', { variant: 'danger' }) } catch {}
+      close()
+    })
+    document.body.appendChild(overlay)
+  }
 
   // Markdown widget delegated handlers
   const getWid = (el: HTMLElement | null) => (el?.closest('.widget') as HTMLElement | null)
@@ -2774,7 +3114,7 @@ function enableDragAndDrop(root: HTMLElement): void {
         if (editor) editor.classList.remove('hidden')
         if (preview) preview.classList.add('hidden')
       } else {
-        if (preview) preview.innerHTML = mdRenderToHtml(txt || 'ここにMarkdownを書いてください')
+        if (preview) preview.innerHTML = mdRenderQiita(txt || 'ここにMarkdownを書いてください')
         if (editor) editor.classList.add('hidden')
         if (preview) preview.classList.remove('hidden')
       }
@@ -2810,6 +3150,9 @@ function enableDragAndDrop(root: HTMLElement): void {
     const add = (e.target as HTMLElement).closest('.lnk-add') as HTMLElement | null
     if (add) {
       const w = getWid(add); if (!w) return
+      const isEdit = grid.getAttribute('data-edit') === '1'
+      const id = w.getAttribute('data-widget') || ''
+      if (!isEdit) { openLinkHexPopup(root, pid, id); return }
       const form = w.querySelector('.lnk-form') as HTMLElement | null
       if (form) {
         form.classList.toggle('hidden')
@@ -2979,7 +3322,7 @@ function enableDragAndDrop(root: HTMLElement): void {
     if (prevTimer) { try { clearTimeout(prevTimer) } catch { } }
     const t = window.setTimeout(() => {
       mdSet(pid, id, val)
-      if (preview) preview.innerHTML = mdRenderToHtml(val || 'ここにMarkdownを書いてください')
+      if (preview) preview.innerHTML = mdRenderQiita(val || 'ここにMarkdownを書いてください')
       try { mdFillSlots(w, pid, id, val) } catch {}
       // re-apply density scaling after re-render
       try {
@@ -3158,10 +3501,20 @@ function densifyGeneric(widgetEl: HTMLElement, scale: number): void {
 }
 
 function densifyCommitters(widgetEl: HTMLElement, scale: number): void {
+  // Scale generic text slightly
   const labels = widgetEl.querySelectorAll('.wg-content div[class*="text-"]') as NodeListOf<HTMLElement>
   const base = 12
-  const fs = Math.round(Math.max(10, Math.min(16, base * scale)))
+  const fs = Math.round(Math.max(12, Math.min(18, base * scale)))
   labels.forEach((n) => { n.style.fontSize = `${fs}px` })
+  // Scale avatar and counts based on available height
+  const area = (widgetEl.querySelector('.hxw-body') as HTMLElement | null) || widgetEl
+  const rect = (area as HTMLElement).getBoundingClientRect()
+  const h = Math.max(120, rect.height || widgetEl.clientHeight || 200)
+  const clamp = (v: number, min: number, max: number) => Math.max(min, Math.min(max, Math.round(v)))
+  const ava = clamp(h * 0.28, 48, 96)
+  const cnt = clamp(h * 0.18, 16, 42)
+  widgetEl.querySelectorAll('.cm-avatar').forEach((n) => { const el = n as HTMLElement; el.style.width = `${ava}px`; el.style.height = `${ava}px` })
+  widgetEl.querySelectorAll('.cm-count').forEach((n) => { const el = n as HTMLElement; el.style.fontSize = `${cnt}px`; el.style.lineHeight = '1.1' })
 }
 
 function densifyTaskSummary(widgetEl: HTMLElement, scale: number): void {
@@ -3223,23 +3576,81 @@ function ensureWidgets(root: HTMLElement, pid: string): void {
   })
 }
 
+// Modal: confirm deletion of a library (saved) widget entry
+function openLibWidgetDeleteConfirm(root: HTMLElement, pid: string, entry: { id: string; name?: string }, onDone?: () => void): void {
+  const overlay = document.createElement('div')
+  overlay.className = 'fixed inset-0 z-[70] bg-black/60 grid place-items-center'
+  const name = entry?.name || 'ウィジェット'
+  overlay.innerHTML = `
+    <div class="relative w-[min(520px,92vw)] rounded-xl bg-neutral-900 ring-2 ring-neutral-600 shadow-2xl text-gray-100">
+      <header class="h-10 flex items-center px-4 border-b border-neutral-600"><div class="font-semibold">自作ウィジェットを削除</div><button id="libDelClose" class="ml-auto text-xl">×</button></header>
+      <div class="p-4 space-y-3">
+        <p class="text-sm text-gray-300">${escapeHtml(name)} を削除しますか？この操作は元に戻せません。</p>
+        <div class="flex justify-end gap-2 pt-2">
+          <button id="libDelCancel" class="px-3 py-1.5 rounded bg-neutral-800/60 text-gray-200 text-sm">キャンセル</button>
+          <button id="libDelOk" class="px-3 py-1.5 rounded bg-rose-700 hover:bg-rose-600 text-white text-sm">削除</button>
+        </div>
+      </div>
+    </div>`
+  const close = () => overlay.remove()
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close() })
+  overlay.querySelector('#libDelClose')?.addEventListener('click', close)
+  overlay.querySelector('#libDelCancel')?.addEventListener('click', close)
+  overlay.querySelector('#libDelOk')?.addEventListener('click', async () => {
+    try {
+      await wsLoadAll(pid)
+      const cur = (wsGet(pid, 'lib_widgets') as any[]) || []
+      const next = cur.filter((x: any) => x && x.id !== entry.id)
+      await wsSet(pid, 'lib_widgets', next)
+    } catch {}
+    try { showMiniToast('ウィジェットを削除しました', { variant: 'danger' }) } catch {}
+    close()
+    try { if (onDone) onDone() } catch {}
+  })
+  document.body.appendChild(overlay)
+}
+
 function openWidgetPickerModal(root: HTMLElement, pid: string, onPick?: (type: string) => void): void {
+  try {
+    // Ensure project widget-state is loaded so project library can be included as tiles
+    const has = (WS_CACHE as any).has ? (WS_CACHE as any).has(pid) : false
+    if (!has) { try { wsLoadAll(pid).then(() => { try { openWidgetPickerModal(root, pid, onPick) } catch {} }) } catch {}; return }
+  } catch {}
   const overlay = document.createElement('div')
   overlay.className = 'fixed inset-0 z-[66] bg-black/60 backdrop-blur-[1px] grid place-items-center fade-overlay'
   overlay.innerHTML = `
-    <div class="relative w-[min(1200px,96vw)] overflow-hidden rounded-xl bg-neutral-900 ring-2 ring-neutral-600 shadow-2xl text-gray-100 pop-modal modal-fixed">
+    <div class="relative w-[min(1200px,96vw)] overflow-hidden rounded-xl bg-neutral-900 ring-2 ring-neutral-600 shadow-2xl text-gray-100 pop-modal modal-fixed" data-mode="browse">
       <header class="h-12 flex items-center px-5 border-b border-neutral-600">
-        <h3 class="text-lg font-semibold">ウィジェットを選択</h3>
+        <h3 class="text-lg font-semibold" id="wp-title">ウィジェットを選択</h3>
         <button id=\"wp-close\" class=\"ml-auto text-2xl text-neutral-300 hover:text-white\">×</button>
       </header>
       <div class="flex h-[calc(86vh-3rem)]">
         <section class="flex-1 relative p-2 overflow-hidden">
-          <div id=\"wp-field\" class=\"absolute inset-0 overflow-hidden\"></div>
-          <div class=\"absolute left-2 bottom-2 pointer-events-none\">
-            <button id=\"wp-create\" class=\"pointer-events-auto inline-flex items-center gap-2 rounded-md bg-emerald-700 hover:bg-emerald-600 text-white text-sm font-medium px-3 py-2 shadow-lg\" title=\"自由にウィジェットを作成\">
-              <span class=\"text-base leading-none\">＋</span>
-              <span>ウィジェット作成</span>
-            </button>
+          <div id="wp-slides" class="absolute inset-0 flex" style="width:200%; transform: translateX(0%); transition: transform .24s ease">
+            <div class="wp-slide relative w-1/2 h-full">
+              <div id=\"wp-field\" class=\"absolute inset-0 overflow-hidden\"></div>
+            </div>
+            <div class="wp-slide relative w-1/2 h-full">
+              <div id=\"wp-myfield\" class=\"absolute inset-0 overflow-hidden\"></div>
+            </div>
+          </div>
+          <div class=\"absolute left-2 bottom-2 pointer-events-none\"> 
+            <div id=\"wp-ctl-browse\" class=\"pointer-events-auto inline-flex items-center gap-2\">
+              <button id=\"wp-create\" class=\"inline-flex items-center gap-2 rounded-md bg-emerald-700 hover:bg-emerald-600 text-white text-sm font-medium px-3 py-2 shadow-lg\" title=\"自由にウィジェットを作成\"> 
+                <span class=\"text-base leading-none\">＋</span> 
+                <span>ウィジェット作成</span> 
+              </button> 
+              <button id=\"wp-my-add\" class=\"inline-flex items-center gap-2 rounded-md bg-sky-700 hover:bg-sky-600 text-white text-sm font-medium px-3 py-2 shadow-lg\" title=\"手持ちのウィジェットをプロジェクトに追加\"> 
+                <span class=\"text-base leading-none\">↪</span> 
+                <span>手持ちから追加</span> 
+              </button> 
+            </div>
+            <div id=\"wp-ctl-mylib\" class=\"hidden pointer-events-auto inline-flex items-center gap-2\">
+              <button id=\"wp-back\" class=\"inline-flex items-center gap-2 rounded-md bg-neutral-700 hover:bg-neutral-600 text-white text-sm font-medium px-3 py-2 shadow-lg\" title=\"前の一覧に戻る\"> 
+                <span class=\"text-base leading-none\">←</span> 
+                <span>一覧に戻る</span> 
+              </button> 
+            </div>
           </div>
         </section>
         <aside class="w-80 shrink-0 p-4 border-l border-neutral-600">
@@ -3255,7 +3666,306 @@ function openWidgetPickerModal(root: HTMLElement, pid: string, onPick?: (type: s
 
   
 
-  // Build compact field (no background mask) with pannable canvas
+  // Helpers for switching modes with slide animation
+  const modal = overlay.querySelector('.pop-modal') as HTMLElement
+  const slides = overlay.querySelector('#wp-slides') as HTMLElement
+  const titleEl = overlay.querySelector('#wp-title') as HTMLElement
+  const ctlBrowse = overlay.querySelector('#wp-ctl-browse') as HTMLElement
+  const ctlMylib = overlay.querySelector('#wp-ctl-mylib') as HTMLElement
+  // Rebuild main (browse) field and optionally focus a specific lib-id
+  const rebuildPickerField = (focusLibId?: string) => {
+    // Replace field to drop previous listeners
+    const oldField = overlay.querySelector('#wp-field') as HTMLElement | null
+    if (!oldField || !oldField.parentElement) return
+    const field = oldField.cloneNode(false) as HTMLElement
+    field.id = 'wp-field'
+    oldField.parentElement.replaceChild(field, oldField)
+    try { (field.style as any).touchAction = 'none'; (field.style as any).webkitUserSelect = 'none'; (field.style as any).userSelect = 'none' } catch {}
+
+    // Desc refs
+    const descTitle = overlay.querySelector('#wp-desc-title') as HTMLElement
+    const descBody = overlay.querySelector('#wp-desc-body') as HTMLElement
+    const titleOf = (t: string) => widgetTitle(t)
+    const descOf = (t: string): string => {
+      switch (t) {
+        case 'readme': return 'リポジトリの README を直接表示します。'
+        case 'contrib': return 'GitHub のコントリビューションヒートマップを表示します。'
+        case 'committers': return '主要なコミッターの活動量を棒グラフで表示します。'
+        case 'markdown': return '自由なメモや説明を Markdown で配置します。'
+        case 'tasksum': return 'TODO/DOING/DONE の件数など、タスクの概要を表示します。'
+        case 'links': return 'よく使うページへのショートカットリンクを並べます。'
+        case 'skin': return 'ハニカムの色味やアクセントを切り替える着せ替え設定です。'
+        case 'tabnew': return '新しいタブを作成します。'
+        case 'invite': return 'メンバー招待や共有用のエントリーポイントです。'
+        case 'account': return 'ユーザー設定を開くショートカットです。'
+        case 'clock': return 'アナログ時計を表示します。'
+        case 'clock-digital': return 'デジタル時計を表示します。'
+        case 'spacer': return 'レイアウト調整用の空きセルです。'
+        default: return 'ウィジェット'
+      }
+    }
+    const showDesc = (t: string) => {
+      try {
+        if (t.startsWith('lib:')) {
+          const parts = t.split(':')
+          const id = parts[1]
+          const arr = (wsGet(pid, 'lib_widgets') as any[]) || []
+          const entry = arr.find((x: any) => x.id === id)
+          if (entry) {
+            descTitle.textContent = entry.name || (entry.type === 'flow' ? 'フロー' : 'カスタム')
+            descBody.innerHTML = `<div class="space-y-2">
+              <div class="text-sm text-gray-300">自作ウィジェット</div>
+              <div class="text-xs text-gray-400">クリックで配置。既にプロジェクトに共有済みです。</div>
+            </div>`
+            return
+          }
+        }
+        descTitle.textContent = titleOf(t)
+        descBody.textContent = descOf(t)
+      } catch {}
+    }
+
+    // Geometry and palette
+    const TILE = 100
+    const W = TILE
+    const H = Math.round(TILE * 0.866)
+    const stepX = Math.round(TILE * 0.75)
+    const stepY = H
+    const palette: Array<[number,number,number]> = [[59,130,246],[16,185,129],[239,68,68],[168,85,247],[251,146,60],[234,179,8],[99,102,241],[20,184,166],[14,165,233]]
+    const hsh = (s: string) => { let h = 0; for (let i=0;i<s.length;i++){ h = ((h<<5)-h) + s.charCodeAt(i); h|=0 } return Math.abs(h) }
+    const fillFor = (id: string) => { const [r,g,b] = palette[hsh(id) % palette.length]; const light = (document.documentElement.getAttribute('data-theme') || 'dark') !== 'dark'; const a = light ? 0.42 : 0.38; return { flat: `rgba(${r},${g},${b}, ${a})`, solid: `rgb(${r},${g},${b})` } }
+
+    // Items compose
+    const types: string[] = ['readme','contrib','committers','markdown','tasksum','links','skin','tabnew','invite','account','clock','clock-digital','spacer']
+    const occ = new Set<string>()
+    const key = (q:number,r:number) => `${q},${r}`
+    const lib: any[] = ((wsGet(pid, 'lib_widgets') as any[]) || [])
+    const anchors = axGrow((types.length + lib.length) * 30)
+    const neighbors = (q:number,r:number): Array<{q:number;r:number}> => {
+      const odd = (q & 1) === 1
+      return [
+        { q, r: r-1 },
+        odd ? { q:q+1, r } : { q:q+1, r:r-1 },
+        odd ? { q:q+1, r:r+1 } : { q:q+1, r },
+        { q, r: r+1 },
+        odd ? { q:q-1, r:r+1 } : { q:q-1, r },
+        odd ? { q:q-1, r } : { q:q-1, r:r-1 },
+      ]
+    }
+    type Item = { type: string; cells: Array<{q:number;r:number}>, label?: string, rgba?: string, lib?: any }
+    const items: Item[] = []
+    types.forEach((type) => {
+      const rel = hxwShapeFor(type)
+      if (type === 'clock-digital') {
+        let best: { cells: Array<{q:number;r:number}>; touches: number } | null = null
+        for (const [ax, az] of anchors) {
+          const cells = rel.map(([sx,sz]) => axialToOddq(ax+sx, az+sz))
+          if (cells.some(c => occ.has(key(c.q,c.r)))) continue
+          let t = 0
+          cells.forEach((c) => { neighbors(c.q,c.r).forEach(nb => { if (occ.has(key(nb.q, nb.r))) t++ }) })
+          if (!best || t > best.touches) best = { cells, touches: t }
+          if (best && best.touches >= 3) break
+        }
+        const pick = best || { cells: rel.map(([sx,sz]) => axialToOddq(sx, sz)), touches: 0 }
+        pick.cells.forEach(c => occ.add(key(c.q,c.r)))
+        items.push({ type, cells: pick.cells, label: titleOf(type) })
+      } else {
+        for (const [ax, az] of anchors) {
+          const cells = rel.map(([sx,sz]) => axialToOddq(ax+sx, az+sz))
+          if (cells.some(c => occ.has(key(c.q,c.r)))) continue
+          cells.forEach(c => occ.add(key(c.q,c.r)))
+          items.push({ type, cells, label: titleOf(type) })
+          break
+        }
+      }
+    })
+    const px = (q:number, r:number) => ({ x: q * stepX, y: Math.round((r + (q % 2 ? 0.5 : 0)) * stepY) })
+    // Insert lib entries
+    lib.forEach((en: any) => {
+      const rel = (en.shape && en.shape.length) ? en.shape : [[0,0]]
+      for (const [ax, az] of anchors) {
+        const cells = rel.map(([sx,sz]) => axialToOddq(ax+sx, az+sz))
+        if (cells.some(c => occ.has(key(c.q,c.r)))) continue
+        cells.forEach(c => occ.add(key(c.q,c.r)))
+        const rgba = en.rgb ? `rgba(${en.rgb[0]},${en.rgb[1]},${en.rgb[2]}, ${typeof en.alpha==='number'? en.alpha : 0.38})` : fillFor('lib').flat
+        items.push({ type: `lib:${en.id}:${en.type || 'custom'}`, cells, label: en.name || (en.type==='flow'?'フロー':'カスタム'), rgba, lib: en })
+        break
+      }
+    })
+
+    // Bounds and canvas
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+    items.forEach((it) => { it.cells.forEach((c) => { const p = px(c.q, c.r); minX = Math.min(minX, p.x); minY = Math.min(minY, p.y); maxX = Math.max(maxX, p.x); maxY = Math.max(maxY, p.y) }) })
+    if (!isFinite(minX) || !isFinite(minY)) { minX = 0; minY = 0; maxX = stepX; maxY = stepY }
+    const PAD = 20
+    const width = (maxX - minX) + W + PAD * 2
+    const height = (maxY - minY) + H + PAD * 2
+    const canvas = document.createElement('div')
+    canvas.id = 'wpCanvas'
+    canvas.style.position = 'absolute'
+    canvas.style.left = '0px'
+    canvas.style.top = '0px'
+    canvas.style.width = `${width}px`
+    canvas.style.height = `${height}px`
+    field.appendChild(canvas)
+
+    // Host draw
+    items.forEach((it) => {
+      const col = it.rgba ? { flat: it.rgba, solid: it.rgba } : fillFor(it.type)
+      const points = it.cells.map(c => px(c.q, c.r))
+      const bx = Math.min(...points.map(p => p.x))
+      const by = Math.min(...points.map(p => p.y))
+      const bw = (Math.max(...points.map(p => p.x)) - bx) + W
+      const bh = (Math.max(...points.map(p => p.y)) - by) + H
+      const host = document.createElement('div')
+      host.className = 'wp-item'
+      host.setAttribute('data-type', it.type)
+      host.style.position = 'absolute'
+      host.style.left = `${(bx - minX) + PAD}px`
+      host.style.top = `${(by - minY) + PAD}px`
+      host.style.width = `${bw}px`
+      host.style.height = `${bh}px`
+      host.style.cursor = 'pointer'
+      host.style.transition = 'transform .12s ease, filter .12s ease, box-shadow .12s ease'
+      host.addEventListener('mouseenter', () => { host.style.filter = 'brightness(1.08)'; showDesc(it.type) })
+      host.addEventListener('mouseleave', () => { host.style.filter = '' })
+      const pickFromItem = () => {
+        if (it.lib) {
+          if (onPick) {
+            try {
+              (window as any)._wpPickedLibName = it.lib.name || ''
+              ;(window as any)._wpPickedLibRGB = Array.isArray(it.lib.rgb) ? it.lib.rgb : null
+              ;(window as any)._wpPickedLibCells = Array.isArray(it.lib.shape) ? it.lib.shape.length : null
+              ;(window as any)._hxwPending = { shape: it.lib.shape, rgb: it.lib.rgb, alpha: it.lib.alpha, name: it.lib.name, flowGraph: it.lib.flowGraph }
+            } catch {}
+            close(); setTimeout(() => { try { onPick('custom') } catch {} }, 0)
+            return
+          }
+          ;(window as any)._hxwPending = { shape: it.lib.shape, rgb: it.lib.rgb, alpha: it.lib.alpha, name: it.lib.name, flowGraph: it.lib.flowGraph }
+          const t = it.lib.type
+          close(); setTimeout(() => { try { hxwStartPlacement(root, pid, t) } catch {} }, 0)
+        } else {
+          close(); setTimeout(() => { if (onPick) onPick(it.type); else try { hxwStartPlacement(root, pid, it.type) } catch {} }, 0)
+        }
+      }
+      host.addEventListener('click', pickFromItem)
+      host.tabIndex = 0
+      host.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pickFromItem() } })
+      it.cells.forEach((c) => {
+        const p = px(c.q, c.r)
+        const cell = document.createElement('div')
+        cell.className = 'hxw-hex hxw-filled'
+        cell.style.position = 'absolute'
+        cell.style.left = `${(p.x - bx)}px`
+        cell.style.top = `${(p.y - by)}px`
+        cell.style.width = `${W}px`
+        cell.style.height = `${H}px`
+        const clip = document.createElement('div')
+        clip.className = 'hxw-clip hx-svgclip'
+        clip.style.color = col.flat
+        { const f = deriveFacets(col.flat); (clip.style as any).setProperty('--hx-side', f.side); (clip.style as any).setProperty('--hx-hi', f.hi); (clip.style as any).setProperty('--hx-edge', f.side) }
+        clip.innerHTML = honeyHexFilledSvg()
+        cell.appendChild(clip)
+        host.appendChild(cell)
+      })
+      const lab = document.createElement('div')
+      lab.textContent = it.label || titleOf(it.type)
+      lab.style.position = 'absolute'; lab.style.inset = '0'
+      lab.style.display = 'grid'; lab.style.placeItems = 'center'; lab.style.pointerEvents = 'none'
+      lab.style.color = 'var(--gh-contrast)'; lab.style.textShadow = '0 1px 2px rgba(0,0,0,.18)'; lab.style.fontSize = '12px'
+      host.appendChild(lab)
+      canvas.appendChild(host)
+    })
+
+    // Pan/zoom and focusing
+    const viewport = field
+    const state = { scale: 1, offsetX: 0, offsetY: 0 }
+    const apply = () => { const tr = `translate(${state.offsetX}px, ${state.offsetY}px) scale(${state.scale})`; canvas.style.transform = tr }
+    const centerOn = (x: number, y: number) => {
+      try { const vpW = viewport.clientWidth, vpH = viewport.clientHeight; state.offsetX = Math.round(vpW / 2 - x); state.offsetY = Math.round(vpH / 2 - y); apply() } catch {}
+    }
+    const centerDefault = () => {
+      try {
+        const vpW = viewport.clientWidth, vpH = viewport.clientHeight
+        const nodes = Array.from(canvas.querySelectorAll('.wp-item')) as HTMLElement[]
+        let tx = width / 2, ty = height / 2
+        if (nodes.length) {
+          const cx = width / 2, cy = height / 2
+          let best: { d2: number; x: number; y: number } | null = null
+          nodes.forEach((n) => { const x = (parseFloat(n.style.left || '0') || 0) + (n.offsetWidth || 0) / 2; const y = (parseFloat(n.style.top || '0') || 0) + (n.offsetHeight || 0) / 2; const d2 = (x - cx) * (x - cx) + (y - cy) * (y - cy); if (!best || d2 < best.d2) best = { d2, x, y } })
+          if (best) { tx = best.x; ty = best.y }
+        }
+        state.offsetX = Math.round(vpW / 2 - tx)
+        state.offsetY = Math.round(vpH / 2 - ty)
+        apply()
+      } catch {}
+    }
+    // Pointer pan
+    const touches = new Map<number, { x: number; y: number }>()
+    let twoPan = false
+    let cx = 0, cy = 0
+    const centroid = () => { let sx2 = 0, sy2 = 0, n = 0; touches.forEach((p) => { sx2 += p.x; sy2 += p.y; n++ }); return { x: sx2 / Math.max(1, n), y: sy2 / Math.max(1, n) } }
+    const onDown = (e: PointerEvent) => { touches.set(e.pointerId, { x: e.clientX, y: e.clientY }); if (touches.size >= 2 && !twoPan) { const c = centroid(); cx = c.x; cy = c.y; twoPan = true } }
+    const onMove = (e: PointerEvent) => { if (!touches.has(e.pointerId)) return; touches.set(e.pointerId, { x: e.clientX, y: e.clientY }); if (twoPan && touches.size >= 2) { const c = centroid(); state.offsetX += (c.x - cx); state.offsetY += (c.y - cy); cx = c.x; cy = c.y; apply() } }
+    const onUp = (e: PointerEvent) => { touches.delete(e.pointerId); if (touches.size < 2) twoPan = false }
+    viewport.addEventListener('pointerdown', onDown as any)
+    viewport.addEventListener('pointermove', onMove as any)
+    viewport.addEventListener('pointerup', onUp as any)
+    viewport.addEventListener('pointercancel', onUp as any)
+    viewport.addEventListener('pointerleave', onUp as any)
+    viewport.addEventListener('wheel', (e: WheelEvent) => { e.preventDefault(); const pinchZoom = (e as any).ctrlKey || Math.abs((e as any).deltaZ || 0) > 0; if (pinchZoom) { const z = Math.exp(-e.deltaY / 600); state.scale = Math.min(2.0, Math.max(0.6, state.scale * z)) } else { state.offsetX -= (e as any).deltaX || 0; state.offsetY -= (e as any).deltaY || 0 } apply() }, { passive: false })
+
+    // Focus on target if specified
+    try {
+      if (focusLibId) {
+        const target = canvas.querySelector(`.wp-item[data-type^="lib:${focusLibId}:"]`) as HTMLElement | null
+        if (target) {
+          const x = (parseFloat(target.style.left || '0') || 0) + (target.offsetWidth || 0) / 2
+          const y = (parseFloat(target.style.top || '0') || 0) + (target.offsetHeight || 0) / 2
+          centerOn(x, y)
+          // Drop-in animation
+          target.style.transform = 'translateY(-18px) scale(1.02)'
+          target.style.boxShadow = '0 0 0 2px rgba(16,185,129,.85) inset'
+          target.focus?.()
+          setTimeout(() => { try { target.style.transform = ''; target.style.boxShadow = '' } catch {} }, 140)
+        } else {
+          centerDefault()
+        }
+      } else {
+        centerDefault()
+      }
+    } catch { centerDefault() }
+  }
+  const setMode = (mode: 'browse' | 'mylib') => {
+    modal?.setAttribute('data-mode', mode)
+    if (slides) slides.style.transform = mode === 'mylib' ? 'translateX(-50%)' : 'translateX(0%)'
+    if (mode === 'mylib') {
+      titleEl.textContent = '手持ちから追加'
+      ctlBrowse.classList.add('hidden')
+      ctlMylib.classList.remove('hidden')
+      // Default description for mylib
+      try {
+        const t = overlay.querySelector('#wp-desc-title') as HTMLElement
+        const b = overlay.querySelector('#wp-desc-body') as HTMLElement
+        if (t) t.textContent = '手持ちのウィジェット'
+        if (b) b.textContent = '自作したウィジェットをハニカムから選んでプロジェクトに追加します。'
+      } catch {}
+      renderMyLib()
+    } else {
+      titleEl.textContent = 'ウィジェットを選択'
+      ctlMylib.classList.add('hidden')
+      ctlBrowse.classList.remove('hidden')
+      // Reset description
+      try {
+        const t = overlay.querySelector('#wp-desc-title') as HTMLElement
+        const b = overlay.querySelector('#wp-desc-body') as HTMLElement
+        if (t) t.textContent = 'ウィジェットを選択'
+        if (b) b.textContent = '左のハニカムからウィジェットを選んでください。カーソルを合わせるとここに説明が表示されます。'
+      } catch {}
+    }
+  }
+
+  // Build compact field (no background mask) with pannable canvas (browse slide)
   const field = overlay.querySelector('#wp-field') as HTMLElement
   field.innerHTML = ''
   try { (field.style as any).touchAction = 'none'; (field.style as any).webkitUserSelect = 'none'; (field.style as any).userSelect = 'none' } catch {}
@@ -3265,7 +3975,68 @@ function openWidgetPickerModal(root: HTMLElement, pid: string, onPick?: (type: s
 
   // Create button → open creator modal (stacks above; picker remains open underneath)
   const createBtn = overlay.querySelector('#wp-create') as HTMLElement | null
-  createBtn?.addEventListener('click', (ev) => { ev.preventDefault(); ev.stopPropagation(); openWidgetCreatorModal(root, pid) })
+  createBtn?.addEventListener('click', (ev) => {
+    ev.preventDefault(); ev.stopPropagation();
+    try { showRouteLoading('ウィジェット作成', 'blue', { style: 'single', spinMs: 1200, minMs: 900 }) } catch {}
+    try { sessionStorage.setItem('wc-target-pid', pid) } catch {}
+    try { sessionStorage.setItem('wc-return-to-picker', '1') } catch {}
+    try { close() } catch {}
+    window.location.hash = '#/widget/create'
+  })
+
+  // Controls
+  const myAddBtn = overlay.querySelector('#wp-my-add') as HTMLElement | null
+  const backBtn = overlay.querySelector('#wp-back') as HTMLElement | null
+  myAddBtn?.addEventListener('click', (ev) => { ev.preventDefault(); ev.stopPropagation(); setMode('mylib') })
+  backBtn?.addEventListener('click', (ev) => { ev.preventDefault(); ev.stopPropagation(); setMode('browse') })
+
+  // Aside: render project-shared library list
+  const renderProjLibList = () => {
+    const box = overlay.querySelector('#wp-proj-lib') as HTMLElement | null
+    if (!box) return
+    const arr = (wsGet(pid, 'lib_widgets') as any[]) || []
+    box.innerHTML = ''
+    if (!arr.length) {
+      box.innerHTML = '<div class="text-xs text-gray-400">まだ追加されていません。</div>'
+      return
+    }
+    arr.forEach((en: any) => {
+      const row = document.createElement('div')
+      row.className = 'flex items-center gap-2'
+      const btn = document.createElement('button')
+      btn.className = 'flex-1 text-left px-2 py-1.5 rounded bg-neutral-800/60 ring-1 ring-neutral-600 hover:bg-neutral-800 text-sm'
+      btn.textContent = en.name || (en.type === 'flow' ? 'フロー' : 'カスタム')
+      btn.addEventListener('click', () => {
+        if (onPick) {
+          try {
+            (window as any)._wpPickedLibName = en.name || ''
+            ;(window as any)._wpPickedLibRGB = Array.isArray(en.rgb) ? en.rgb : null
+            ;(window as any)._wpPickedLibCells = Array.isArray(en.shape) ? en.shape.length : null
+            // Seed pending for hex placement when caller uses hxwStartPlacement via onPick
+            ;(window as any)._hxwPending = { shape: en.shape, rgb: en.rgb, alpha: en.alpha, name: en.name, flowGraph: en.flowGraph }
+          } catch {}
+          close()
+          setTimeout(() => { try { onPick('custom') } catch {} }, 0)
+          return
+        }
+        ;(window as any)._hxwPending = { shape: en.shape, rgb: en.rgb, alpha: en.alpha, name: en.name, flowGraph: en.flowGraph }
+        close()
+        setTimeout(() => { try { hxwStartPlacement(root, pid, en.type || 'custom') } catch {} }, 0)
+      })
+      const del = document.createElement('button')
+      del.className = 'px-2 py-1 text-sm text-rose-400 hover:text-rose-300'
+      del.textContent = '×'
+      del.title = 'プロジェクトから削除'
+      del.addEventListener('click', async (ev) => {
+        ev.stopPropagation()
+        openLibWidgetDeleteConfirm(root, pid, { id: en.id, name: en.name }, () => { renderProjLibList() })
+      })
+      row.appendChild(btn)
+      row.appendChild(del)
+      box.appendChild(row)
+    })
+  }
+  try { wsLoadAll(pid).then(() => { try { renderProjLibList() } catch {} }) } catch {}
 
   const types: string[] = ['readme','contrib','committers','markdown','tasksum','links','skin','tabnew','invite','account','clock','clock-digital','spacer']
   const titleOf = (t: string) => widgetTitle(t)
@@ -3300,8 +4071,8 @@ function openWidgetPickerModal(root: HTMLElement, pid: string, onPick?: (type: s
   // Occupancy and anchor search (compact field centered in its container)
   const occ = new Set<string>()
   const key = (q:number,r:number) => `${q},${r}`
-  // include user library entries
-  const lib = wpLibGet(pid)
+  // Include project-shared library items (server-backed) as tiles in the field
+  const lib: any[] = ((wsGet(pid, 'lib_widgets') as any[]) || [])
   const anchors = axGrow((types.length + lib.length) * 30)
   const items: Array<{ type: string; cells: Array<{q:number;r:number}>, label?: string, rgba?: string, lib?: LibEntry }> = []
   // neighbor helper for odd-q grid
@@ -3347,14 +4118,14 @@ function openWidgetPickerModal(root: HTMLElement, pid: string, onPick?: (type: s
     }
   })
   // place library entries with their saved shapes/colors
-  lib.forEach((en) => {
+  lib.forEach((en: any) => {
     const rel = (en.shape && en.shape.length) ? en.shape : [[0,0]]
     for (const [ax, az] of anchors) {
       const cells = rel.map(([sx,sz]) => axialToOddq(ax+sx, az+sz))
       if (cells.some(c => occ.has(key(c.q,c.r)))) continue
       cells.forEach(c => occ.add(key(c.q,c.r)))
       const rgba = en.rgb ? `rgba(${en.rgb[0]},${en.rgb[1]},${en.rgb[2]}, ${typeof en.alpha==='number'? en.alpha : 0.38})` : fillFor('lib').flat
-      items.push({ type: `lib:${en.id}:${en.type}`, cells, label: en.name || (en.type==='flow'?'フロー':'カスタム'), rgba, lib: en })
+      items.push({ type: `lib:${en.id}:${en.type || 'custom'}`, cells, label: en.name || (en.type==='flow'?'フロー':'カスタム'), rgba, lib: en })
       break
     }
   })
@@ -3400,14 +4171,11 @@ function openWidgetPickerModal(root: HTMLElement, pid: string, onPick?: (type: s
             <div><button id="lib-del" class="rounded bg-rose-700 hover:bg-rose-600 text-white text-xs font-medium px-3 py-1.5">削除</button></div>
           </div>`
           const del = descBody.querySelector('#lib-del') as HTMLElement | null
-          del?.addEventListener('click', () => {
-            if (!confirm(`${entry.name || 'ウィジェット'} を削除しますか？`)) return
-            try {
-              const next = wpLibGet(pid).filter(x => x.id !== entry.id)
-              wpLibSet(pid, next)
+          del?.addEventListener('click', async () => {
+            openLibWidgetDeleteConfirm(root, pid, { id: entry.id, name: entry.name }, () => {
               close()
               setTimeout(() => { try { openWidgetPickerModal(root, pid) } catch {} }, 0)
-            } catch {}
+            })
           })
           return
         }
@@ -3442,6 +4210,13 @@ function openWidgetPickerModal(root: HTMLElement, pid: string, onPick?: (type: s
         // If picker was opened with an onPick callback, we're in a grid panel.
         // Grid cannot use hex placement; fallback to adding a simple "custom" widget card.
         if (onPick) {
+          try {
+            (window as any)._wpPickedLibName = it.lib.name || ''
+            ;(window as any)._wpPickedLibRGB = Array.isArray(it.lib.rgb) ? it.lib.rgb : null
+            ;(window as any)._wpPickedLibCells = Array.isArray(it.lib.shape) ? it.lib.shape.length : null
+            // Also seed hex placement pending so onPick('custom') can start hx with saved shape/color when caller uses hxwStartPlacement
+            ;(window as any)._hxwPending = { shape: it.lib.shape, rgb: it.lib.rgb, alpha: it.lib.alpha, name: it.lib.name, flowGraph: it.lib.flowGraph }
+          } catch {}
           close()
           setTimeout(() => { try { onPick('custom') } catch {} }, 0)
           return
@@ -3461,14 +4236,10 @@ function openWidgetPickerModal(root: HTMLElement, pid: string, onPick?: (type: s
     host.addEventListener('contextmenu', (ev) => {
       if (!it.lib) return
       ev.preventDefault(); ev.stopPropagation()
-      const ok = confirm(`${it.lib.name || 'ウィジェット'} を削除しますか？`)
-      if (!ok) return
-      try {
-        const next = wpLibGet(pid).filter(x => x.id !== it.lib!.id)
-        wpLibSet(pid, next)
+      openLibWidgetDeleteConfirm(root, pid, { id: it.lib.id, name: it.lib.name }, () => {
         ;(document.getElementById('wp-close') as HTMLButtonElement | null)?.click()
         setTimeout(() => { try { openWidgetPickerModal(root, pid) } catch {} }, 0)
-      } catch {}
+      })
     })
     host.tabIndex = 0
     it.cells.forEach((c) => {
@@ -3481,8 +4252,11 @@ function openWidgetPickerModal(root: HTMLElement, pid: string, onPick?: (type: s
       cell.style.width = `${W}px`
       cell.style.height = `${H}px`
       const clip = document.createElement('div')
-      clip.className = 'hxw-clip'
-      clip.style.background = col.flat
+      clip.className = 'hxw-clip hx-svgclip'
+      // use selected color for currentColor; derive side/highlight numerically
+      clip.style.color = col.flat
+      { const f = deriveFacets(col.flat); (clip.style as any).setProperty('--hx-side', f.side); (clip.style as any).setProperty('--hx-hi', f.hi); (clip.style as any).setProperty('--hx-edge', f.side) }
+        clip.innerHTML = honeyHexFilledSvg()
       cell.appendChild(clip)
       host.appendChild(cell)
     })
@@ -3572,6 +4346,166 @@ function openWidgetPickerModal(root: HTMLElement, pid: string, onPick?: (type: s
     }
     apply()
   }, { passive: false })
+
+  // Prepare and render my library slide
+  const renderMyLib = async () => {
+    const host = overlay.querySelector('#wp-myfield') as HTMLElement
+    if (!host) return
+    host.innerHTML = ''
+    try { (host.style as any).touchAction = 'none'; (host.style as any).webkitUserSelect = 'none'; (host.style as any).userSelect = 'none' } catch {}
+    // Resolve current user id
+    const getUid = async (): Promise<number | null> => {
+      try { const app: any = document.getElementById('app'); const m = app?._me; if (m && m.id) return Number(m.id) } catch {}
+      try { const me = await apiFetch<{ id: number }>(`/me`); try { (document.getElementById('app') as any)._me = me } catch {}; return me?.id ?? null } catch { return null }
+    }
+    const uid = await getUid()
+    const my = uid != null ? userLibGet(uid) : []
+    if (!my || my.length === 0) {
+      const empty = document.createElement('div')
+      empty.className = 'w-full h-full grid place-items-center text-sm text-gray-400'
+      empty.textContent = '手持ちのウィジェットがありません。先に作成してください。'
+      host.appendChild(empty)
+      return
+    }
+    // Compute items from my library; arrange like honeycomb tiles
+    const anchors2 = axGrow(Math.max(60, my.length * 30))
+    const occ2 = new Set<string>()
+    const key2 = (q:number,r:number) => `${q},${r}`
+    type MyItem = { lib: any; cells: Array<{q:number;r:number}>; rgba: string }
+    const items2: MyItem[] = []
+    my.forEach((en) => {
+      const rel = (en.shape && en.shape.length) ? en.shape as Array<[number,number]> : [[0,0]]
+      for (const [ax, az] of anchors2) {
+        const cells = rel.map(([sx,sz]) => axialToOddq(ax+sx, az+sz))
+        if (cells.some(c => occ2.has(key2(c.q,c.r)))) continue
+        cells.forEach(c => occ2.add(key2(c.q,c.r)))
+        const rgba = en.rgb ? `rgba(${en.rgb[0]},${en.rgb[1]},${en.rgb[2]}, ${typeof en.alpha==='number'? en.alpha : 0.38})` : fillFor('lib').flat
+        items2.push({ lib: en, cells, rgba })
+        break
+      }
+    })
+    // Bounds
+    const px2 = (q:number, r:number) => ({ x: q * stepX, y: Math.round((r + (q % 2 ? 0.5 : 0)) * stepY) })
+    let minX2 = Infinity, minY2 = Infinity, maxX2 = -Infinity, maxY2 = -Infinity
+    items2.forEach((it) => { it.cells.forEach((c) => { const p = px2(c.q, c.r); minX2 = Math.min(minX2, p.x); minY2 = Math.min(minY2, p.y); maxX2 = Math.max(maxX2, p.x); maxY2 = Math.max(maxY2, p.y) }) })
+    if (!isFinite(minX2) || !isFinite(minY2)) { minX2 = 0; minY2 = 0; maxX2 = stepX; maxY2 = stepY }
+    const PAD2 = 20
+    const width2 = (maxX2 - minX2) + W + PAD2 * 2
+    const height2 = (maxY2 - minY2) + H + PAD2 * 2
+    const canvas2 = document.createElement('div')
+    canvas2.id = 'wpCanvasMy'
+    canvas2.style.position = 'absolute'
+    canvas2.style.left = '0px'
+    canvas2.style.top = '0px'
+    canvas2.style.width = `${width2}px`
+    canvas2.style.height = `${height2}px`
+    host.appendChild(canvas2)
+    const px = px2
+    items2.forEach((it) => {
+      const col = { flat: it.rgba, solid: it.rgba }
+      const points = it.cells.map(c => px(c.q, c.r))
+      const bx = Math.min(...points.map(p => p.x))
+      const by = Math.min(...points.map(p => p.y))
+      const bw = (Math.max(...points.map(p => p.x)) - bx) + W
+      const bh = (Math.max(...points.map(p => p.y)) - by) + H
+      const hostItem = document.createElement('div')
+      hostItem.className = 'wp-item'
+      hostItem.style.position = 'absolute'
+      hostItem.style.left = `${(bx - minX2) + PAD2}px`
+      hostItem.style.top = `${(by - minY2) + PAD2}px`
+      hostItem.style.width = `${bw}px`
+      hostItem.style.height = `${bh}px`
+      hostItem.style.cursor = 'pointer'
+      hostItem.style.transition = 'transform .12s ease, filter .12s ease'
+      const addToProject = async () => {
+        let newId: string | undefined
+        let existed = false
+        try {
+          await wsLoadAll(pid)
+          const cur = (wsGet(pid, 'lib_widgets') as any[]) || []
+          const id = `shr-${uid}-${it.lib.id}`
+          newId = id
+          existed = !!cur.find((x: any) => x && x.id === id)
+          if (!existed) {
+            const copy = { ...it.lib, id, owner: uid }
+            await wsSet(pid, 'lib_widgets', cur.concat(copy))
+          }
+        } catch {}
+        try { showMiniToast(existed ? '既に追加されています' : 'ウィジェットを追加しました', { variant: existed ? 'danger' : 'default' }) } catch {}
+        try { renderProjLibList() } catch {}
+        // Slide back and rebuild main field focusing the item (existing or new)
+        try { setMode('browse') } catch {}
+        const fid = newId
+        setTimeout(() => { try { rebuildPickerField(fid) } catch {} }, 260)
+      }
+      hostItem.addEventListener('click', addToProject)
+      hostItem.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); addToProject() } })
+      const descTitle = overlay.querySelector('#wp-desc-title') as HTMLElement
+      const descBody = overlay.querySelector('#wp-desc-body') as HTMLElement
+      hostItem.addEventListener('mouseenter', () => {
+        try { descTitle.textContent = it.lib.name || (it.lib.type === 'flow' ? 'フロー' : 'カスタム') } catch {}
+        try { descBody.textContent = 'クリックしてプロジェクトに追加します。' } catch {}
+      })
+      it.cells.forEach((c) => {
+        const p = px(c.q, c.r)
+        const cell = document.createElement('div')
+        cell.className = 'hxw-hex hxw-filled'
+        cell.style.position = 'absolute'
+        cell.style.left = `${(p.x - bx)}px`
+        cell.style.top = `${(p.y - by)}px`
+        cell.style.width = `${W}px`
+        cell.style.height = `${H}px`
+        const clip = document.createElement('div')
+        clip.className = 'hxw-clip hx-svgclip'
+        clip.style.color = col.flat
+        { const f = deriveFacets(col.flat); (clip.style as any).setProperty('--hx-side', f.side); (clip.style as any).setProperty('--hx-hi', f.hi); (clip.style as any).setProperty('--hx-edge', f.side) }
+        clip.innerHTML = honeyHexFilledSvg()
+        cell.appendChild(clip)
+        hostItem.appendChild(cell)
+      })
+      const lab = document.createElement('div')
+      lab.textContent = it.lib.name || (it.lib.type === 'flow' ? 'フロー' : 'カスタム')
+      lab.style.position = 'absolute'; lab.style.inset = '0'
+      lab.style.display = 'grid'; lab.style.placeItems = 'center'; lab.style.pointerEvents = 'none'
+      lab.style.color = 'var(--gh-contrast)'; lab.style.textShadow = '0 1px 2px rgba(0,0,0,.18)'; lab.style.fontSize = '12px'
+      hostItem.appendChild(lab)
+      canvas2.appendChild(hostItem)
+    })
+    // Pan/zoom for mylib canvas
+    const viewport2 = host
+    const state2 = { scale: 1, offsetX: 0, offsetY: 0 }
+    const apply2 = () => { const tr = `translate(${state2.offsetX}px, ${state2.offsetY}px) scale(${state2.scale})`; canvas2.style.transform = tr }
+    const center2 = () => {
+      try {
+        const vpW = viewport2.clientWidth, vpH = viewport2.clientHeight
+        const nodes = Array.from(canvas2.querySelectorAll('.wp-item')) as HTMLElement[]
+        let tx = width2 / 2, ty = height2 / 2
+        if (nodes.length) {
+          const cx = width2 / 2, cy = height2 / 2
+          let best: { d2: number; x: number; y: number } | null = null
+          nodes.forEach((n) => { const x = (parseFloat(n.style.left || '0') || 0) + (n.offsetWidth || 0) / 2; const y = (parseFloat(n.style.top || '0') || 0) + (n.offsetHeight || 0) / 2; const d2 = (x - cx) * (x - cx) + (y - cy) * (y - cy); if (!best || d2 < best.d2) best = { d2, x, y } })
+          if (best) { tx = best.x; ty = best.y }
+        }
+        state2.offsetX = Math.round(vpW / 2 - tx)
+        state2.offsetY = Math.round(vpH / 2 - ty)
+        apply2()
+      } catch {}
+    }
+    const touches = new Map<number, { x: number; y: number }>()
+    let twoPan = false
+    let cx = 0, cy = 0
+    const centroid = () => { let sx2 = 0, sy2 = 0, n = 0; touches.forEach((p) => { sx2 += p.x; sy2 += p.y; n++ }); return { x: sx2 / Math.max(1, n), y: sy2 / Math.max(1, n) } }
+    const onDown = (e: PointerEvent) => { touches.set(e.pointerId, { x: e.clientX, y: e.clientY }); if (touches.size >= 2 && !twoPan) { const c = centroid(); cx = c.x; cy = c.y; twoPan = true } }
+    const onMove = (e: PointerEvent) => { if (!touches.has(e.pointerId)) return; touches.set(e.pointerId, { x: e.clientX, y: e.clientY }); if (twoPan && touches.size >= 2) { const c = centroid(); state2.offsetX += (c.x - cx); state2.offsetY += (c.y - cy); cx = c.x; cy = c.y; apply2() } }
+    const onUp = (e: PointerEvent) => { touches.delete(e.pointerId); if (touches.size < 2) twoPan = false }
+    viewport2.addEventListener('pointerdown', onDown as any)
+    viewport2.addEventListener('pointermove', onMove as any)
+    viewport2.addEventListener('pointerup', onUp as any)
+    viewport2.addEventListener('pointercancel', onUp as any)
+    viewport2.addEventListener('pointerleave', onUp as any)
+    viewport2.addEventListener('wheel', (e: WheelEvent) => { e.preventDefault(); const pinchZoom = (e as any).ctrlKey || Math.abs((e as any).deltaZ || 0) > 0; if (pinchZoom) { const z = Math.exp(-e.deltaY / 600); state2.scale = Math.min(2.0, Math.max(0.6, state2.scale * z)) } else { state2.offsetX -= (e as any).deltaX || 0; state2.offsetY -= (e as any).deltaY || 0 } apply2() }, { passive: false })
+    try { requestAnimationFrame(center2) } catch { center2() }
+  }
 
   document.body.appendChild(overlay); (function () { const c = +(document.body.getAttribute('data-lock') || '0'); if (c === 0) { document.body.style.overflow = 'hidden' } document.body.setAttribute('data-lock', String(c + 1)) })()
   // Center after DOM is attached and sizes are known
@@ -3665,6 +4599,72 @@ function addWidget(root: HTMLElement, pid: string, type: string): void {
     }
     // Toggle any edit-only bits in this widget to match current edit mode
     ; (el as HTMLElement).querySelectorAll('.edit-only').forEach((n) => (n as HTMLElement).classList.toggle('hidden', !on))
+    // If this custom widget came from user's library in grid context, lock it and show its name. Whole widget acts as a button.
+    if (type === 'custom') {
+      let pickedName = ''
+      try { pickedName = String((window as any)._wpPickedLibName || '') } catch {}
+      let pickedRGB: [number,number,number] | null = null
+      try { const arr = (window as any)._wpPickedLibRGB as any; if (Array.isArray(arr) && arr.length === 3) pickedRGB = [Number(arr[0]), Number(arr[1]), Number(arr[2])] } catch {}
+      let pickedCells: number | null = null
+      try { const n = (window as any)._wpPickedLibCells as any; if (typeof n === 'number' && isFinite(n)) pickedCells = n } catch {}
+      if (pickedName) {
+        const card = el as HTMLElement
+        card.setAttribute('data-locked', '1')
+        card.setAttribute('data-name', pickedName)
+        // Apply color hint if available
+        if (pickedRGB) {
+          try { (card.style as any).setProperty('--lib-color', `rgba(${pickedRGB[0]},${pickedRGB[1]},${pickedRGB[2]}, 0.38)`) } catch {}
+        }
+        // Expand initial size roughly based on shape cells
+        if (pickedCells && pickedCells > 1) {
+          try {
+            const span = Math.max(1, Math.round(Math.sqrt(pickedCells)))
+            card.style.gridColumn = `span ${Math.min(12, Math.max(4, span * 4))}`
+            card.style.gridRow = `span ${Math.max(2, span * 2)}`
+          } catch {}
+        }
+        const body = card.querySelector('.wg-content') as HTMLElement | null
+        if (body) {
+          let styleStr = 'min-height:64px'
+          if (pickedRGB) {
+            const [r,g,b] = pickedRGB
+            const lr = Math.min(255, Math.round(r * 1.12))
+            const lg = Math.min(255, Math.round(g * 1.12))
+            const lb = Math.min(255, Math.round(b * 1.12))
+            const dr = Math.max(0, Math.round(r * 0.88))
+            const dg = Math.max(0, Math.round(g * 0.88))
+            const db = Math.max(0, Math.round(b * 0.88))
+            styleStr += `; background: linear-gradient(135deg, rgba(${lr},${lg},${lb},0.26), rgba(${dr},${dg},${db},0.32))`
+            styleStr += `; -webkit-backdrop-filter: saturate(140%) blur(6px); backdrop-filter: saturate(140%) blur(6px); box-shadow: inset 0 0 0 1px rgba(255,255,255,.16), 0 10px 20px rgba(0,0,0,.30)`
+          }
+          body.innerHTML = `<button class=\"w-full h-full grid place-items-center text-center px-2 py-1 rounded ring-2 ring-white/20 hover:bg-neutral-900/40 text-gray-100 transition shadow-sm hover:shadow-md hover:brightness-110\" style=\"${styleStr}\">${escapeHtml(pickedName)}</button>`
+          const btn = body.querySelector('button') as HTMLButtonElement | null
+          btn?.addEventListener('click', (e) => {
+            e.stopPropagation()
+            const gridEl = card.closest('#widgetGrid') as HTMLElement | null
+            if (gridEl?.getAttribute('data-edit') === '1') return
+            try { openWidgetRunModal(root, pid, id, 'custom', pickedName) } catch {}
+          })
+        }
+        // Make the whole card act as a button in view mode
+        card.addEventListener('click', (e) => {
+          const gridEl = card.closest('#widgetGrid') as HTMLElement | null
+          if (gridEl?.getAttribute('data-edit') === '1') return
+          e.stopPropagation()
+          try { openWidgetRunModal(root, pid, id, 'custom', pickedName) } catch {}
+        })
+        // Note: ホバー効果は内側ボタンにのみ適用（カード全体には適用しない）
+        // Hide edit affordances for locked card
+        ;(card.querySelector('.w-del') as HTMLElement | null)?.classList.add('hidden')
+        card.querySelectorAll('.wg-rz').forEach((n) => (n as HTMLElement).classList.add('hidden'))
+        ;(card.querySelector('.wg-move') as HTMLElement | null)?.classList.add('hidden')
+        // Clear the global hints to avoid affecting later additions
+        try { (window as any)._wpPickedLibName = '' } catch {}
+        try { (window as any)._wpPickedLibRGB = null } catch {}
+        try { (window as any)._wpPickedLibCells = null } catch {}
+        try { showMiniToast('ウィジェットを追加しました') } catch {}
+      }
+    }
     // markdown: popup mode → 初期同期は不要
     // If this is a contributions widget, hydrate from cache/network
     if (type === 'contrib') {
@@ -4000,7 +5000,7 @@ async function hydrateLinkCircle(circle: HTMLElement, url: string): Promise<void
   try {
     if (!circle) return
     const safeUrl = (url || '').trim()
-    if (!safeUrl) { circle.innerHTML = `<div class="w-full h-full grid place-items-center text-gray-300 text-sm">リンク未設定</div>`; return }
+    if (!safeUrl) { circle.innerHTML = ``; return }
     // Loading indicator
     circle.innerHTML = `<div class="w-full h-full grid place-items-center text-[11px] text-gray-400">読み込み中…</div>`
     let meta: LinkMeta | null = null
@@ -4360,6 +5360,7 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
       const canvas = w.querySelector('.flow-canvas') as HTMLElement | null
       const svg = w.querySelector('.flow-svg') as SVGSVGElement | null
       if (box && canvas && svg) {
+        const isHex = !!w.closest('.hxw-widget')
         const gridEl = w.closest('#widgetGrid') as HTMLElement | null
         const edit = gridEl?.getAttribute('data-edit') === '1'
         const g = flowLoad(pid, id)
@@ -4368,6 +5369,12 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
         const designWrap = (w.querySelector('.flow-design') as HTMLElement | null)
         const modeBtns = Array.from(w.querySelectorAll('.flow-mode [data-mode]')) as HTMLElement[]
         const applyMode = (md: 'logic'|'design') => {
+          if (isHex) {
+            if (paletteWrap) paletteWrap.classList.add('hidden')
+            if (designWrap) designWrap.classList.add('hidden')
+            if (box) box.classList.add('hidden')
+            return
+          }
           if (paletteWrap) paletteWrap.classList.toggle('hidden', md !== 'logic')
           if (designWrap) designWrap.classList.toggle('hidden', md !== 'design')
           if (box) box.classList.toggle('hidden', md !== 'logic')
@@ -4380,7 +5387,7 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
         }
         const currentMode = flowModeGet(pid, id)
         applyMode(currentMode)
-        modeBtns.forEach(btn => btn.addEventListener('click', () => { const md = (btn.getAttribute('data-mode') as any) || 'logic'; flowModeSet(pid, id, md); applyMode(md) }))
+        if (!isHex) modeBtns.forEach(btn => btn.addEventListener('click', () => { const md = (btn.getAttribute('data-mode') as any) || 'logic'; flowModeSet(pid, id, md); applyMode(md) }))
         // Design panel (color/alpha + shape presets)
         const applyDesignUpdate = (conf: { rgb?: [number,number,number]; alpha?: number; shape?: Array<[number,number]> }) => {
           const cur = hxwCustomGet(pid, id) || {}
@@ -4396,7 +5403,11 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
         }
         const colorsWrap = (w.querySelector('#fld-colors') as HTMLElement | null)
         const alphaInput = (w.querySelector('#fld-alpha') as HTMLInputElement | null)
-        if (colorsWrap) {
+        if (isHex) {
+          if (paletteWrap) paletteWrap.classList.add('hidden')
+          if (designWrap) designWrap.classList.add('hidden')
+        }
+        if (colorsWrap && !isHex) {
           const palette: Array<[number,number,number]> = [[59,130,246],[16,185,129],[239,68,68],[168,85,247],[251,146,60],[234,179,8],[99,102,241],[20,184,166],[14,165,233]]
           const cur = hxwCustomGet(pid, id)
           let pick = 1
@@ -4416,16 +5427,18 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
             colorsWrap.appendChild(btt)
           })
         }
-        if (alphaInput) {
+        if (alphaInput && !isHex) {
           const cur = hxwCustomGet(pid, id)
           alphaInput.value = String(typeof cur?.alpha === 'number' ? cur!.alpha : 0.38)
           alphaInput.addEventListener('input', () => { const a = Math.max(0, Math.min(1, parseFloat(alphaInput.value)||0.38)); applyDesignUpdate({ alpha: a }) })
         }
-        const setShapePreset = (shape: Array<[number,number]>) => applyDesignUpdate({ shape })
-        ;(w.querySelector('#fld-t1') as HTMLElement | null)?.addEventListener('click', () => setShapePreset([[0,0]]))
-        ;(w.querySelector('#fld-t3') as HTMLElement | null)?.addEventListener('click', () => setShapePreset([[0,0],[1,0],[0,1]]))
-        ;(w.querySelector('#fld-t4') as HTMLElement | null)?.addEventListener('click', () => setShapePreset([[0,0],[1,0],[0,1],[1,1]]))
-        ;(w.querySelector('#fld-t7') as HTMLElement | null)?.addEventListener('click', () => setShapePreset([[0,0],[1,0],[0,1],[-1,1],[-1,0],[0,-1],[1,-1]]))
+        if (!isHex) {
+          const setShapePreset = (shape: Array<[number,number]>) => applyDesignUpdate({ shape })
+          ;(w.querySelector('#fld-t1') as HTMLElement | null)?.addEventListener('click', () => setShapePreset([[0,0]]))
+          ;(w.querySelector('#fld-t3') as HTMLElement | null)?.addEventListener('click', () => setShapePreset([[0,0],[1,0],[0,1]]))
+          ;(w.querySelector('#fld-t4') as HTMLElement | null)?.addEventListener('click', () => setShapePreset([[0,0],[1,0],[0,1],[1,1]]))
+          ;(w.querySelector('#fld-t7') as HTMLElement | null)?.addEventListener('click', () => setShapePreset([[0,0],[1,0],[0,1],[-1,1],[-1,0],[0,-1],[1,-1]]))
+        }
         // Hex-packed rendering if slots exist
         const slotsWrap = w.querySelector('.hxw-cells') as HTMLElement | null
         if (slotsWrap) { (slotsWrap as HTMLElement).style.display = 'none' }
@@ -4820,6 +5833,16 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
         // run (view or edit both allowed)
         const logEl = w.querySelector('.flow-log') as HTMLElement | null
         const runBtn = w.querySelector('.flow-run') as HTMLElement | null
+        // In hex field, keep flow simple: hide internal UI (nodes/edges view, run button, log).
+        try {
+          const isHex = !!w.closest('.hxw-widget')
+          if (isHex) {
+            const bodyWrap = w.querySelector('.flow-body') as HTMLElement | null
+            if (bodyWrap) bodyWrap.style.display = 'none'
+            if (runBtn) runBtn.style.display = 'none'
+            if (logEl) logEl.style.display = 'none'
+          }
+        } catch {}
         const appendLog = (s: string) => { if (logEl) { const p = document.createElement('div'); p.textContent = `[${new Date().toLocaleTimeString()}] ${s}`; logEl.appendChild(p); logEl.scrollTop = logEl.scrollHeight } }
         runBtn?.addEventListener('click', async () => {
           const triggers = g.nodes.filter(n => n.kind === 'trigger')
@@ -5121,10 +6144,11 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
         const gridEl = w.closest('#widgetGrid') as HTMLElement | null
         const hxEl = w.closest('#hxwCanvas') as HTMLElement | null
         const edit = ((gridEl && gridEl.getAttribute('data-edit') === '1') || (hxEl && hxEl.getAttribute('data-edit') === '1'))
+        const hasLink = !!(links && links[0] && links[0].url)
         const slotsWrap = w.querySelector('.hxw-cells') as HTMLElement | null
         if (slotsWrap) {
-          // ハニカム: 非編集時はスロット層のポインターを無効化（円プレビューのリンクをクリック可能に）
-          ;(slotsWrap as HTMLElement).style.pointerEvents = edit ? 'auto' : 'none'
+          // ハニカム: 非編集でも未設定なら＋ボタン操作のためにポインターを有効化
+          ;(slotsWrap as HTMLElement).style.pointerEvents = (edit || !hasLink) ? 'auto' : 'none'
           // ハニカム内は円形に近い合成表現でプレビュー
           const content = w.querySelector('.wg-content') as HTMLElement | null
           let circle = w.querySelector('.lnk-hex-circle') as HTMLElement | null
@@ -5144,7 +6168,15 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
               if (l && l.url) {
                 try { (window as any).requestIdleCallback ? (window as any).requestIdleCallback(() => hydrateLinkCircle(circle!, l.url)) : hydrateLinkCircle(circle!, l.url) } catch { circle.innerHTML = renderLinkPreview(l.url, true) }
               } else {
-                circle.innerHTML = `<div class="w-full h-full grid place-items-center text-gray-300 text-sm">リンク未設定</div>`
+                circle.innerHTML = ``
+                // 非編集モードでも未設定ならクリックで設定ポップを開く
+                try {
+                  if (!edit && !(circle as any)._bindAdd) {
+                    (circle as any)._bindAdd = true
+                    circle.style.cursor = 'pointer'
+                    circle.addEventListener('click', (ev) => { ev.stopPropagation(); openLinkHexPopup(root, pid, id) })
+                  }
+                } catch {}
               }
             }
           }
@@ -5152,15 +6184,15 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
           const slots = Array.from(slotsWrap.querySelectorAll('.hxw-slot .slot-inner')) as HTMLElement[]
           const addIdx = Math.min(1, Math.max(0, Math.floor(slots.length / 2)))
           const addSlot = slots[addIdx]
-          if (addSlot && edit && !(links && links[0] && links[0].url) && !addSlot.querySelector('.lnk-hex-add')) {
+          if (addSlot && !hasLink && !addSlot.querySelector('.lnk-hex-add')) {
             const btn = document.createElement('button')
             btn.className = 'lnk-hex-add text-2xl md:text-3xl text-gray-100'
             btn.textContent = '＋'
             btn.addEventListener('click', (ev) => { ev.stopPropagation(); openLinkHexPopup(root, pid, id) })
             addSlot.appendChild(btn)
           }
-          // 編集モードでない、またはリンク設定済みなら＋を消す
-          if (addSlot && (!edit || (links && links[0] && links[0].url))) {
+          // リンク設定済みなら＋を消す
+          if (addSlot && hasLink) {
             const ex = addSlot.querySelector('.lnk-hex-add') as HTMLElement | null
             if (ex) ex.remove()
           }
@@ -5170,6 +6202,7 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
           const form = w.querySelector('.lnk-form') as HTMLElement | null
           const addBtn = w.querySelector('.lnk-add') as HTMLElement | null
           if (form) form.classList.add('hidden')
+          // ハニカムでは常にテキストの「リンク追加」ボタンは非表示（＋ボタンで統一）
           if (addBtn) addBtn.classList.add('hidden')
           return
         }
@@ -5591,7 +6624,9 @@ function widgetTitle(type: string): string {
     case 'overview': return 'Overview'
     case 'contrib': return 'Contributions'
     case 'markdown': return 'Markdown'
+    case 'tasksum': return 'タスクサマリー'
     case 'committers': return 'Top Committers'
+    case 'links': return 'クイックリンク'
     case 'calendar': return 'カレンダー'
     case 'clock': return '時計'
     case 'clock-digital': return 'デジタル時計'
@@ -5749,6 +6784,141 @@ function mdRenderToHtml(src: string): string {
   return s
 }
 
+// Richer Markdown renderer approximating GFM + Qiita extensions used in the cheat sheet
+function mdRenderQiita(src: string): string {
+  const escapeHtml = (t: string) => (t || '').replace(/[&<>\"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', "'": '&#39;' }[c] as string))
+  const escapeNoQuotes = (t: string) => (t || '').replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c] as string))
+  const lines = (src || '').replace(/\r\n?/g, '\n').split('\n')
+  const out: string[] = []
+  let i = 0
+  let inFence = false, fence = '', fenceInfo = ''
+  let list: null | 'ul' | 'ol' | 'task' = null
+  let inQuote = false
+  let inTable = false, align: string[] = []
+  let inNote = false
+
+  const flushList = () => { if (list) { out.push(list === 'ol' ? '</ol>' : '</ul>'); list = null } }
+  const flushQuote = () => { if (inQuote) { out.push('</blockquote>'); inQuote = false } }
+  const flushTable = () => { if (inTable) { out.push('</tbody></table>'); inTable = false; align = [] } }
+  const flushNote = () => { if (inNote) { out.push('</div>'); inNote = false } }
+
+  const inline = (s: string): string => {
+    const stash: string[] = []
+    s = s.replace(/(`+)([\s\S]*?)\1/g, (_m, _t: string, body: string) => { stash.push(`<code class=\"bg-neutral-900 px-1 rounded\">${escapeHtml(body)}</code>`); return `\u0000C${stash.length - 1};` })
+    s = s.replace(/\[([^\]]+)\]\(([^\s\)]+)(?:\s+\"([^\"]*)\")?\)/g, (_m, text, url, title) => {
+      const t = title ? ` title=\"${escapeHtml(title)}\"` : ''
+      return `<a href=\"${escapeHtml(url)}\" target=\"_blank\" class=\"text-sky-400 hover:text-sky-300\"${t}>${escapeHtml(text)}</a>`
+    })
+    s = s.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    s = s.replace(/\*(.*?)\*/g, '<em>$1</em>')
+    s = s.replace(/\u0000C(\d+);/g, (_m, idx) => {
+      const html = stash[Number(idx)] || ''
+      const m = html.match(/<code[^>]*>([\s\S]*)<\/code>/)
+      const val = m ? m[1] : ''
+      const pat = /^(#(?:[0-9a-fA-F]{3,8})|rgb\([^\)]+\)|rgba\([^\)]+\)|hsl\([^\)]+\)|hsla\([^\)]+\))$/
+      if (val && pat.test(val)) {
+        const chip = `<span class=\"inline-block align-middle w-3 h-3 rounded-sm ml-1\" style=\"background:${escapeNoQuotes(val)}\"></span>`
+        return html.replace('</code>', `</code>${chip}`)
+      }
+      return html
+    })
+    return s
+  }
+
+  while (i < lines.length) {
+    const line = lines[i]
+    if (!inFence && /^:::note(\s+(info|warn|alert))?\s*$/.test(line)) {
+      flushList(); flushQuote(); flushTable(); flushNote()
+      const m = line.match(/^:::note(?:\s+(info|warn|alert))?\s*$/)!
+      const kind = m[1] || ''
+      const cls = kind ? ` md-note-${kind}` : ''
+      out.push(`<div class=\"md-note${cls} p-3 rounded border border-neutral-600 bg-neutral-900/60\">`)
+      inNote = true; i++; continue
+    }
+    if (inNote && line.trim() === ':::') { out.push('</div>'); inNote = false; i++; continue }
+
+    const fs = line.match(/^(```|~~~)\s*([^\s]*)[^$]*$/)
+    if (!inFence && fs) {
+      flushList(); flushQuote(); flushTable()
+      inFence = true; fence = fs[1]; fenceInfo = fs[2] || ''
+      let lang = '', meta = ''
+      if (fenceInfo) { const parts = fenceInfo.split(':'); lang = parts[0] || ''; meta = parts.slice(1).join(':') }
+      const buf: string[] = []
+      i++
+      while (i < lines.length && !new RegExp(`^${fence}\\s*$`).test(lines[i])) { buf.push(lines[i]); i++ }
+      if (i < lines.length) i++
+      inFence = false
+      const code = escapeHtml(buf.join('\n'))
+      const metaHtml = (lang || meta) ? `<div class=\"text-[11px] text-gray-400 px-2 py-1 border-b border-neutral-700\">${escapeNoQuotes([lang, meta].filter(Boolean).join(':'))}</div>` : ''
+      out.push(`<div class=\"md-code rounded bg-neutral-900 ring-2 ring-neutral-600 overflow-hidden\">${metaHtml}<pre class=\"p-3 overflow-auto\"><code class=\"lang-${escapeNoQuotes(lang)}\">${code}</code></pre></div>`)
+      continue
+    }
+
+    let m: RegExpMatchArray | null
+    if (!inFence && (m = line.match(/^######\s?(.*)$/))) { flushList(); flushQuote(); flushTable(); out.push(`<h6 class=\"text-xs font-semibold mt-2\">${inline(escapeNoQuotes(m[1]))}</h6>`); i++; continue }
+    if (!inFence && (m = line.match(/^#####\s?(.*)$/))) { flushList(); flushQuote(); flushTable(); out.push(`<h5 class=\"text-sm font-semibold mt-2\">${inline(escapeNoQuotes(m[1]))}</h5>`); i++; continue }
+    if (!inFence && (m = line.match(/^####\s?(.*)$/))) { flushList(); flushQuote(); flushTable(); out.push(`<h4 class=\"text-base font-semibold mt-3\">${inline(escapeNoQuotes(m[1]))}</h4>`); i++; continue }
+    if (!inFence && (m = line.match(/^###\s?(.*)$/))) { flushList(); flushQuote(); flushTable(); out.push(`<h3 class=\"text-lg font-semibold mt-3\">${inline(escapeNoQuotes(m[1]))}</h3>`); i++; continue }
+    if (!inFence && (m = line.match(/^##\s?(.*)$/))) { flushList(); flushQuote(); flushTable(); out.push(`<h2 class=\"text-xl font-semibold mt-4\">${inline(escapeNoQuotes(m[1]))}</h2>`); i++; continue }
+    if (!inFence && (m = line.match(/^#\s?(.*)$/))) { flushList(); flushQuote(); flushTable(); out.push(`<h1 class=\"text-2xl font-semibold mt-4\">${inline(escapeNoQuotes(m[1]))}</h1>`); i++; continue }
+
+    const t = line.trim()
+    if (!inFence && (/^(\*\s?){3,}$/.test(t) || /^(-\s?){3,}$/.test(t) || /^_{3,}$/.test(t))) { flushList(); flushQuote(); flushTable(); out.push('<hr class=\"my-3 border-neutral-700\"/>'); i++; continue }
+
+    if (!inFence && /^>\s?/.test(line)) {
+      if (!inQuote) { flushList(); flushTable(); out.push('<blockquote class=\"border-l-4 border-neutral-600 pl-3 my-2 text-gray-300\">'); inQuote = true }
+      out.push(`<p class=\"my-1\">${inline(escapeNoQuotes(line.replace(/^>\s?/, '')))}</p>`)
+      i++; continue
+    } else { flushQuote() }
+
+    const parseRow = (r: string) => r.split('|').map(c => c.trim())
+    if (!inFence && !inTable && line.includes('|') && i + 1 < lines.length && /^\s*\|?\s*[:\-\s|]+\s*\|?\s*$/.test(lines[i + 1])) {
+      flushList(); flushQuote(); flushTable()
+      const header = parseRow(line)
+      const al = parseRow(lines[i + 1])
+      align = al.map(x => x.includes(':-') && x.includes('-:') ? 'center' : (x.trim().startsWith(':') ? 'left' : (x.trim().endsWith(':') ? 'right' : 'left')))
+      out.push('<table class=\"md-table my-3 border-collapse\"><thead><tr>')
+      header.forEach((h, idx) => out.push(`<th class=\"px-2 py-1 border border-neutral-700 text-gray-200\" style=\"text-align:${align[idx] || 'left'}\">${inline(escapeNoQuotes(h))}</th>`))
+      out.push('</tr></thead><tbody>')
+      inTable = true; i += 2; continue
+    }
+    if (inTable) {
+      if (line.trim() === '' || !line.includes('|')) { flushTable(); i++; continue }
+      const cells = parseRow(line)
+      out.push('<tr>')
+      cells.forEach((c, idx) => out.push(`<td class=\"px-2 py-1 border border-neutral-700\" style=\"text-align:${align[idx] || 'left'}\">${inline(escapeNoQuotes(c))}</td>`))
+      out.push('</tr>')
+      i++; continue
+    }
+
+    let lm: RegExpMatchArray | null
+    if (!inFence && (lm = line.match(/^\s*\d+\.\s+(.*)$/))) {
+      if (list !== 'ol') { flushList(); out.push('<ol class=\"ml-5 list-decimal\">'); list = 'ol' }
+      out.push(`<li>${inline(escapeNoQuotes(lm[1]))}</li>`)
+      i++; continue
+    }
+    if (!inFence && (lm = line.match(/^\s*[-\*\+]\s+\[( |x|X)\]\s+(.*)$/))) {
+      if (list !== 'task') { flushList(); out.push('<ul class=\"ml-5 md-task\">'); list = 'task' }
+      const checked = (lm[1] || '').toLowerCase() === 'x'
+      out.push(`<li class=\"md-task-item\"><label><input type=\"checkbox\" disabled ${checked ? 'checked' : ''}/> ${inline(escapeNoQuotes(lm[2]))}</label></li>`)
+      i++; continue
+    }
+    if (!inFence && (lm = line.match(/^\s*[-\*\+]\s+(.*)$/))) {
+      if (list !== 'ul') { flushList(); out.push('<ul class=\"ml-5 list-disc\">'); list = 'ul' }
+      out.push(`<li>${inline(escapeNoQuotes(lm[1]))}</li>`)
+      i++; continue
+    }
+    if (list && line.trim() === '') { flushList(); i++; continue }
+
+    if (line.trim() === '') { flushList(); flushQuote(); flushTable(); flushNote(); out.push(''); i++; continue }
+    if (line.trim().startsWith('<')) { out.push(line); i++; continue }
+    out.push(`<p class=\"my-2\">${inline(escapeNoQuotes(line))}</p>`)
+    i++
+  }
+  flushList(); flushQuote(); flushTable(); flushNote()
+  return out.join('\n')
+}
+
 // ---- Popups for README / Markdown ----
 function openReadmeModal(root: HTMLElement): void {
   // Ensure single instance
@@ -5768,7 +6938,7 @@ function openReadmeModal(root: HTMLElement): void {
   // Try cached value; otherwise fetch
   const body = overlay.querySelector('#rd-body') as HTMLElement
   const cached = (root as any)._readmeText as string | undefined
-  const render = (txt: string) => { body.innerHTML = mdRenderToHtml(txt || 'README not found') }
+  const render = (txt: string) => { body.innerHTML = mdRenderQiita(txt || 'README not found') }
   if (cached != null) render(cached)
   else {
     const full = (root as HTMLElement).getAttribute('data-repo-full') || ''
@@ -5790,15 +6960,84 @@ function openMarkdownModal(root: HTMLElement, pid: string, id: string): void {
   overlay.className = 'fixed inset-0 z-[86] bg-black/60 backdrop-blur-[1px] grid place-items-center fade-overlay'
   overlay.innerHTML = `
     <div class="relative w-[min(980px,95vw)] max-h-[86vh] overflow-hidden rounded-xl bg-neutral-900 ring-2 ring-neutral-600 text-gray-100 pop-modal modal-fixed flex flex-col">
-      <header class="h-11 flex items-center px-4 border-b border-neutral-600"><div class="text-sm font-medium">Markdown</div><button class="ml-auto text-2xl text-neutral-300 hover:text-white" data-close>×</button></header>
-      <section class="flex-1 overflow-auto p-4 text-sm" id="md-body"></section>
+      <header class="h-11 flex items-center px-3 border-b border-neutral-600 gap-2">
+        <div class="text-sm font-medium">Markdown</div>
+        <div class="ml-3 inline-flex items-center gap-1 bg-neutral-800/70 ring-1 ring-neutral-600 rounded p-0.5" role="tablist">
+          <button id="mdTabView" role="tab" aria-selected="true" class="px-2 py-1 text-xs rounded bg-neutral-700 text-gray-100">表示</button>
+          <button id="mdTabEdit" role="tab" aria-selected="false" class="px-2 py-1 text-xs rounded text-gray-300 hover:text-white">記入</button>
+        </div>
+        <button class="ml-auto text-2xl text-neutral-300 hover:text-white" data-close>×</button>
+      </header>
+      <section class="flex-1 overflow-hidden">
+        <div id="mdView" class="w-full h-full overflow-auto p-4 text-sm"></div>
+        <div id="mdEdit" class="hidden w-full h-full p-3">
+          <textarea id="mdText" class="w-full h-[calc(86vh-120px)] min-h-[320px] rounded bg-neutral-800/70 ring-2 ring-neutral-600 px-3 py-2 text-gray-100 font-mono text-[13px] leading-5" placeholder="ここにMarkdownを書いてください"></textarea>
+          <div class="mt-2 flex items-center justify-end gap-2">
+            <button id="mdSave" class="rounded bg-emerald-700 hover:bg-emerald-600 text-white px-3 py-1 text-sm">保存</button>
+          </div>
+        </div>
+      </section>
     </div>`
   const close = () => overlay.remove()
   overlay.addEventListener('click', (e) => { if (e.target === overlay) close() })
   overlay.querySelector('[data-close]')?.addEventListener('click', close)
   document.body.appendChild(overlay)
-  const body = overlay.querySelector('#md-body') as HTMLElement
-  body.innerHTML = mdRenderToHtml(text || 'ここにMarkdownを書いてください')
+  const view = overlay.querySelector('#mdView') as HTMLElement
+  const edit = overlay.querySelector('#mdEdit') as HTMLElement
+  const ta = overlay.querySelector('#mdText') as HTMLTextAreaElement
+  const tabView = overlay.querySelector('#mdTabView') as HTMLButtonElement
+  const tabEdit = overlay.querySelector('#mdTabEdit') as HTMLButtonElement
+  const saveBtn = overlay.querySelector('#mdSave') as HTMLButtonElement
+  // init
+  view.innerHTML = mdRenderQiita(text || 'ここにMarkdownを書いてください')
+  ta.value = text || ''
+  const setTab = (which: 'view' | 'edit') => {
+    const onView = which === 'view'
+    view.classList.toggle('hidden', !onView)
+    edit.classList.toggle('hidden', onView)
+    tabView.setAttribute('aria-selected', onView ? 'true' : 'false')
+    tabEdit.setAttribute('aria-selected', onView ? 'false' : 'true')
+    tabView.classList.toggle('bg-neutral-700', onView)
+    tabView.classList.toggle('text-gray-100', onView)
+    tabEdit.classList.toggle('bg-neutral-700', !onView)
+    tabEdit.classList.toggle('text-gray-100', !onView)
+    if (!onView) setTimeout(() => ta.focus(), 0)
+  }
+  tabView.addEventListener('click', () => setTab('view'))
+  tabEdit.addEventListener('click', () => setTab('edit'))
+  saveBtn.addEventListener('click', () => {
+    const txt = ta.value || ''
+    try { mdSet(pid, id, txt) } catch {}
+    view.innerHTML = mdRenderQiita(txt || 'ここにMarkdownを書いてください')
+    setTab('view')
+  })
+}
+
+// ---- Simple runner modal for custom/flow widgets ----
+function openWidgetRunModal(root: HTMLElement, pid: string, id: string, type: string, name?: string): void {
+  document.getElementById('wrModal')?.remove()
+  const overlay = document.createElement('div')
+  overlay.id = 'wrModal'
+  overlay.className = 'fixed inset-0 z-[86] bg-black/60 backdrop-blur-[1px] grid place-items-center fade-overlay'
+  const title = name && name.trim() ? name.trim() : (type === 'flow' ? 'フロー' : 'カスタム')
+  overlay.innerHTML = `
+    <div class="relative w-[min(620px,92vw)] max-h-[86vh] overflow-hidden rounded-xl bg-neutral-900 ring-2 ring-neutral-600 text-gray-100 pop-modal modal-fixed flex flex-col">
+      <header class="h-11 flex items-center px-4 border-b border-neutral-600">
+        <div class="text-sm font-medium">${title}</div>
+        <button class="ml-auto text-2xl text-neutral-300 hover:text-white" data-close>×</button>
+      </header>
+      <section class="flex-1 overflow-auto p-4 text-sm" id="wr-body">
+        <div class="text-gray-300">実行を開始しました。</div>
+        <div class="text-xs text-gray-400 mt-1">ウィジェットID: ${id}</div>
+      </section>
+      <footer class="h-11 border-t border-neutral-600 px-4 py-2 flex items-center justify-end gap-2">
+        <button class="rounded ring-2 ring-neutral-600 px-3 py-1 hover:bg-neutral-800" data-close>閉じる</button>
+      </footer>
+    </div>`
+  const close = () => overlay.remove()
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close() })
+  overlay.querySelectorAll('[data-close]')?.forEach((el) => el.addEventListener('click', close))
+  document.body.appendChild(overlay)
 }
 
 // ---- Experimental: Widget Creator Modal (Node flow + DSL placeholder) ----
@@ -5950,10 +7189,10 @@ function openWidgetCreatorModal(root: HTMLElement, pid: string): void {
   }
   renderPalette()
 
-  const TILE = 46
+  // Larger tiles for better visibility in design tab
+  const TILE = 76
   const sx = Math.round(TILE * 0.75)
   const sy = Math.round(TILE * 0.866)
-  const R = 4
   const sel = new Set<string>()
   const key = (ax: number, az: number) => `${ax},${az}`
   sel.add('0,0')
@@ -5969,7 +7208,7 @@ function openWidgetCreatorModal(root: HTMLElement, pid: string): void {
     host.style.left = '0px'; host.style.top = '0px'
     host.style.width = '100%'; host.style.height = '100%'
     board.appendChild(host)
-    const put = (q: number, r: number, ax: number, az: number) => {
+    const put = (q: number, r: number, ax: number, az: number, kind: 'sel'|'hint') => {
       const x = q * sx
       const y = Math.round((r + (q % 2 ? 0.5 : 0)) * sy)
       const hex = document.createElement('div')
@@ -5980,23 +7219,94 @@ function openWidgetCreatorModal(root: HTMLElement, pid: string): void {
       hex.style.width = `${TILE}px`
       hex.style.height = `${Math.round(TILE*0.866)}px`
       const clip = document.createElement('div')
-      clip.className = 'hxw-clip'
-      const on = sel.has(key(ax, az))
+      clip.className = 'hxw-clip hx-svgclip'
       const [r0,g0,b0] = palette[colorIdx]
-      clip.style.background = on ? `rgba(${r0},${g0},${b0}, ${parseFloat(alphaInput.value) || 0.38})` : 'rgba(255,255,255,0.08)'
-      clip.style.outline = on ? `2px solid rgba(${r0},${g0},${b0}, .85)` : '1px dashed rgba(255,255,255,.25)'
+      const a = Math.max(0, Math.min(1, parseFloat(alphaInput.value) || 0.38))
+      if (kind === 'sel') {
+        const col = `rgba(${r0},${g0},${b0}, ${a})`
+        const f = deriveFacets(col)
+        clip.style.color = col
+        ;(clip.style as any).setProperty('--hx-side', f.side)
+        ;(clip.style as any).setProperty('--hx-hi',   f.hi)
+        ;(clip.style as any).setProperty('--hx-edge', f.side)
+        clip.innerHTML = honeyHexFilledSvg()
+        // Allow removal only if it keeps the shape contiguous and is not the center (0,0)
+        const canRemove = (() => {
+          const k = key(ax, az)
+          if (k === '0,0') return false
+          if (!sel.has(k)) return false
+          // Check connectivity after removing k
+          const nbrs: Array<[number,number]> = [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]]
+          const rest = new Set<string>(Array.from(sel))
+          rest.delete(k)
+          if (!rest.size) return false
+          // BFS from center 0,0 (must exist)
+          if (!rest.has('0,0')) return false
+          const q: Array<[number,number]> = [[0,0]]
+          const seen = new Set<string>(['0,0'])
+          while (q.length) {
+            const [x,z] = q.shift() as [number,number]
+            for (const [dx,dz] of nbrs) {
+              const nk = key(x+dx, z+dz)
+              if (!rest.has(nk) || seen.has(nk)) continue
+              seen.add(nk); q.push([x+dx, z+dz])
+            }
+          }
+          return seen.size === rest.size
+        })()
+        if (canRemove) {
+          // Central delete button
+          const del = document.createElement('button')
+          del.type = 'button'
+          del.title = '削除'
+          del.textContent = '×'
+          del.style.position = 'absolute'
+          del.style.inset = '0'
+          del.style.display = 'grid'
+          ;(del.style as any).placeItems = 'center'
+          // transparent background to avoid overlaying a semi-transparent rectangle look
+          del.style.background = 'transparent'
+          del.style.border = 'none'
+          del.style.borderRadius = '6px'
+          del.style.color = 'rgba(255,255,255,0.95)'
+          del.style.fontSize = `${Math.round(TILE*0.38)}px`
+          del.style.lineHeight = '1'
+          del.style.cursor = 'pointer'
+          del.style.zIndex = '3'
+          // ensure click lands on the button and not the hex container
+          del.addEventListener('mousedown', (e) => { e.stopPropagation() })
+          del.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); sel.delete(key(ax,az)); renderBoard(); updateSave() })
+          hex.appendChild(del)
+        }
+      } else {
+        // Hint tile: use the empty SVG look, grayscale and very transparent
+        const light = (document.documentElement.getAttribute('data-theme') || 'dark') !== 'dark'
+        const hint = light ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.12)'
+        const f = deriveFacets(hint)
+        clip.style.color = hint
+        ;(clip.style as any).setProperty('--hx-side', f.side)
+        ;(clip.style as any).setProperty('--hx-hi',   f.hi)
+        ;(clip.style as any).setProperty('--hx-edge', f.side)
+        clip.innerHTML = honeyHexEmptySvg()
+        const plus = document.createElement('div')
+        plus.textContent = '＋'
+        plus.style.position = 'absolute'; plus.style.inset = '0'; plus.style.display = 'grid'; (plus.style as any).placeItems = 'center'
+        plus.style.color = light ? 'rgba(0,0,0,0.35)' : 'rgba(255,255,255,0.35)'
+        plus.style.fontSize = `${Math.round(TILE*0.28)}px`
+        plus.style.pointerEvents = 'none'
+        hex.appendChild(plus)
+        hex.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); sel.add(key(ax,az)); renderBoard(); updateSave() })
+      }
       hex.appendChild(clip)
-      hex.setAttribute('tabindex', '0')
-      hex.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); const k = key(ax,az); if (sel.has(k)) sel.delete(k); else sel.add(k); renderBoard(); updateSave() })
       host.appendChild(hex)
     }
-    // draw range around 0,0 in axial space, converted to odd-q for layout
-    for (let az=-R; az<=R; az++) {
-      for (let ax=-R; ax<=R; ax++) {
-        const o = axialToOddqLocal(ax, az)
-        put(o.q, o.r, ax, az)
-      }
-    }
+    // Draw current selection and only the valid neighbor positions as hints
+    const selCells: Array<[number,number]> = Array.from(sel).map(s => { const [ax,az] = s.split(',').map(Number); return [ax,az] as [number,number] })
+    const nbrs: Array<[number,number]> = [[1,0],[1,-1],[0,-1],[-1,0],[-1,1],[0,1]]
+    selCells.forEach(([ax,az]) => { const o = axialToOddqLocal(ax, az); put(o.q, o.r, ax, az, 'sel') })
+    const hints = new Set<string>()
+    selCells.forEach(([ax,az]) => { nbrs.forEach(([dx,dz]) => { const k2 = key(ax+dx, az+dz); if (!sel.has(k2)) hints.add(k2) }) })
+    hints.forEach((k2) => { const [ax,az] = k2.split(',').map(Number); const o = axialToOddqLocal(ax, az); put(o.q, o.r, ax, az, 'hint') })
   }
   const setShape = (shape: Array<[number,number]>) => { sel.clear(); shape.forEach(([ax,az]) => sel.add(key(ax,az))); renderBoard(); updateSave() }
   const updateSave = () => { const hasName = (nameInput?.value || '').trim().length > 0; saveBtn.disabled = (sel.size === 0) || !hasName }
@@ -6206,7 +7516,7 @@ function buildNotesTab(panel: HTMLElement, pid: string, id: string): void {
   const txt = panel.querySelector('#nt-text') as HTMLTextAreaElement
   const prev = panel.querySelector('#nt-preview') as HTMLElement
   try { txt.value = localStorage.getItem(key) || '' } catch { }
-  const render = () => { prev.innerHTML = mdRenderToHtml(txt.value || '') }
+  const render = () => { prev.innerHTML = mdRenderQiita(txt.value || '') }
   render()
   txt.addEventListener('input', render)
   panel.querySelector('#nt-save')?.addEventListener('click', () => { localStorage.setItem(key, txt.value || '') })
@@ -6360,20 +7670,21 @@ function buildWidgetTab(panel: HTMLElement, pid: string, scope: string, defaults
   }
 }
 
-function detailLayout(ctx: { id: number; name: string; fullName: string; owner: string; repo: string }): string {
+function detailLayout(ctx: { id: number; name: string; fullName: string; owner?: string; repo?: string }, opts?: { entryHidden?: boolean }): string {
+  const hideWrap = opts?.entryHidden === true
   return `
     <div class="min-h-screen gh-canvas text-gray-100">
       <div class="relative">
         <!-- Top-left breadcrumb (repo / projects) with tabs below -->
         <div class="fixed left-3 top-3 z-[19]">
           <div class="flex items-baseline gap-2">
-            <a href="#/project" class="text-gray-300 hover:text-white truncate max-w-[10rem] align-middle text-2xl font-semibold" id="topPathUser" title="${ctx.owner}">${ctx.owner}</a>
+            <a href="#/project" class="text-gray-300 hover:text-white truncate max-w-[10rem] align-middle text-2xl font-semibold" id="topPathUser" title="${ctx.owner ?? ''}">${ctx.owner ?? ''}</a>
             <span class="text-gray-500 text-2xl">/</span>
-            <span class="text-gray-300 text-2xl font-semibold" id="topPathRepo" title="${ctx.repo}">${ctx.repo}</span>
+            <span class="text-gray-300 text-2xl font-semibold" id="topPathRepo" title="${ctx.repo ?? ''}">${ctx.repo ?? ''}</span>
           </div>
           <div class="mt-2 flex items-center gap-0">
-            <button id="topGoSummary" class="px-6 py-1.5 text-white text-xs font-medium drop-shadow-sm hover:bg-sky-600 bg-sky-700 transition select-none" style="clip-path: polygon(20% 0%, 100% 0%, 80% 100%, 0% 100%); -webkit-clip-path: polygon(20% 0%, 100% 0%, 80% 100%, 0% 100%);">概要</button>
-            <button id="topGoBoard" class="px-6 py-1.5 text-white text-xs font-medium drop-shadow-sm hover:bg-emerald-600 bg-emerald-700 transition select-none" style="clip-path: polygon(20% 0%, 100% 0%, 80% 100%, 0% 100%); -webkit-clip-path: polygon(20% 0%, 100% 0%, 80% 100%, 0% 100%); margin-left:-12px;">ボード</button>
+            <button id="topGoSummary" class="px-6 py-1.5 text-white/95 text-xs font-semibold drop-shadow-sm ring-1 ring-white/20 backdrop-blur hover:bg-sky-600/60 bg-sky-700/60 transition select-none" style="clip-path: polygon(20% 0%, 100% 0%, 80% 100%, 0% 100%); -webkit-clip-path: polygon(20% 0%, 100% 0%, 80% 100%, 0% 100%);">概要</button>
+            <button id="topGoBoard" class="px-6 py-1.5 text-white/95 text-xs font-semibold drop-shadow-sm ring-1 ring-white/20 backdrop-blur hover:bg-emerald-600/60 bg-emerald-700/60 transition select-none" style="clip-path: polygon(20% 0%, 100% 0%, 80% 100%, 0% 100%); -webkit-clip-path: polygon(20% 0%, 100% 0%, 80% 100%, 0% 100%); margin-left:-12px;">ボード</button>
           </div>
         </div>
         <!-- Content -->
@@ -6382,7 +7693,7 @@ function detailLayout(ctx: { id: number; name: string; fullName: string; owner: 
             <section class="space-y-3" id="tab-summary" data-tab="summary">
               <!-- Honeycomb widget field: full-screen behind left rail -->
               <div id="hxwHost" class="fixed inset-0 z-0">
-                <section class="hxw-wrap" id="hxwWrap">
+                <section class="hxw-wrap" id="hxwWrap"${hideWrap ? ' style="visibility:hidden;opacity:0"' : ''}>
                   <div class="hxw-stage" id="hxwStage">
                     <div class="hxw-canvas hxw-base" id="hxwBase" style="width:2000px; height:1400px"></div>
                     <div class="hxw-canvas" id="hxwCanvas" style="width:2000px; height:1400px"></div>
@@ -6391,23 +7702,66 @@ function detailLayout(ctx: { id: number; name: string; fullName: string; owner: 
               </div>
               <!-- Shortcuts rail (peek from left; expands on hover) -->
               <div id="hxwShortcuts" class="hxw-sc-rail flex flex-col"></div>
-              <!-- Capacity bar (bottom-left) - show only in edit mode -->
-              <div id="hxwCap" class="hxw-cap hidden"></div>
+              <!-- Capacity bar (bottom-left) -->
+              <div id="hxwCap" class="hxw-cap"></div>
               <!-- Minimap (top-right) -->
-              <div class="hxw-mini"><canvas id="hxwMini" width="120" height="120"></canvas></div>
-              <!-- Hexagon Actions (bottom-right) -->
-              <div class="hxw-hex-ctl" aria-label="Actions">
-                <!-- 3D toggle (purple) -->
-                <button id="hxwView3d" class="ctl-hex ctl-hex-violet ctl-pos-3d" title="2D/3D 切替" aria-label="2D/3D 切替">
-                  <span class="ctl-label">3D</span>
+              <div class="hxw-mini"${hideWrap ? ' style=\"visibility:hidden\"' : ''}><canvas id="hxwMini" width="120" height="120"></canvas></div>
+              <!-- Info panel (bottom, edit mode only) -->
+              <aside id="hxwInfo" class="fixed inset-x-0 bottom-0 z-[18] hidden">
+                <div class="mx-auto w-[min(560px,94vw)]">
+                  <!-- Collapse handle (prominent, animated chevrons) -->
+                  <button id="hxwInfoHandle" class="block mx-auto info-handle mb-1" aria-expanded="true" title="しまう">
+                    <span class="ih-ico" aria-hidden="true">
+                      <svg width="48" height="28" viewBox="0 0 24 16" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">
+                        <g class="up">
+                          <!-- two upward chevrons with wider spacing -->
+                          <polyline class="chev1" points="3,7 12,3 21,7" />
+                          <polyline class="chev2" points="3,13 12,9 21,13" />
+                        </g>
+                        <g class="down">
+                          <!-- two downward chevrons with wider spacing -->
+                          <polyline class="chev1" points="3,3 12,7 21,3" />
+                          <polyline class="chev2" points="3,9 12,13 21,9" />
+                        </g>
+                      </svg>
+                    </span>
+                  </button>
+                  <div id="hxwInfoPanel" class="rounded-t-xl rounded-b-none border-2 border-neutral-600 border-b-0 bg-neutral-950/70 backdrop-blur px-4 py-2 text-gray-100 shadow-xl">
+                    <div class="flex items-center gap-2 mb-1">
+                      <div class="text-sm font-semibold">選択中のウィジェット</div>
+                    </div>
+                  <div id="hxwInfoBody" class="text-sm leading-tight space-y-1">
+                    <div class="text-gray-400">ウィジェットをクリックで選択</div>
+                  </div>
+                  <!-- Shortcuts control -->
+                  <div id="hxwScCtl" class="mt-2 flex items-center gap-2"></div>
+                  <div class="mt-2 flex items-center justify-end gap-2">
+                    <button id="hxwDel" class="hidden rounded bg-rose-700 hover:bg-rose-600 text-white text-xs font-medium px-3 py-1">削除</button>
+                  </div>
+                  </div>
+                </div>
+              </aside>
+              <!-- Actions (bottom-right): Edit switch + Add button -->
+              <div class="hxw-ctl" aria-label="Actions">
+                <!-- Vertical edit switch -->
+                <button id="wgEditSwitch" class="edit-switch" title="編集モード" aria-label="編集モード" aria-pressed="false">
+                  <div class="es-track">
+                    <div class="es-seg es-on" aria-hidden="true">
+                      <span class="es-ico">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.862 4.487a1.75 1.75 0 0 1 2.475 2.475l-9.9 9.9a1 1 0 0 1-.425.25l-4 1a1 1 0 0 1-1.212-1.212l1-4a1 1 0 0 1 .25-.425l9.9-9.9Z"/><path d="M15 6l3 3"/></svg>
+                      </span>
+                    </div>
+                    <div class="es-seg es-off" aria-hidden="true">
+                      <span class="es-ico">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 5c-5 0-9 3.582-10 7 1 3.418 5 7 10 7s9-3.582 10-7c-1-3.418-5-7-10-7Zm0 2a5 5 0 1 1 0 10 5 5 0 0 1 0-10Z"/></svg>
+                      </span>
+                    </div>
+                    <div class="es-indicator" aria-hidden="true"></div>
+                  </div>
                 </button>
-                <!-- Edit toggle (orange) -->
-                <button id="wgEditToggle" class="ctl-hex ctl-hex-orange ctl-pos-edit" title="編集モード" aria-label="編集モード">
-                  <span class="ctl-label">編集</span>
-                </button>
-                <!-- Add widget (green single) -->
-                <button id="hxwFab" class="ctl-hex ctl-hex-green ctl-pos-add" title="ウィジェットを追加" aria-label="ウィジェットを追加">
-                  <span class="ctl-label plus">＋</span>
+                <!-- Add widget (large) -->
+                <button id="hxwFab" class="hxw-fab" title="ウィジェットを追加" aria-label="ウィジェットを追加">
+                  <span class="fab-plus">＋</span>
                 </button>
               </div>
             </section>
@@ -7501,6 +8855,23 @@ function hxwEnsureDefs(): SVGDefsElement {
 }
 
 function hxwKey(pid: string): string { return `pj-hx-widgets-${pid}` }
+
+// Keep hex-field radius stable across zoom by persisting a preferred radius.
+// Global (app-wide) so all projects use the same baseline cell count unless a larger
+// radius is required to contain existing widgets, in which case we raise it.
+function hxwRadiusKey(): string { return 'hxw-radius-v1' }
+const HXW_DEFAULT_RADIUS = 15
+function hxwGetPreferredRadius(): number | null {
+  try {
+    const v = localStorage.getItem(hxwRadiusKey())
+    if (!v) return null
+    const n = parseInt(v, 10)
+    return Number.isFinite(n) && n > 0 ? n : null
+  } catch { return null }
+}
+function hxwSetPreferredRadius(n: number): void {
+  try { if (Number.isFinite(n) && n > 0) localStorage.setItem(hxwRadiusKey(), String(Math.floor(n))) } catch {}
+}
 function hxwGetMeta(pid: string): Record<string, { type: string; q: number; r: number }> {
   try {
     const raw = JSON.parse(localStorage.getItem(hxwKey(pid)) || '{}') as Record<string, { type: string; q: number; r: number }>
@@ -7526,6 +8897,17 @@ type LibEntry = { id: string; type: 'custom'|'flow'; name: string; shape: Array<
 function wpLibKey(pid: string): string { return `pj-wp-lib-${pid}` }
 function wpLibGet(pid: string): LibEntry[] { try { const v = JSON.parse(localStorage.getItem(wpLibKey(pid))||'[]') as LibEntry[]; return Array.isArray(v)? v: [] } catch { return [] } }
 function wpLibSet(pid: string, list: LibEntry[]): void { try { localStorage.setItem(wpLibKey(pid), JSON.stringify(list)) } catch {} }
+function userLibKey(uid: number): string { return `pj-wp-lib-user-${uid}` }
+function userLibGet(uid: number): LibEntry[] { try { const v = JSON.parse(localStorage.getItem(userLibKey(uid))||'[]') as LibEntry[]; return Array.isArray(v)? v: [] } catch { return [] } }
+function userLibSet(uid: number, list: LibEntry[]): void { try { localStorage.setItem(userLibKey(uid), JSON.stringify(list)) } catch {} }
+function wpLibGlobalKey(): string { return 'pj-wp-lib-global' }
+function wpLibGlobalGet(): LibEntry[] { try { const v = JSON.parse(localStorage.getItem(wpLibGlobalKey())||'[]') as LibEntry[]; return Array.isArray(v)? v: [] } catch { return [] } }
+function wpLibGlobalSet(list: LibEntry[]): void { try { localStorage.setItem(wpLibGlobalKey(), JSON.stringify(list)) } catch {} }
+function wpLibAll(pid: string): Array<LibEntry & { __src?: 'global'|'pid' }> {
+  const g = wpLibGlobalGet().map((x) => ({ ...x, __src: 'global' as const }))
+  const p = wpLibGet(pid).map((x) => ({ ...x, __src: 'pid' as const }))
+  return g.concat(p)
+}
 function renderPickerLibrary(pid: string): void {
   const field = document.querySelector('#wp-field') as HTMLElement | null
   if (!field) return
@@ -7534,7 +8916,7 @@ function renderPickerLibrary(pid: string): void {
   wrap.style.position = 'absolute'; wrap.style.left = '8px'; wrap.style.right = '8px'; wrap.style.bottom = '8px'
   wrap.style.display = 'flex'; wrap.style.gap = '8px'; wrap.style.flexWrap = 'wrap'
   wrap.style.zIndex = '20'
-  const list = wpLibGet(pid)
+  const list = wpLibAll(pid)
   wrap.innerHTML = ''
   list.forEach((en) => {
     const item = document.createElement('div')
@@ -7568,8 +8950,15 @@ function renderPickerLibrary(pid: string): void {
     del.style.padding = '0 2px'
     del.addEventListener('click', (ev) => {
       ev.stopPropagation()
-      const next = wpLibGet(pid).filter(x => x.id !== en.id)
-      wpLibSet(pid, next)
+      const src = (en as any).__src
+      if (src === 'global') {
+        const nextG = wpLibGlobalGet().filter(x => x.id !== en.id)
+        wpLibGlobalSet(nextG)
+      } else {
+        const nextP = wpLibGet(pid).filter(x => x.id !== en.id)
+        wpLibSet(pid, nextP)
+      }
+      try { showMiniToast('ウィジェットを削除しました', { variant: 'danger' }) } catch {}
       // Reopen picker to rebuild field honeycomb with lib items removed
       try { (document.getElementById('wp-close') as HTMLButtonElement | null)?.click() } catch {}
       try { const root = (window as any)._hxwPickerRoot as HTMLElement | null; const pid2 = (window as any)._hxwPickerPid as string | null; if (root && pid2) setTimeout(()=>openWidgetPickerModal(root, pid2!),0) } catch {}
@@ -7743,7 +9132,7 @@ function hxwRenderShortcuts(root: HTMLElement, pid: string): void {
   })
 }
 
-// Capacity bar (remaining hex cells vs total)
+// Capacity bar (usage fill: used/total)
 function hxwRenderCapacityBar(root: HTMLElement, pid: string): void {
   const wrap = root.querySelector('#hxwWrap') as HTMLElement | null
   const barHost = root.querySelector('#hxwCap') as HTMLElement | null
@@ -7765,17 +9154,17 @@ function hxwRenderCapacityBar(root: HTMLElement, pid: string): void {
     wrapEl.appendChild(fillEl)
     barHost.appendChild(wrapEl)
   }
-  const pct = total > 0 ? remain / total : 0
+  // Invert to show usage growing towards full instead of remaining like HP
+  const usedPct = total > 0 ? used / total : 0
   const fill = barHost.querySelector('.cap-fill') as HTMLElement | null
   const text = barHost.querySelector('.cap-text') as HTMLElement | null
   if (fill) {
-    fill.style.width = `${Math.round(pct * 100)}%`
+    fill.style.width = `${Math.round(usedPct * 100)}%`
     const setGrad = (a: string, b: string) => { try { fill!.style.setProperty('--cap-a', a); fill!.style.setProperty('--cap-b', b) } catch {} }
-    if (pct >= 0.6) setGrad('#10b981', '#84cc16') // green
-    else if (pct >= 0.3) setGrad('#f59e0b', '#f97316') // amber
-    else setGrad('#ef4444', '#f43f5e') // red
+    // Always use blue tones with slight transparency
+    setGrad('rgba(59,130,246,0.65)', 'rgba(6,182,212,0.65)')
   }
-  if (text) text.textContent = `残り ${remain} / ${total}`
+  if (text) text.textContent = `現在 ${used} / ${total}`
 }
 
 // Parity-independent shapes using axial coordinates
@@ -7986,7 +9375,8 @@ function hxwToggleIsoKeepCenter(wrap: HTMLElement, canvas: HTMLElement, st: HexW
     const W = (st.width || 0) * (st.scale || 1)
     const H = (st.height || 0) * (st.scale || 1)
     const iso = wrap.classList.contains('hxw-iso')
-    let mX = 120, mY = 120
+    // Widen horizontal margin to allow more side panning
+    let mX = 320, mY = 120
     if (iso) {
       const parseDeg = (v: string, d: number) => { const n = parseFloat(v.replace('deg','')); return isNaN(n) ? d : n }
       let rx = 46, rz = -22
@@ -8061,7 +9451,8 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
     const H = (st.height || 0) * (st.scale || 1)
     if (!isFinite(vw) || !isFinite(vh)) return
     const iso = wrap.classList.contains('hxw-iso')
-    let mX = 120, mY = 120
+    // Widen horizontal pan allowance vs vertical
+    let mX = 320, mY = 120
     if (iso) {
       // Increase bounds in 3D to compensate perspective skew so右下にも十分に移動できる
       const parseDeg = (v: string, d: number) => { const n = parseFloat(v.replace('deg','')); return isNaN(n) ? d : n }
@@ -8090,6 +9481,238 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
   let draggingStage = false, sx = 0, sy = 0, sox = 0, soy = 0, activePid: number | null = null
   let widgetDragging = false
   const DRAG_TOL = 4
+  // Selection state (edit mode)
+  let selId: string | null = null
+  const getInfoEl = () => root.querySelector('#hxwInfo') as HTMLElement | null
+  const infoShow = (pid: string, id: string) => {
+    const panel = getInfoEl(); if (!panel) return
+    const body = panel.querySelector('#hxwInfoBody') as HTMLElement | null
+    const del = panel.querySelector('#hxwDel') as HTMLButtonElement | null
+    const scCtl = panel.querySelector('#hxwScCtl') as HTMLElement | null
+    const meta = hxwGetMeta(pid)
+    const m = meta[id]
+    if (!m) { infoHide(); return }
+    const rel = hxwRelFor(pid, id, m.type || 'mock')
+    let name = ''
+    try { const c = hxwCustomGet(pid, id); name = (c?.name || '') as string } catch {}
+    const rows = [
+      `<div><span class=\"text-gray-400\">ID:</span> ${id}</div>`,
+      `<div><span class=\"text-gray-400\">Type:</span> ${m.type}</div>`,
+      name ? `<div><span class=\"text-gray-400\">Name:</span> ${name}</div>` : '',
+      `<div><span class=\"text-gray-400\">Anchor:</span> q=${m.q}, r=${m.r}</div>`,
+      `<div><span class=\"text-gray-400\">Cells:</span> ${rel.length}</div>`
+    ].filter(Boolean).join('')
+    if (body) {
+      body.innerHTML = rows
+      // リンクウィジェット: 編集モードのinfoエリアでURL設定を可能にする
+      if ((m.type || '').toLowerCase() === 'links') {
+        try {
+          const cur = (mdGetLinks(pid, id)[0] || { title: '', url: '' }) as { title: string; url: string }
+          const html = `
+            <hr class=\"my-2 border-neutral-700\" />
+            <div class=\"text-xs text-gray-400 mb-1\">クイックリンク設定</div>
+            <div class=\"flex items-center gap-2\">
+              <input id=\"hxwLinkTitle\" class=\"flex-1 min-w-[80px] rounded bg-neutral-800/60 ring-2 ring-neutral-600 px-2 py-1 text-gray-100 text-xs\" placeholder=\"タイトル(任意)\" value=\"${(cur.title || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/\"/g,'&quot;')}\" />
+              <input id=\"hxwLinkUrl\" class=\"flex-[2] min-w-[140px] rounded bg-neutral-800/60 ring-2 ring-neutral-600 px-2 py-1 text-gray-100 text-xs\" placeholder=\"URL (https://...)\" value=\"${(cur.url || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/\"/g,'&quot;')}\" />
+              <button id=\"hxwLinkSave\" class=\"rounded bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-medium px-3 py-1\">保存</button>
+              <button id=\"hxwLinkClear\" class=\"rounded ring-1 ring-neutral-600 hover:bg-neutral-800 text-xs px-3 py-1\">削除</button>
+            </div>
+            <p id=\"hxwLinkErr\" class=\"mt-1 text-xs text-rose-400 hidden\"></p>`
+          body.insertAdjacentHTML('beforeend', html)
+          const save = panel.querySelector('#hxwLinkSave') as HTMLButtonElement | null
+          const clear = panel.querySelector('#hxwLinkClear') as HTMLButtonElement | null
+          const ttl = panel.querySelector('#hxwLinkTitle') as HTMLInputElement | null
+          const urlEl = panel.querySelector('#hxwLinkUrl') as HTMLInputElement | null
+          const err = panel.querySelector('#hxwLinkErr') as HTMLElement | null
+          save?.addEventListener('click', () => {
+            try {
+              const t = (ttl?.value || '').trim()
+              let u = (urlEl?.value || '').trim()
+              if (u && !(u.toLowerCase().startsWith('http://') || u.toLowerCase().startsWith('https://'))) u = 'https://' + u
+              if (u) { try { new URL(u) } catch { if (err) { err.textContent = 'URLが正しくありません'; err.classList.remove('hidden') }; return } }
+              if (!u) { mdSetLinks(pid, id, []); try { refreshDynamicWidgets(root, pid) } catch {}; infoShow(pid, id); return }
+              mdSetLinks(pid, id, [{ title: t, url: u }])
+              try { refreshDynamicWidgets(root, pid) } catch {}
+              infoShow(pid, id)
+            } catch {}
+          })
+          clear?.addEventListener('click', () => { try { mdSetLinks(pid, id, []); refreshDynamicWidgets(root, pid) } catch {}; infoShow(pid, id) })
+        } catch {}
+      }
+    }
+    // Shortcuts control (add/remove + optional name)
+    if (scCtl) {
+      const inSc = scGet(pid).includes(id)
+      const curName = (function(){ try { return scNameGet(pid, id) || name || '' } catch { return name || '' } })()
+      scCtl.innerHTML = inSc
+        ? `<input id="hxwScName" class="flex-1 min-w-[120px] max-w-[60%] rounded bg-neutral-800/60 ring-2 ring-neutral-600 px-2 py-1 text-gray-100 text-xs" placeholder="ショートカット名（任意）" value="${(curName || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/\"/g,'&quot;')}" />
+            <button id="hxwScSave" class="rounded bg-sky-700 hover:bg-sky-600 text-white text-xs font-medium px-3 py-1">名前を保存</button>
+            <button id="hxwScDel" class="rounded ring-1 ring-neutral-600 hover:bg-neutral-800 text-xs px-3 py-1">ショートカットから削除</button>`
+        : `<input id="hxwScName" class="flex-1 min-w-[120px] max-w-[60%] rounded bg-neutral-800/60 ring-2 ring-neutral-600 px-2 py-1 text-gray-100 text-xs" placeholder="ショートカット名（任意）" value="${(curName || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/\"/g,'&quot;')}" />
+            <button id="hxwScAdd" class="rounded bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-medium px-3 py-1">ショートカットに追加</button>`
+      const nameInput = panel.querySelector('#hxwScName') as HTMLInputElement | null
+      const addBtn = panel.querySelector('#hxwScAdd') as HTMLButtonElement | null
+      const delBtn = panel.querySelector('#hxwScDel') as HTMLButtonElement | null
+      const saveBtn = panel.querySelector('#hxwScSave') as HTMLButtonElement | null
+      addBtn?.addEventListener('click', () => {
+        try { scAdd(pid, id); const v = (nameInput?.value || '').trim(); if (v) scNameSet(pid, id, v) } catch {}
+        try { hxwRenderShortcuts(root, pid) } catch {}
+        try { showMiniToast('ショートカットに追加しました') } catch {}
+        // re-render panel UI to reflect new state
+        infoShow(pid, id)
+      })
+      saveBtn?.addEventListener('click', () => {
+        try { const v = (nameInput?.value || '').trim(); scNameSet(pid, id, v) } catch {}
+        try { hxwRenderShortcuts(root, pid) } catch {}
+      })
+      delBtn?.addEventListener('click', () => {
+        try { scRemove(pid, id) } catch {}
+        try { hxwRenderShortcuts(root, pid) } catch {}
+        try { showMiniToast('ショートカットを削除しました', { variant: 'danger' }) } catch {}
+        infoShow(pid, id)
+      })
+    }
+    if (del) {
+      del.classList.remove('hidden')
+      del.onclick = () => openHexWidgetDeleteConfirm(root, pid, id)
+    }
+    panel.classList.remove('hidden')
+    // Bind collapse/expand handle once
+    if (!(panel as any)._infoBarBound) {
+      (panel as any)._infoBarBound = true
+      const handle = panel.querySelector('#hxwInfoHandle') as HTMLButtonElement | null
+      const cont = panel.querySelector('#hxwInfoPanel') as HTMLElement | null
+      // Remember user's intended expanded/collapsed state across auto-hides
+      if ((panel as any)._infoWantedCollapsed === undefined) (panel as any)._infoWantedCollapsed = false
+      const applyCollapsed = (on: boolean) => {
+        try {
+          if (!cont || !handle) return
+          handle.setAttribute('aria-expanded', on ? 'false' : 'true')
+          handle.title = on ? '展開' : 'しまう'
+          if (on) {
+            // collapse with animation
+            const h = cont.scrollHeight
+            cont.style.maxHeight = h + 'px' // set current
+            // force reflow before collapsing to 0
+            void cont.offsetHeight
+            cont.style.maxHeight = '0px'
+            cont.style.opacity = '0'
+            cont.style.transform = 'translateY(8px)'
+            cont.style.pointerEvents = 'none'
+            panel.setAttribute('data-collapsed', '1')
+          } else {
+            // expand with animation to measured height
+            const target = cont.scrollHeight || 1
+            cont.style.maxHeight = target + 'px'
+            cont.style.opacity = '1'
+            cont.style.transform = 'translateY(0)'
+            cont.style.pointerEvents = ''
+            panel.removeAttribute('data-collapsed')
+          }
+        } catch {}
+      }
+      handle?.addEventListener('click', () => {
+        const collapsed = panel.getAttribute('data-collapsed') === '1'
+        const next = !collapsed
+        ;(panel as any)._infoWantedCollapsed = next
+        applyCollapsed(next)
+      })
+      // default: expanded when first shown (animate from 0)
+      try {
+        cont!.style.maxHeight = '0px'
+        cont!.style.opacity = '0'
+        cont!.style.transform = 'translateY(8px)'
+        cont!.style.pointerEvents = 'none'
+      } catch {}
+      requestAnimationFrame(() => {
+        // On first show, expand by default and record desired state
+        applyCollapsed(false)
+        ;(panel as any)._infoWantedCollapsed = false
+      })
+      ;(panel as any)._infoCollapse = applyCollapsed
+      }
+    // Restore previous desired expand/collapse state after auto-hide
+    try {
+      const desired = (panel as any)._infoWantedCollapsed
+      const collapse = (panel as any)._infoCollapse as ((on: boolean) => void) | undefined
+      if (typeof desired === 'boolean' && collapse) collapse(desired)
+    } catch {}
+    }
+  const infoHide = () => {
+    const panel = getInfoEl(); if (!panel) return
+    try {
+      const collapse = (panel as any)._infoCollapse as (on: boolean) => void | undefined
+      if (collapse) {
+        // Animate hide by collapsing, but preserve user's intended state
+        // The intended state is stored in _infoWantedCollapsed and restored on next show
+        collapse(true)
+        setTimeout(() => panel.classList.add('hidden'), 300)
+      } else panel.classList.add('hidden')
+    } catch { panel.classList.add('hidden') }
+  }
+  function openHexWidgetDeleteConfirm(root: HTMLElement, pid: string, id: string): void {
+    const overlay = document.createElement('div')
+    overlay.className = 'fixed inset-0 z-[70] bg-black/60 grid place-items-center'
+    // Resolve display name (custom name or type)
+    const meta = hxwGetMeta(pid)
+    const m = meta[id]
+    let disp = ''
+    try { const c = hxwCustomGet(pid, id); disp = (c?.name || '') as string } catch {}
+    if (!disp) disp = (m?.type || 'ウィジェット')
+    overlay.innerHTML = `
+      <div class="relative w-[min(520px,92vw)] rounded-xl bg-neutral-900 ring-2 ring-neutral-600 shadow-2xl text-gray-100">
+        <header class="h-10 flex items-center px-4 border-b border-neutral-600"><div class="font-semibold">ウィジェットを削除</div><button id="hxwDelClose" class="ml-auto text-xl">×</button></header>
+        <div class="p-4 space-y-3">
+          <p class="text-sm text-gray-300">${escapeHtml(disp)} を削除しますか？この操作は元に戻せません。</p>
+          <div class="flex justify-end gap-2 pt-2">
+            <button id="hxwDelCancel" class="px-3 py-1.5 rounded bg-neutral-800/60 text-gray-200 text-sm">キャンセル</button>
+            <button id="hxwDelOk" class="px-3 py-1.5 rounded bg-rose-700 hover:bg-rose-600 text-white text-sm">削除</button>
+          </div>
+        </div>
+      </div>`
+    const close = () => overlay.remove()
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) close() })
+    overlay.querySelector('#hxwDelClose')?.addEventListener('click', close)
+    overlay.querySelector('#hxwDelCancel')?.addEventListener('click', close)
+    overlay.querySelector('#hxwDelOk')?.addEventListener('click', () => {
+      try { delete meta[id]; hxwSetMeta(pid, meta); try { hxwCustomDelete(pid, id) } catch {} } catch {}
+      // Hide panel, clear selection, and re-render
+      try { selId = null; infoHide() } catch {}
+      try {
+        const wrap = root.querySelector('#hxwWrap') as HTMLElement | null
+        const st: any = (wrap as any)?._hxw
+        if (wrap && st) { hxwPlaceWidgets(root, pid, st); hxwRecolorBackground(root, pid); refreshDynamicWidgets(root, pid); hxwRehydrate(root, pid) }
+      } catch {}
+      try { showMiniToast('ウィジェットを削除しました', { variant: 'danger' }) } catch {}
+      close()
+    })
+    document.body.appendChild(overlay)
+  }
+  const setSelected = (pid: string, id: string | null) => {
+    // Clear previous highlight (revert bg effects)
+    Array.from(canvas.querySelectorAll('.hxw-widget.hxw-selected')).forEach((el) => {
+      (el as HTMLElement).classList.remove('hxw-selected')
+      const bg = el.querySelector('.hxw-bg') as HTMLElement | null
+      if (bg) { bg.style.filter = ''; bg.style.boxShadow = '' }
+    })
+    selId = id
+    if (id) {
+      const host = canvas.querySelector(`.hxw-widget[data-widget="${id}"]`) as HTMLElement | null
+      if (host) {
+        host.classList.add('hxw-selected')
+        const bg = host.querySelector('.hxw-bg') as HTMLElement | null
+        if (bg) {
+          // Stronger color change: increase saturation/brightness/contrast and slight hue shift
+          bg.style.filter = 'saturate(1.85) brightness(1.38) contrast(1.18) hue-rotate(8deg)'
+          // Emphasize with brighter outer glow (no outline line)
+          bg.style.boxShadow = '0 0 42px rgba(255,200,120,.62)'
+        }
+      }
+      infoShow(pid, id)
+    } else {
+      infoHide()
+    }
+  }
   wrap.addEventListener('pointerdown', (e) => {
     if ((wrap as any)._placing) return
     // Do not start background panning when grabbing a widget in edit mode
@@ -8179,8 +9802,9 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
       }
     } else {
       e.preventDefault()
-      st.offsetX -= e.deltaX
-      st.offsetY -= e.deltaY
+      const inv = (wrap.getAttribute('data-scroll-dir') === 'invert') ? -1 : 1
+      st.offsetX -= e.deltaX * inv
+      st.offsetY -= e.deltaY * inv
       enforceBounds(); hxwApplyTransform(wrap, canvas, st)
     }
     // 配置モード中はスクロール後にゴーストを再計算
@@ -8231,15 +9855,24 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
   const setEdit = (on: boolean) => {
     editOn = on
     canvas.setAttribute('data-edit', on ? '1' : '0')
-    // Toggle capacity bar visibility with edit mode
-    try { (root.querySelector('#hxwCap') as HTMLElement | null)?.classList.toggle('hidden', !on) } catch {}
-    const btn = root.querySelector('#wgEditToggle') as HTMLElement | null
-    if (btn) {
-      btn.setAttribute('aria-pressed', on ? 'true' : 'false')
-      btn.setAttribute('title', on ? '編集中' : '編集モード')
-      const lab = btn.querySelector('.ctl-label') as HTMLElement | null
-      if (lab) lab.textContent = on ? '編集中' : '編集'
-    }
+    // Toggle capacity bar and add (FAB) with smooth animations
+    try {
+      const cap = root.querySelector('#hxwCap') as HTMLElement | null
+      if (cap) {
+        if (on) { cap.classList.add('is-visible') } else { cap.classList.remove('is-visible') }
+      }
+    } catch {}
+    try {
+      const fab = root.querySelector('#hxwFab') as HTMLElement | null
+      if (fab) {
+        if (on) { fab.classList.add('is-visible') } else { fab.classList.remove('is-visible') }
+      }
+    } catch {}
+  const btn = root.querySelector('#wgEditSwitch') as HTMLElement | null
+  if (btn) {
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false')
+    btn.setAttribute('title', on ? '編集中' : '編集モード')
+  }
     try {
       const pid = canvas.getAttribute('data-pid') || '0'
       hxwPlaceWidgets(root, pid, st)
@@ -8249,19 +9882,55 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
       // Rehydrate dynamic contents (e.g., committers slots) after layout rebuild
       try { hxwRehydrate(root, pid) } catch { }
     } catch {}
+    // Disable inner content interactions while editing (buttons/links/forms inside widgets)
+    try {
+      canvas.querySelectorAll('.hxw-widget .wg-content, .hxw-widget .hxw-body, .hxw-widget .slot-inner, .hxw-widget .hxw-cells').forEach((el) => {
+        (el as HTMLElement).style.pointerEvents = on ? 'none' : ''
+      })
+    } catch {}
+    // Route pointer events in edit mode so only hex body (.hxw-bg) receives clicks (precise hit testing)
+    try {
+      Array.from(canvas.querySelectorAll('.hxw-widget')).forEach((el) => {
+        const host = el as HTMLElement
+        const bg = host.querySelector('.hxw-bg') as HTMLElement | null
+        if (on) {
+          host.style.pointerEvents = 'none'
+          if (bg) bg.style.pointerEvents = 'auto'
+        } else {
+          host.style.pointerEvents = ''
+          if (bg) bg.style.pointerEvents = ''
+        }
+      })
+    } catch {}
+    // Clear selection and hide info when leaving edit mode
+    if (!on) { selId = null; try { setSelected(canvas.getAttribute('data-pid') || '0', null) } catch {} }
     // toggle edit-only elements inside hex widgets
     // ただし、links/cal のフォームはハニカムでは常に非表示（ポップで編集）
     try {
       canvas.querySelectorAll('.edit-only').forEach((el) => {
         const w = (el as HTMLElement).closest('.hxw-widget') as HTMLElement | null
-        const t = w?.getAttribute('data-type') || ''
-        if (t === 'links' || t === 'calendar') { (el as HTMLElement).classList.add('hidden'); return }
+        const t = (w?.getAttribute('data-type') || '').toLowerCase()
+        if (t === 'links' || t === 'calendar' || t === 'custom' || t === 'flow') { (el as HTMLElement).classList.add('hidden'); return }
         (el as HTMLElement).classList.toggle('hidden', !on)
       })
     } catch {}
     // (Shortcut icons removed; use contextual menu instead)
   }
   ; (canvas as any)._setEdit = setEdit
+
+  // In edit mode, handle selection on capture-click.
+  // - Click inside any widget: select and show info (stop propagation so it isn't cleared elsewhere)
+  // - Click outside: allow event to bubble to wrap's handler which clears selection
+  canvas.addEventListener('click', (e) => {
+    if (canvas.getAttribute('data-edit') !== '1') return
+    const host = (e.target as HTMLElement).closest('.hxw-widget') as HTMLElement | null
+    if (host) {
+      const pidCur = canvas.getAttribute('data-pid') || '0'
+      const id = host.getAttribute('data-widget') || ''
+      if (id) setSelected(pidCur, id)
+      e.stopPropagation(); e.preventDefault()
+    }
+  }, true)
 
   const stepX = () => Math.round((st.tile || 200) * 0.75)
   const stepY = () => Math.round((st.tile || 200) * 0.866)
@@ -8339,7 +10008,27 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
   let startAnchorQ = 0, startAnchorR = 0
   canvas.addEventListener('pointerdown', (e) => {
     const el = (e.target as HTMLElement).closest('.hxw-widget') as HTMLElement | null
-    if (!el || !editOn) return
+    if (!el) return
+    // In edit mode, allow selection when clicking background hex OR
+    // over the cells/content layer as long as it's not an interactive control
+    if (canvas.getAttribute('data-edit') === '1') {
+      const t = e.target as HTMLElement
+      let allow = false
+      const bg = t.closest('.hxw-bg') as HTMLElement | null
+      if (bg && el.contains(bg)) allow = true
+      if (!allow) {
+        const overCells = t.closest('.hxw-cells') as HTMLElement | null
+        const overContent = t.closest('.wg-content') as HTMLElement | null
+        const interactive = t.closest('input, textarea, select, button, a, [contenteditable], .lnk-form, .cal-form, .lnk-hex-add, .cal-hex-add') as HTMLElement | null
+        if ((overCells || overContent) && !interactive) allow = true
+      }
+      if (!allow) return
+      e.preventDefault(); e.stopPropagation()
+      const pidCur = canvas.getAttribute('data-pid') || '0'
+      const id = el.getAttribute('data-widget') || ''
+      if (id) setSelected(pidCur, id)
+    }
+    if (!editOn) return
     // Avoid starting drag from interactive controls
     const t = e.target as HTMLElement
     if (t.closest('input, textarea, select, button, a, [contenteditable], .lnk-form, .cal-form')) return
@@ -8420,9 +10109,14 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
       try { delete meta[dragId] } catch {}
       try { hxwCustomDelete(pid, dragId) } catch {}
       try { hxwSetMeta(pid, meta) } catch {}
+      // If the deleted widget was selected, clear selection and close info
+      try { if (selId && selId === dragId) setSelected(pid, null) } catch {}
       hxwPlaceWidgets(root, pid, st)
+      try { hxwRecolorBackground(root, pid) } catch {}
+      try { hxwSyncEditPointerEvents(root) } catch {}
       try { refreshDynamicWidgets(root, pid) } catch {}
       try { hxwRehydrate(root, pid) } catch { }
+      try { showMiniToast('ウィジェットを削除しました', { variant: 'danger' }) } catch {}
       hideGhost(); didDrag = false; return
     }
     // If cannot place due to collisions, cancel (do not delete)
@@ -8432,17 +10126,54 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
     hxwSetMeta(pid, meta)
     // rebuild occupancy and reposition element
     hxwPlaceWidgets(root, pid, st)
+    try { hxwRecolorBackground(root, pid) } catch {}
+    try { hxwSyncEditPointerEvents(root) } catch {}
     try { refreshDynamicWidgets(root, pid) } catch {}
     try { hxwRehydrate(root, pid) } catch { }
     hideGhost()
     didDrag = false
   })
   window.addEventListener('resize', () => hxwApplyTransform(wrap, canvas, st))
+  // Click on empty area clears selection in edit mode
+  wrap.addEventListener('click', (e) => {
+    if (canvas.getAttribute('data-edit') !== '1') return
+    const t = e.target as HTMLElement
+    if (!t.closest('.hxw-widget')) { setSelected(canvas.getAttribute('data-pid') || '0', null) }
+  })
 
-  // Delegated clicks for widgets inside hex field (links/calendar forms)
+  // Delegated clicks for widgets inside hex field (links/calendar forms/custom/flow runner)
+  canvas.addEventListener('click', (e) => {
+    const host = (e.target as HTMLElement).closest('.hxw-widget') as HTMLElement | null
+    if (!host) return
+    const type = (host.getAttribute('data-type') || '').toLowerCase()
+    // Make custom/flow act as a big button; do nothing else.
+    if (type === 'custom' || type === 'flow') {
+      // In edit mode, clicking should not invoke
+      if (canvas.getAttribute('data-edit') === '1') return
+      // Only react when clicking inside the hex area (bg layer)
+      const inBg = (e.target as HTMLElement).closest('.hxw-bg') as HTMLElement | null
+      if (!inBg || !host.contains(inBg)) return
+      e.stopPropagation()
+      // Prefer running flow via existing button if present; then show a simple result modal
+      if (type === 'flow') {
+        const btn = host.querySelector('.flow-run') as HTMLButtonElement | null
+        if (btn) { try { btn.click() } catch {} }
+        const pid2 = canvas.getAttribute('data-pid') || '0'
+        const wid = host.getAttribute('data-widget') || ''
+        try { openWidgetRunModal(root, pid2, wid, 'flow') } catch {}
+      } else {
+        const pid2 = canvas.getAttribute('data-pid') || '0'
+        const wid = host.getAttribute('data-widget') || ''
+        const name = (function(){ try { const c = hxwCustomGet(pid2, wid); return (c?.name || scNameGet(pid2, wid) || '') } catch { return '' } })()
+        try { openWidgetRunModal(root, pid2, wid, 'custom', name) } catch {}
+      }
+    }
+  })
   canvas.addEventListener('contextmenu', (e) => {
     const hostHx = (e.target as HTMLElement).closest('.hxw-widget') as HTMLElement | null
     if (!hostHx) return
+    // Disable context menu for custom/flow (non-editable)
+    try { const t = (hostHx.getAttribute('data-type') || '').toLowerCase(); if (t === 'custom' || t === 'flow') return } catch {}
     try { (e as any).stopImmediatePropagation?.() } catch {}
     e.preventDefault(); e.stopPropagation()
     const pid2 = canvas.getAttribute('data-pid') || '0'
@@ -8500,10 +10231,11 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
       scAdd(pid2, wid)
       if (name) scNameSet(pid2, wid, name)
       try { hxwRenderShortcuts(root, pid2) } catch {}
+      try { showMiniToast('ショートカットに追加しました') } catch {}
       close()
     })
     cancelBtn?.addEventListener('click', close)
-    delBtn?.addEventListener('click', () => { scRemove(pid2, wid); try { hxwRenderShortcuts(root, pid2) } catch {}; close() })
+    delBtn?.addEventListener('click', () => { scRemove(pid2, wid); try { hxwRenderShortcuts(root, pid2) } catch {}; try { showMiniToast('ショートカットを削除しました', { variant: 'danger' }) } catch {}; close() })
     nameInput?.focus()
   })
   canvas.addEventListener('click', (e) => {
@@ -8673,7 +10405,9 @@ function hxwPlaceWidgets(root: HTMLElement, pid: string, st: HexWLayout): void {
     host!.setAttribute('data-w', String(boxW))
     host!.setAttribute('data-h', String(boxH))
     // prepare empty background layer; actual fill and clipping applied after clipPath is ready
+    // also prune any previous cell markers to avoid stale coloring
     Array.from(host!.querySelectorAll('.hxw-bg')).forEach(n => n.remove())
+    Array.from(host!.querySelectorAll('.hxw-hex.hxw-filled')).forEach(n => (n as HTMLElement).remove())
     const bg = document.createElement('div')
     bg.className = 'hxw-bg'
     host!.appendChild(bg)
@@ -8762,11 +10496,11 @@ function hxwPlaceWidgets(root: HTMLElement, pid: string, st: HexWLayout): void {
       ]
       // Stable per-widget color pick to increase variety
       const hsh = (s: string) => { let h = 0; for (let i=0;i<s.length;i++){ h = ((h<<5)-h) + s.charCodeAt(i); h|=0 } return Math.abs(h) }
-      const idx = hsh(id + ':' + type) % palette.length
-      const base = palette[idx]
       const conf = hxwCustomGet(pid, id)
-      const rgb = (conf && Array.isArray(conf.rgb) && conf.rgb.length === 3) ? (conf.rgb as [number,number,number]) : base
-      const alpha = (conf && typeof conf.alpha === 'number') ? Math.max(0, Math.min(1, conf.alpha)) : (lightBg ? 0.42 : 0.38)
+      const rgb: [number,number,number] = (conf && Array.isArray(conf.rgb) && conf.rgb.length === 3)
+        ? (conf.rgb as [number,number,number])
+        : palette[hsh(type) % palette.length]
+      const alpha = (conf && typeof conf.alpha === 'number') ? Math.max(0, Math.min(1, conf.alpha)) : (lightBg ? 0.32 : 0.28)
       const fillFlat = `rgba(${rgb[0]},${rgb[1]},${rgb[2]}, ${alpha})`
       host!.style.setProperty('--hxw-fill', fillFlat)
       // annotate each cell with base rgb so minimap can color-match
@@ -8777,9 +10511,67 @@ function hxwPlaceWidgets(root: HTMLElement, pid: string, st: HexWLayout): void {
       bgFlat.style.top = '0px'
       bgFlat.style.width = `${boxW}px`
       bgFlat.style.height = `${boxH}px`
-      bgFlat.style.background = fillFlat
+      // Apply subtle gradient based on the widget's base color for depth
+      try {
+        const lr = Math.min(255, Math.round(rgb[0] * 1.12))
+        const lg = Math.min(255, Math.round(rgb[1] * 1.12))
+        const lb = Math.min(255, Math.round(rgb[2] * 1.12))
+        const dr = Math.max(0, Math.round(rgb[0] * 0.88))
+        const dg = Math.max(0, Math.round(rgb[1] * 0.88))
+        const db = Math.max(0, Math.round(rgb[2] * 0.88))
+        const aHi = Math.min(1, Math.max(0, alpha + 0.04))
+        const aLo = alpha
+        bgFlat.style.background = `linear-gradient(135deg, rgba(${lr},${lg},${lb}, ${aHi}), rgba(${dr},${dg},${db}, ${aLo}))`
+      } catch {
+        bgFlat.style.background = fillFlat
+      }
       ;(bgFlat.style as any).clipPath = `url(#${cid})`
       ;(bgFlat.style as any).webkitClipPath = `url(#${cid})`
+      // Glass effect for futuristic transparency
+      try {
+        (bgFlat.style as any).backdropFilter = 'saturate(140%) blur(8px)'
+        ;(bgFlat.style as any).webkitBackdropFilter = 'saturate(140%) blur(8px)'
+        // Accent edge + subtle inner white to restore contrast (merihari)
+        const lr = Math.min(255, Math.round(rgb[0] * 1.08))
+        const lg = Math.min(255, Math.round(rgb[1] * 1.08))
+        const lb = Math.min(255, Math.round(rgb[2] * 1.08))
+        bgFlat.style.boxShadow = `inset 0 0 0 1px rgba(255,255,255,.16), inset 0 0 0 2px rgba(${lr},${lg},${lb},.18), 0 12px 28px rgba(0,0,0,.32)`
+      } catch {}
+
+      // Gloss highlight overlay for punchy contrast
+      try {
+        let gloss = host!.querySelector('.hxw-gloss') as HTMLElement | null
+        if (!gloss) { gloss = document.createElement('div'); gloss.className = 'hxw-gloss'; host!.insertBefore(gloss, body) }
+        gloss.style.position = 'absolute'
+        gloss.style.left = '0px'
+        gloss.style.top = '0px'
+        gloss.style.width = `${boxW}px`
+        gloss.style.height = `${boxH}px`
+        ;(gloss.style as any).clipPath = `url(#${cid})`
+        ;(gloss.style as any).webkitClipPath = `url(#${cid})`
+        gloss.style.pointerEvents = 'none'
+        gloss.style.background = `radial-gradient(60% 60% at 20% 15%, rgba(255,255,255,.22), rgba(255,255,255,0) 55%), linear-gradient(160deg, rgba(255,255,255,.10), rgba(255,255,255,0) 65%)`
+        gloss.style.mixBlendMode = 'screen'
+      } catch {}
+      // Ensure pointer-event routing remains correct even after re-building during edit mode:
+      // when editing, clicks should go to the hex background only (for selection/move),
+      // and inner rectangular content should not intercept clicks.
+      const editing = canvas.getAttribute('data-edit') === '1'
+      try {
+        if (editing) {
+          // Route events to background layer only
+          bgFlat.style.pointerEvents = 'auto'
+          body.style.pointerEvents = 'none'
+          const cellsWrapNow = host!.querySelector('.hxw-cells') as HTMLElement | null
+          if (cellsWrapNow) cellsWrapNow.style.pointerEvents = 'none'
+        } else {
+          // Restore defaults when not editing
+          bgFlat.style.pointerEvents = ''
+          body.style.pointerEvents = ''
+          const cellsWrapNow = host!.querySelector('.hxw-cells') as HTMLElement | null
+          if (cellsWrapNow) cellsWrapNow.style.pointerEvents = ''
+        }
+      } catch { /* ignore */ }
     }
 
     // Apply custom name label (small floating chip) if configured
@@ -8789,6 +10581,49 @@ function hxwPlaceWidgets(root: HTMLElement, pid: string, st: HexWLayout): void {
       let chip = host!.querySelector('.hxw-name') as HTMLElement | null
       if (!chip && name) { chip = document.createElement('div'); chip.className = 'hxw-name'; chip.style.position = 'absolute'; chip.style.left = '50%'; chip.style.top = '6px'; chip.style.transform = 'translateX(-50%)'; chip.style.zIndex = '5'; chip.style.pointerEvents = 'none'; chip.style.fontSize = '12px'; chip.style.fontWeight = '600'; chip.style.color = 'white'; chip.style.textShadow = '0 1px 2px rgba(0,0,0,.3)'; host!.appendChild(chip) }
       if (chip) { chip.textContent = name || ''; chip.style.display = name ? '' : 'none' }
+    } catch {}
+
+    // Make custom/flow widgets act like a single big button
+    try {
+      const t = (host!.getAttribute('data-type') || '').toLowerCase()
+      if (t === 'custom' || t === 'flow') {
+        host!.style.cursor = 'pointer'
+        host!.setAttribute('role', 'button')
+        host!.setAttribute('tabindex', '0')
+        // Hover/press feedback when not editing (apply only to hex area via bg layer)
+        const applyHover = (on: boolean) => {
+          const editing = canvas.getAttribute('data-edit') === '1'
+          if (editing) return
+          const bg = host!.querySelector('.hxw-bg') as HTMLElement | null
+          if (!bg) return
+          bg.style.transition = 'transform .12s ease, filter .12s ease, box-shadow .12s ease'
+          if (on) {
+            bg.style.filter = 'brightness(1.07)'
+            ;(bg.style as any).boxShadow = '0 10px 24px rgba(0,0,0,0.28)'
+          } else {
+            if (host!.classList.contains('hxw-selected')) {
+              bg.style.filter = 'saturate(1.85) brightness(1.38) contrast(1.18) hue-rotate(8deg)'
+              bg.style.boxShadow = '0 0 42px rgba(255,200,120,.62)'
+            } else {
+              bg.style.filter = ''
+              ;(bg.style as any).boxShadow = ''
+            }
+          }
+        }
+        const bgEl = host!.querySelector('.hxw-bg') as HTMLElement | null
+        if (bgEl) {
+          bgEl.addEventListener('mouseenter', () => applyHover(true))
+          bgEl.addEventListener('mouseleave', () => applyHover(false))
+          bgEl.addEventListener('mousedown', () => {
+            if (canvas.getAttribute('data-edit') === '1') return
+            bgEl.style.transform = 'scale(0.997)'
+          })
+          bgEl.addEventListener('mouseup', () => {
+            if (canvas.getAttribute('data-edit') === '1') return
+            bgEl.style.transform = ''
+          })
+        }
+      }
     } catch {}
 
     // Build per-cell slots container for hex-packed layout (above bg, below body)
@@ -8815,17 +10650,23 @@ function hxwPlaceWidgets(root: HTMLElement, pid: string, st: HexWLayout): void {
       slot.appendChild(clip)
       cellsWrap!.appendChild(slot)
     })
+    // While editing, ensure per-cell layer does not intercept clicks (selection should hit bg layer)
+    try {
+      const editing = canvas.getAttribute('data-edit') === '1'
+      if (cellsWrap) cellsWrap.style.pointerEvents = editing ? 'none' : ''
+    } catch {}
     // For widgets that should not use cell slots (inputs等)、スロット要素自体を除去して本体を優先
     try {
       const t = (host!.getAttribute('data-type') || '').toLowerCase()
       // NOTE: Links/Calendar/README/Markdown are slot-driven (popup buttons)
-      const noSlots = t === 'flow'
+      // Custom/Flow are simple buttons after placement → remove per-cell slots
+      const noSlots = t === 'flow' || t === 'custom'
       if (noSlots && cellsWrap) { cellsWrap.remove(); cellsWrap = null as any }
     } catch {}
-    // Hide rectangular body for compact slot-driven widgets (invite/account/tabnew/skin/clock-digital/readme/markdown)
+    // Hide rectangular body only for compact slot-driven widgets (invite/account/tabnew/skin/clock-digital)
     try {
       const t = (host!.getAttribute('data-type') || '').toLowerCase()
-      if (t === 'invite' || t === 'account' || t === 'tabnew' || t === 'skin' || t === 'clock-digital' || t === 'readme' || t === 'markdown') {
+      if (t === 'invite' || t === 'account' || t === 'tabnew' || t === 'skin' || t === 'clock-digital') {
         const body2 = host!.querySelector('.hxw-body') as HTMLElement | null
         if (body2) body2.style.display = 'none'
       }
@@ -8872,7 +10713,7 @@ function hxwPlaceWidgets(root: HTMLElement, pid: string, st: HexWLayout): void {
         outline = document.createElementNS('http://www.w3.org/2000/svg', 'svg') as SVGSVGElement
         outline.classList.add('hxw-outline')
         outline.style.position = 'absolute'; outline.style.left = '0'; outline.style.top = '0'
-        outline.style.width = '100%'; outline.style.height = '100%'; outline.style.pointerEvents = 'none'
+        outline.style.width = '100%'; outline.style.height = '100%'; outline.style.pointerEvents = 'none'; outline.style.zIndex = '6'
         host!.appendChild(outline)
       }
       outline.setAttribute('viewBox', `0 0 ${boxW} ${boxH}`)
@@ -8883,8 +10724,10 @@ function hxwPlaceWidgets(root: HTMLElement, pid: string, st: HexWLayout): void {
       path.setAttribute('d', segs.join(' '))
       const col = fillFlat
       path.setAttribute('fill', 'none')
-      path.setAttribute('stroke', col)
-      path.setAttribute('stroke-width', '1.2')
+      // Hide outline stroke by default (selection is indicated via color change, not stroke)
+      path.setAttribute('stroke', 'none')
+      path.setAttribute('data-stk', col)
+      path.setAttribute('stroke-width', '0')
       path.setAttribute('stroke-linejoin', 'round')
       path.setAttribute('stroke-linecap', 'round')
       outline.appendChild(path)
@@ -8895,6 +10738,95 @@ function hxwPlaceWidgets(root: HTMLElement, pid: string, st: HexWLayout): void {
   Object.entries(meta).forEach(([id, m]) => upsertOne(id, m.type, m.q, m.r))
   existing.forEach((el) => el.remove())
   try { const pid = (canvas.getAttribute('data-pid') || '0'); hxwRenderShortcuts(root, pid); hxwRenderCapacityBar(root, pid) } catch {}
+}
+
+// Ensure pointer-events routing for edit mode applies to newly created widgets
+function hxwSyncEditPointerEvents(root: HTMLElement): void {
+  const canvas = root.querySelector('#hxwCanvas') as HTMLElement | null
+  if (!canvas) return
+  const on = canvas.getAttribute('data-edit') === '1'
+  try {
+    Array.from(canvas.querySelectorAll('.hxw-widget')).forEach((el) => {
+      const host = el as HTMLElement
+      const bg = host.querySelector('.hxw-bg') as HTMLElement | null
+      if (on) {
+        host.style.pointerEvents = 'none'
+        if (bg) bg.style.pointerEvents = 'auto'
+      } else {
+        host.style.pointerEvents = ''
+        if (bg) bg.style.pointerEvents = ''
+      }
+    })
+    // Disable inner content hit-testing while editing so hex background gets clicks
+    canvas.querySelectorAll('.hxw-widget .wg-content, .hxw-widget .hxw-body, .hxw-widget .slot-inner, .hxw-widget .hxw-cells').forEach((el) => {
+      (el as HTMLElement).style.pointerEvents = on ? 'none' : ''
+    })
+  } catch {}
+}
+
+// Recolor background hex cells to match current occupancy and tones
+function hxwRecolorBackground(root: HTMLElement, pid: string): void {
+  const wrap = root.querySelector('#hxwWrap') as HTMLElement | null
+  const canvas = root.querySelector('#hxwCanvas') as HTMLElement | null
+  if (!wrap || !canvas) return
+  const isLightTheme = (document.documentElement.getAttribute('data-theme') || 'dark') !== 'dark'
+  const pjColor = ((root as HTMLElement).getAttribute('data-pj-color') || 'blue') as string
+  const toneFor = (c: string): string => {
+    const a = isLightTheme ? 0.42 : 0.38
+    switch (c) {
+      case 'red': return `rgba(239,68,68,${a})`
+      case 'green': return `rgba(16,185,129,${a})`
+      case 'purple': return `rgba(168,85,247,${a})`
+      case 'orange': return `rgba(251,146,60,${a})`
+      case 'yellow': return `rgba(234,179,8,${a})`
+      case 'gray': return isLightTheme ? 'rgba(120,120,128,0.38)' : 'rgba(120,120,128,0.35)'
+      case 'black': return isLightTheme ? 'rgba(0,0,0,0.45)' : 'rgba(0,0,0,0.55)'
+      case 'white': return isLightTheme ? 'rgba(255,255,255,0.65)' : 'rgba(255,255,255,0.10)'
+      default: return `rgba(59,130,246,${a})` // blue
+    }
+  }
+  const occTone = toneFor(pjColor)
+  const emptyTone = isLightTheme ? 'rgba(120,120,128,0.26)' : 'rgba(120,120,128,0.22)'
+  const facetsEmpty = deriveFacets(emptyTone)
+  const occ: Set<string> = (wrap as any)._hxwOcc || new Set<string>()
+  const bgHexes = Array.from(canvas.querySelectorAll('.hxw-hex[data-kind="bg"]')) as HTMLElement[]
+  bgHexes.forEach((el) => {
+    const q = parseInt(el.getAttribute('data-q') || '-1', 10)
+    const r = parseInt(el.getAttribute('data-r') || '-1', 10)
+    const k = `${q},${r}`
+    const clip = el.querySelector('.hxw-clip') as HTMLElement | null
+    if (!clip) return
+    if (occ.has(k)) {
+      // Find widget color for this cell if possible
+      let col = occTone
+      const marker = canvas.querySelector(`.hxw-hex.hxw-filled[data-kr="${q},${r}"]`) as HTMLElement | null
+      if (marker) {
+        const host = marker.closest('.hxw-widget') as HTMLElement | null
+        const id = host?.getAttribute('data-widget') || ''
+        const rgbStr = marker.getAttribute('data-rgb') || ''
+        let a = isLightTheme ? 0.42 : 0.38
+        try { const c = hxwCustomGet(pid, id); if (c && typeof (c as any).alpha === 'number') a = Math.max(0, Math.min(1, (c as any).alpha)) } catch {}
+        if (rgbStr) {
+          const [rr, gg, bb] = rgbStr.split(',').map((n) => parseInt(n, 10))
+          if (Number.isFinite(rr) && Number.isFinite(gg) && Number.isFinite(bb)) col = `rgba(${rr},${gg},${bb}, ${a})`
+        }
+      }
+      const f = deriveFacets(col)
+      clip.innerHTML = honeyHexFilledSvg()
+      clip.style.color = col
+      ;(clip.style as any).setProperty('--hx-side', f.side)
+      ;(clip.style as any).setProperty('--hx-hi', f.hi)
+      ;(clip.style as any).setProperty('--hx-edge', f.side)
+    } else {
+      clip.innerHTML = honeyHexEmptySvg()
+      clip.style.color = emptyTone
+      ;(clip.style as any).setProperty('--hx-side', facetsEmpty.side)
+      ;(clip.style as any).setProperty('--hx-hi', facetsEmpty.hi)
+      ;(clip.style as any).setProperty('--hx-edge', facetsEmpty.side)
+    }
+  })
+  // Remove any stale hosts not present in meta (ensures no ghost tiles remain)
+  existing.forEach((el) => { try { el.remove() } catch {} })
 }
 
 export function renderHexWidgets(root: HTMLElement, pid: string): void {
@@ -8925,13 +10857,16 @@ export function renderHexWidgets(root: HTMLElement, pid: string): void {
       usedMinR = Math.min(usedMinR, o.r); usedMaxR = Math.max(usedMaxR, o.r)
     })
   })
-  // Base hex radius from viewport
+  // Determine base strict radius: prefer a persisted preferred radius to avoid zoom-dependent changes
+  // If none saved yet, derive from viewport once; afterwards we keep the persisted value stable.
   const viewCols = Math.max(3, Math.ceil(vw / stepX()))
   const viewRows = Math.max(3, Math.ceil(vh / stepY()))
   const R_VIEW = Math.max(1, Math.floor(Math.min(viewCols, viewRows) / 2) - 1)
   // フィールドが広すぎたため縮小: 以前の約8倍 → 約3倍に調整
   const RADIUS_SCALE = 5.0 // フィールドを広く確保（視界を拡大）
-  let R_STRICT = Math.max(3, Math.floor(R_VIEW * RADIUS_SCALE))
+  const R_FROM_VIEW = Math.max(3, Math.floor(R_VIEW * RADIUS_SCALE))
+  const R_PERSIST = hxwGetPreferredRadius()
+  let R_STRICT = (R_PERSIST != null) ? R_PERSIST : HXW_DEFAULT_RADIUS
   // 既存ウィジェットの占有範囲を必ず内包するように半径を引き上げる
   try {
     const hexDist = (a: Ax, b: Ax): number => {
@@ -8962,9 +10897,38 @@ export function renderHexWidgets(root: HTMLElement, pid: string): void {
   ; (wrap as any)._hxwCols = COLS
   ; (wrap as any)._hxwRows = ROWS
 
+  // Persist chosen radius to keep it stable across routes/zoom; only raise, never shrink automatically.
+  try {
+    const cur = hxwGetPreferredRadius()
+    if (cur == null || R_STRICT > cur) hxwSetPreferredRadius(R_STRICT)
+  } catch {}
+
   // build background nodes
   const nodes: Array<{ q: number; r: number; x: number; y: number }> = []
   canvas.innerHTML = ''
+  // Tones: occupied cells follow project color; empty cells use black-ish neutral
+  const pjColor = ((root as HTMLElement).getAttribute('data-pj-color') || 'blue') as string
+  const themeId = (document.documentElement.getAttribute('data-theme') || 'dark')
+  const isLightTheme = themeId === 'warm' || themeId === 'sakura'
+  const toneFor = (c: string): string => {
+    const alpha = isLightTheme ? 0.42 : 0.38
+    switch (c) {
+      case 'red': return `rgba(239,68,68,${alpha})`
+      case 'green': return `rgba(16,185,129,${alpha})`
+      case 'purple': return `rgba(168,85,247,${alpha})`
+      case 'orange': return `rgba(251,146,60,${alpha})`
+      case 'yellow': return `rgba(234,179,8,${alpha})`
+      case 'gray': return isLightTheme ? 'rgba(120,120,128,0.38)' : 'rgba(120,120,128,0.35)'
+      case 'black': return isLightTheme ? 'rgba(0,0,0,0.45)' : 'rgba(0,0,0,0.55)'
+      case 'white': return isLightTheme ? 'rgba(255,255,255,0.65)' : 'rgba(255,255,255,0.10)'
+      default: /* blue */ return `rgba(59,130,246,${alpha})`
+    }
+  }
+  const occTone = toneFor(pjColor)
+  const facetsOcc = deriveFacets(occTone)
+  // Empty tiles: medium gray, less opaque to avoid harsh black
+  const emptyTone = isLightTheme ? 'rgba(120,120,128,0.26)' : 'rgba(120,120,128,0.22)'
+  const facetsEmpty = deriveFacets(emptyTone)
   // Build a rounded hex mask so the field extends in a beehive-like shape (not a rectangle)
   const mask = new Set<string>()
   // シルエット位置は固定（中央基準）
@@ -8997,7 +10961,13 @@ export function renderHexWidgets(root: HTMLElement, pid: string): void {
         el.style.width = `${W}px`
         el.style.height = `${H}px`
         const clip = document.createElement('div')
-        clip.className = 'hxw-clip'
+        clip.className = 'hxw-clip hx-svgclip'
+        // initialize as empty-tone; occupied cells recolor later
+        clip.style.color = emptyTone
+        ;(clip.style as any).setProperty('--hx-side', facetsEmpty.side)
+        ;(clip.style as any).setProperty('--hx-hi',   facetsEmpty.hi)
+        ;(clip.style as any).setProperty('--hx-edge', facetsEmpty.side)
+        clip.innerHTML = honeyHexEmptySvg()
         el.appendChild(clip)
         canvas.appendChild(el)
       }
@@ -9099,16 +11069,77 @@ export function renderHexWidgets(root: HTMLElement, pid: string): void {
 
   // place widgets
   hxwPlaceWidgets(root, pid, st)
+  // Update background cell visuals to reflect current occupancy
+  try { hxwRecolorBackground(root, pid) } catch { }
+  // Re-apply edit hit-testing routing to new DOM
+  try { hxwSyncEditPointerEvents(root) } catch {}
+  // After widgets are placed, recolor background cells: use empty design for unoccupied cells
+  try {
+    const occ: Set<string> = (wrap as any)._hxwOcc || new Set<string>()
+    const bgHexes = Array.from(canvas.querySelectorAll('.hxw-hex[data-kind="bg"]')) as HTMLElement[]
+    bgHexes.forEach((el) => {
+      const q = parseInt(el.getAttribute('data-q') || '-1', 10)
+      const r = parseInt(el.getAttribute('data-r') || '-1', 10)
+      const k = `${q},${r}`
+      const clip = el.querySelector('.hxw-clip') as HTMLElement | null
+      if (!clip) return
+      if (occ.has(k)) {
+        // Occupied: match widget picker palette per widget (id/type or custom RGB)
+        const marker = canvas.querySelector(`.hxw-hex.hxw-filled[data-kr="${q},${r}"]`) as HTMLElement | null
+        let col = occTone
+        if (marker) {
+          const host = marker.closest('.hxw-widget') as HTMLElement | null
+          const id = host?.getAttribute('data-widget') || ''
+          // Prefer explicit RGB from marker annotation
+          const rgbStr = marker.getAttribute('data-rgb') || ''
+          let a = isLightTheme ? 0.42 : 0.38
+          try { const c = hxwCustomGet(pid, id); if (c && typeof (c as any).alpha === 'number') a = Math.max(0, Math.min(1, (c as any).alpha)) } catch {}
+          if (rgbStr) {
+            const [rr,gg,bb] = rgbStr.split(',').map((n)=>parseInt(n,10))
+            if (Number.isFinite(rr) && Number.isFinite(gg) && Number.isFinite(bb)) col = `rgba(${rr},${gg},${bb}, ${a})`
+          }
+        }
+        const f = deriveFacets(col)
+        clip.innerHTML = honeyHexFilledSvg()
+        clip.style.color = col
+        ;(clip.style as any).setProperty('--hx-side', f.side)
+        ;(clip.style as any).setProperty('--hx-hi',   f.hi)
+        ;(clip.style as any).setProperty('--hx-edge', f.side)
+      } else {
+        clip.innerHTML = honeyHexEmptySvg()
+        clip.style.color = emptyTone
+        ;(clip.style as any).setProperty('--hx-side', facetsEmpty.side)
+        ;(clip.style as any).setProperty('--hx-hi',   facetsEmpty.hi)
+        ;(clip.style as any).setProperty('--hx-edge', facetsEmpty.side)
+      }
+    })
+  } catch { /* non-fatal */ }
   // bind interactions and minimap
   hxwBindInteractions(root, wrap, canvas, st)
-  // center initial view
+  // center initial view (skip during entry animation or if already inited)
+  let allowCenter = true
   try {
-    const vw = wrap.clientWidth, vh = wrap.clientHeight
-    const Wv = (st.width || 0) * st.scale
-    const Hv = (st.height || 0) * st.scale
-    st.offsetX = Math.round((vw - Wv) / 2)
-    st.offsetY = Math.round((vh - Hv) / 2)
+    let reload = false
+    try {
+      const nav = (performance as any)
+      const entries = nav?.getEntriesByType ? nav.getEntriesByType('navigation') : []
+      if (entries && entries.length) reload = ((entries[0] as any).type === 'reload')
+      else if ((performance as any).navigation) reload = ((performance as any).navigation.type === 1)
+    } catch {}
+    const dir = reload ? null : sessionStorage.getItem('proj-entry-dir')
+    if (dir === 'left' || dir === 'right') allowCenter = false
   } catch {}
+  try { const rootEl = (canvas.closest('.gh-canvas') as HTMLElement | null) || root as HTMLElement; if (rootEl?.hasAttribute('data-arriving')) allowCenter = false } catch {}
+  if (!st.inited && allowCenter) {
+    try {
+      const vw = wrap.clientWidth, vh = wrap.clientHeight
+      const Wv = (st.width || 0) * st.scale
+      const Hv = (st.height || 0) * st.scale
+      st.offsetX = Math.round((vw - Wv) / 2)
+      st.offsetY = Math.round((vh - Hv) / 2)
+    } catch {}
+  }
+  st.inited = true
   hxwApplyTransform(wrap, canvas, st)
   // ensure initial contents hydrate now that skeletons exist
   try { refreshDynamicWidgets(root, pid) } catch {}
@@ -9208,7 +11239,7 @@ function hxwStartPlacement(root: HTMLElement, pid: string, type: string): void {
     const pending = (window as any)._hxwPending as (undefined | { shape?: Array<[number,number]>; rgb?: [number,number,number]; alpha?: number; name?: string; type?: string; flowGraph?: any })
     const rel = (pending && Array.isArray(pending.shape) && pending.shape.length) ? (pending.shape as Array<[number,number]>) : hxwShapeFor(type)
     const cellsOdd = rel.map(([ax, az]) => axialToOddq(oddqToAxial(anc.q, anc.r).x + ax, oddqToAxial(anc.q, anc.r).z + az))
-    if (!canPlace(cellsOdd)) return
+    if (!canPlace(cellsOdd)) { cleanup(); try { alert('配置範囲外のためキャンセルしました') } catch {}; return }
     // place
     const meta = hxwGetMeta(pid)
     const id = `w-${type}-${Date.now()}`
@@ -9222,8 +11253,11 @@ function hxwStartPlacement(root: HTMLElement, pid: string, type: string): void {
       try { (window as any)._hxwPending = undefined } catch {}
     }
     hxwPlaceWidgets(root, pid, st)
+    try { hxwRecolorBackground(root, pid) } catch {}
+    try { hxwSyncEditPointerEvents(root) } catch {}
     try { refreshDynamicWidgets(root, pid) } catch {}
     try { hxwRehydrate(root, pid) } catch {}
+    try { showMiniToast('ウィジェットを追加しました') } catch {}
     cleanup()
   }
   const key = (e: KeyboardEvent) => { if (e.key === 'Escape') { cleanup() } }
@@ -9297,6 +11331,7 @@ function hxwAddWidget(root: HTMLElement, pid: string, type: string): void {
           meta[id] = { type, q, r }
           hxwSetMeta(pid, meta)
           hxwPlaceWidgets(root, pid, st)
+          try { hxwRecolorBackground(root, pid) } catch {}
           try { refreshDynamicWidgets(root, pid) } catch {}
           try { hxwRehydrate(root, pid) } catch {}
           placed = true

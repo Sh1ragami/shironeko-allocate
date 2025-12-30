@@ -3,7 +3,7 @@ let startedAt = 0
 let currentMinMs = DEFAULT_MIN_MS
 
 type RLColor = 'blue' | 'red' | 'green' | 'black' | 'white' | 'purple' | 'orange' | 'yellow' | 'gray'
-type RLOpts = { burstOnly?: boolean; minMs?: number; style?: 'burst' | 'single'; spinMs?: number }
+type RLOpts = { burstOnly?: boolean; minMs?: number; style?: 'burst' | 'single' | 'seamless'; spinMs?: number; sourceEl?: HTMLElement }
 
 export function showRouteLoading(projectName?: string, projectColor?: RLColor, opts?: RLOpts): void {
   if (document.getElementById('routeLoading')) return
@@ -19,6 +19,13 @@ export function showRouteLoading(projectName?: string, projectColor?: RLColor, o
       <div class="rl-stage">
         <div class="rl-one" id="rlOne"></div>
         <div class="rl-one-label" id="rlOneLabel"></div>
+      </div>`
+  } else if (style === 'seamless' && opts?.sourceEl) {
+    overlay.setAttribute('data-style', 'seamless')
+    overlay.innerHTML = `
+      <div class="rl-stage">
+        <div class="rl-backdrop" id="rlBackdrop"></div>
+        <div class="rl-seam" id="rlSeam"><div class="hx-clip hx-plain" id="rlHex"></div></div>
       </div>`
   } else {
     overlay.innerHTML = minimal
@@ -50,7 +57,7 @@ export function showRouteLoading(projectName?: string, projectColor?: RLColor, o
   // Build effect
   if (style === 'burst') {
     try { buildHexBurst(overlay, projectColor) } catch {}
-  } else {
+  } else if (style === 'single') {
     // Single hex: optionally tint hex by projectColor
     try {
       const stage = overlay.firstElementChild as HTMLElement | null
@@ -104,6 +111,58 @@ export function showRouteLoading(projectName?: string, projectColor?: RLColor, o
         setTimeout(() => { one?.addEventListener('animationend', onEnd, { once: true }) }, 0)
       }
     } catch {}
+  } else if (style === 'seamless' && opts?.sourceEl) {
+    try {
+      const src = opts.sourceEl as HTMLElement
+      const stage = overlay.firstElementChild as HTMLElement | null
+      const seam = overlay.querySelector('#rlSeam') as HTMLElement | null
+      const hex = overlay.querySelector('#rlHex') as HTMLElement | null
+      const backdrop = overlay.querySelector('#rlBackdrop') as HTMLElement | null
+      if (!seam || !hex) return
+      const r = src.getBoundingClientRect()
+      // Position runner over the source tile
+      seam.style.position = 'fixed'
+      seam.style.left = `${r.left}px`
+      seam.style.top = `${r.top}px`
+      seam.style.width = `${r.width}px`
+      seam.style.height = `${r.height}px`
+      seam.style.transform = 'translate(0,0) scale(1)'
+      seam.style.transition = 'transform 2s cubic-bezier(.2,.8,.2,1)'
+      seam.style.willChange = 'transform'
+      // Copy background/border from the source .hx-clip if present
+      const srcHex = src.querySelector('.hx-clip') as HTMLElement | null
+      if (srcHex) {
+        const st = srcHex.getAttribute('style') || ''
+        hex.setAttribute('style', st + '; width:100%; height:100%;')
+      }
+      // Fade in backdrop first
+      if (backdrop) {
+        backdrop.style.opacity = '0'
+        backdrop.style.transition = 'opacity 1.6s ease'
+        requestAnimationFrame(() => { backdrop!.style.opacity = '1' })
+      }
+      // Compute a first-hop target transform: fly toward outside (farthest corner) to a black canvas
+      const W = window.innerWidth || document.documentElement.clientWidth || 1024
+      const H = window.innerHeight || document.documentElement.clientHeight || 768
+      const cx = r.left + r.width / 2
+      const cy = r.top + r.height / 2
+      // Sideways: move horizontally off-screen to left/right depending on tile position
+      const toRight = cx >= W / 2
+      const targetX = toRight ? (W + Math.max(W, H)) : (-Math.max(W, H))
+      const dxOut = (targetX - cx)
+      const dyOut = (H / 2 - cy) * 0.05 // slight vertical glide for depth感
+      const scaleOut = 0.9
+      requestAnimationFrame(() => {
+        seam.style.transform = `translate(${dxOut}px, ${dyOut}px) scale(${scaleOut})`
+        // Mark phase-1 completion when transition ends
+        const mark = () => {
+          try { (overlay as any)._seamPhase = 'out'; seam.setAttribute('data-phase', 'out') } catch {}
+        }
+        seam.addEventListener('transitionend', mark, { once: true })
+      })
+      // Keep overlay until detail finishes phase-2
+      currentMinMs = 0
+    } catch {}
   }
 }
 
@@ -120,6 +179,50 @@ export function hideRouteLoading(): void {
   }
   if (delay > 0) setTimeout(finish, delay)
   else finish()
+}
+
+export function finishSeamless(): void {
+  const overlay = document.getElementById('routeLoading') as HTMLElement | null
+  if (!overlay) return
+  if (overlay.getAttribute('data-style') !== 'seamless') { hideRouteLoading(); return }
+  const launchPhase2 = () => {
+    try {
+      const seam = overlay.querySelector('#rlSeam') as HTMLElement | null
+      const backdrop = overlay.querySelector('#rlBackdrop') as HTMLElement | null
+      if (!seam) { hideRouteLoading(); return }
+      const W = window.innerWidth || document.documentElement.clientWidth || 1024
+      const H = window.innerHeight || document.documentElement.clientHeight || 768
+      const rect = seam.getBoundingClientRect()
+      const cx = rect.left + rect.width / 2
+      const cy = rect.top + rect.height / 2
+      const dx = W / 2 - cx
+      const dy = H / 2 - cy
+      const base = Math.max(rect.width, rect.height)
+      const target = Math.max(W, H) * 1.2
+      const scale = Math.max(1, target / Math.max(1, base))
+    seam.style.transition = 'transform 2s cubic-bezier(.2,.9,.24,1)'
+      seam.style.transform = `translate(${dx}px, ${dy}px) scale(${scale})`
+      if (backdrop) {
+      backdrop.style.transition = 'opacity 1.8s ease'
+        backdrop.style.opacity = '0'
+      }
+      const done = () => hideRouteLoading()
+      seam.addEventListener('transitionend', done, { once: true })
+    } catch { hideRouteLoading() }
+  }
+  // If phase-1 hasn't finished yet, wait for it, otherwise launch now
+  const seam = overlay.querySelector('#rlSeam') as HTMLElement | null
+  if ((overlay as any)._seamPhase === 'out' || seam?.getAttribute('data-phase') === 'out') {
+    // small delay to let detail paint under
+    setTimeout(launchPhase2, 50)
+  } else if (seam) {
+    const once = () => { setTimeout(launchPhase2, 100) }
+    seam.addEventListener('transitionend', once, { once: true })
+    // Fallback timeout in case transitionend is missed
+    setTimeout(() => launchPhase2(), 2500)
+  } else {
+    launchPhase2()
+  }
 }
 
 function buildHexBurst(overlay: HTMLElement, projectColor?: 'blue' | 'red' | 'green' | 'black' | 'white' | 'purple' | 'orange' | 'yellow' | 'gray'): void {

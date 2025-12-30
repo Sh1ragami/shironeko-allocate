@@ -1,8 +1,9 @@
 import { apiFetch } from '../../utils/api'
 import { getTheme, setTheme } from '../../utils/theme'
 import { showRouteLoading, hideRouteLoading } from '../../utils/route-loading'
-import { prefetchProjectDetail } from '../../utils/prefetch'
+import { prefetchProjectDetail, prefetchProjectDetailDeep } from '../../utils/prefetch'
 import { openAccountModal as openDetailAccountModal } from './detail'
+import { honeyHexFilledSvg, honeyHexEmptySvg } from '../../utils/honeycomb'
 
 type Project = {
   id: number
@@ -60,7 +61,29 @@ function createProjectCard(): string {
 }
 
 export function renderProject(container: HTMLElement): void {
-  // If coming back from detail, optionally show a brief entry animation
+  // Ensure any lingering info panel from other pages is gone before render
+  try { document.querySelectorAll('#giInfo').forEach((el) => (el as HTMLElement).remove()) } catch {}
+  // Bind one-time route cleanup to remove the info panel only when leaving the list
+  try {
+    const w = window as any
+    if (!w._giRouteBound) {
+      const rm = () => {
+        try {
+          const hash = window.location.hash || ''
+          // Remove when navigating away from project list (e.g. to detail or other pages)
+          const leavingList = !hash.startsWith('#/project') || hash.startsWith('#/project/detail')
+          if (leavingList) {
+            document.querySelectorAll('#giInfo').forEach((el) => (el as HTMLElement).remove())
+          }
+        } catch {}
+      }
+      window.addEventListener('hashchange', rm)
+      window.addEventListener('popstate', rm)
+      window.addEventListener('beforeunload', rm)
+      w._giRouteBound = true
+    }
+  } catch {}
+  // If coming back from detail, optionally run a reverse arrival animation (no loader)
   let shouldHideAnim = false
   try {
     const flag = sessionStorage.getItem('pj-back-anim')
@@ -68,10 +91,10 @@ export function renderProject(container: HTMLElement): void {
       sessionStorage.removeItem('pj-back-anim')
       const bc = sessionStorage.getItem('pj-back-color') || undefined
       if (bc) { try { sessionStorage.removeItem('pj-back-color') } catch {} }
-      if (!document.getElementById('routeLoading')) {
-        try { showRouteLoading('プロジェクト一覧', (bc as any), { style: 'single', spinMs: 950 }) } catch {}
-        shouldHideAnim = true
-      }
+      // Mark container for back-arrival animation (do not show route-loading)
+      ;(container as HTMLElement).setAttribute('data-back-anim', '1')
+      // No loader for back-arrival
+      shouldHideAnim = false
     }
   } catch {}
   container.innerHTML = `
@@ -79,11 +102,7 @@ export function renderProject(container: HTMLElement): void {
       <!-- Compact heading and controls around minimap -->
       <div class="fixed left-4 top-3 z-10 text-2xl md:text-3xl font-semibold text-gray-100">プロジェクト一覧</div>
       <div id="groupQuick" class="fixed left-4 top-[66px] z-10 flex items-center gap-0 group-quick"></div>
-      <button id="accountBtn" class="fixed bottom-5 right-5 z-20 w-9 h-9 rounded-full overflow-hidden ring-2 ring-neutral-600 bg-neutral-700 grid place-items-center shadow-lg">
-        <span class="sr-only">アカウント</span>
-        <img id="accountAvatar" class="w-full h-full object-cover hidden" alt="avatar"/>
-        <div id="accountFallback" class="text-xs text-neutral-300">Me</div>
-      </button>
+      <!-- account button removed; open from hub tile in common area -->
       <!-- Honeycomb full-screen layer -->
       <section class="hx-wrap" id="honeyWrap">
         <div class="hx-canvas" id="honeyCanvas" style="width:2000px; height:1400px"></div>
@@ -91,20 +110,53 @@ export function renderProject(container: HTMLElement): void {
       <!-- Left edge slide-out group panel removed -->
       <!-- Minimap (top-left) -->
       <div class="hx-mini"><canvas id="hxMini" width="120" height="120"></canvas></div>
+      <!-- Account FAB (bottom-right) -->
+      <button id="accountFab" class="fixed right-3 bottom-3 z-20 w-12 h-12 rounded-full ring-2 ring-neutral-600 bg-neutral-900/80 hover:bg-neutral-800 text-gray-100 shadow-lg grid place-items-center" title="アカウント" aria-label="アカウント">
+        <img id="accountFabAvatar" class="hidden w-10 h-10 rounded-full" alt="avatar" />
+        <span id="accountFabFallback" class="w-10 h-10 rounded-full bg-neutral-800/80 grid place-items-center text-sm font-semibold">Me</span>
+      </button>
+      <!-- Group info panel (bottom) - styled like widget info, separate id to avoid conflicts -->
+      <aside id="giInfo" class="fixed inset-x-0 bottom-0 z-[18] hidden">
+        <div class="mx-auto w-[min(560px,94vw)]">
+          <button id="giInfoHandle" class="block mx-auto info-handle mb-1" aria-expanded="true" title="しまう">
+            <span class="ih-ico" aria-hidden="true">
+              <svg width="48" height="28" viewBox="0 0 24 16" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">
+                <g class="up">
+                  <polyline class="chev1" points="3,7 12,3 21,7" />
+                  <polyline class="chev2" points="3,13 12,9 21,13" />
+                </g>
+                <g class="down">
+                  <polyline class="chev1" points="3,3 12,7 21,3" />
+                  <polyline class="chev2" points="3,9 12,13 21,9" />
+                </g>
+              </svg>
+            </span>
+          </button>
+          <div id="giInfoPanel" class="rounded-t-xl rounded-b-none border-2 border-neutral-600 border-b-0 bg-neutral-950/70 backdrop-blur px-6 py-4 text-gray-100 shadow-xl">
+            <div class="flex items-center gap-2 mb-2">
+              <div class="text-sm font-semibold">グループ</div>
+            </div>
+            <div id="giInfoBody" class="text-sm leading-tight space-y-2"></div>
+          </div>
+        </div>
+      </aside>
     </div>
   `
 
-  // Hide entry animation after mount if we started it here
-  try { if (shouldHideAnim) { hideRouteLoading() } } catch {}
+  // Ensure any existing loader is hidden (back-arrival does not use loader)
+  try { hideRouteLoading() } catch {}
+  // Ensure group location toasts are not accidentally suppressed on list
+  try { document.body.removeAttribute('data-suppress-group-toast') } catch {}
 
   // Set user name into title if available
   apiFetch<{ id: number; name: string; github_id?: number; email?: string }>(`/me`)
     .then((me) => {
       const el = container.querySelector('#userTitle')
       if (el) el.textContent = `${me.name}のプロジェクト`
-      // avatar
-      const avatar = container.querySelector('#accountAvatar') as HTMLImageElement | null
-      const fallback = container.querySelector('#accountFallback') as HTMLElement | null
+      try { localStorage.setItem(userNameKey(me.id), me.name || '') } catch {}
+      // account FAB avatar
+      const avatar = container.querySelector('#accountFabAvatar') as HTMLImageElement | null
+      const fallback = container.querySelector('#accountFabFallback') as HTMLElement | null
       if (me.github_id && avatar) {
         avatar.src = `https://avatars.githubusercontent.com/u/${me.github_id}?s=96`
         avatar.classList.remove('hidden')
@@ -112,6 +164,8 @@ export function renderProject(container: HTMLElement): void {
       } else if (fallback) {
         fallback.textContent = (me.name || 'Me').slice(0, 2)
       }
+      // click to open account modal
+      container.querySelector('#accountFab')?.addEventListener('click', () => openDetailAccountModal(container))
       ; (container as any)._me = me
       // render quickbar now that we have user
       renderGroupQuickbar(container, me)
@@ -140,9 +194,19 @@ export function renderProject(container: HTMLElement): void {
       })
   })
 
-  // Account modal
-  const accountBtn = container.querySelector('#accountBtn')
-  accountBtn?.addEventListener('click', () => openDetailAccountModal(container))
+  // Account modal trigger moved into hub tile; also support query param
+  try {
+    const hash = window.location.hash
+    const [, q = ''] = hash.split('?')
+    if (q) {
+      const params = new URLSearchParams(q)
+      if (params.get('openAccount') === '1') {
+        // clean URL then open modal
+        history.replaceState(null, '', '#/project')
+        openDetailAccountModal(container)
+      }
+    }
+  } catch {}
   // Group add handled inside quickbar
 
   // Load projects when me is unknown yet (fallback)
@@ -185,6 +249,9 @@ function hexDist(a: Ax, b: Ax): number {
 // ---- Group palette (stable by index) ----
 const GROUP_COLORS: Project['color'][] = ['blue', 'purple', 'green', 'orange', 'yellow', 'red', 'gray']
 function colorForGroupId(groups: { id: string }[], gid: string): Project['color'] {
+  // Pinned colors for specific areas/groups
+  if (gid === 'area-common') return 'purple'
+  if (gid === 'user') return 'blue'
   const idx = Math.max(0, groups.findIndex((g) => g.id === gid))
   return GROUP_COLORS[idx % GROUP_COLORS.length]
 }
@@ -244,6 +311,8 @@ function renderHoneycomb(root: HTMLElement, projects: Project[]): void {
   // layout state on host
   const prev = (wrap as any)._hx as HexLayout | undefined
   const st: HexLayout = prev || { scale: 1, tile: 220, width: 0, height: 0, offsetX: 120, offsetY: 80 }
+  // If returning from detail with back-arrival animation, prevent one-frame flash
+  try { if ((root as HTMLElement).getAttribute('data-back-anim') === '1') wrap.style.visibility = 'hidden' } catch {}
   let W = st.tile
   let H = Math.round(W * 0.866)
   const n = projects.length
@@ -253,7 +322,7 @@ function renderHoneycomb(root: HTMLElement, projects: Project[]): void {
 
   // Multi-cluster plane: arrange groups on a grid; each cluster has its own honeycomb area
   const me = (root as any)._me as { id?: number } | undefined
-  const groups = ensureDefaultGroups(me?.id)
+  const groups = layoutGroups(me?.id)
   st.uid = me?.id
   const gcount = Math.max(1, groups.length)
   // Determine a uniform cluster radius to fit projects per group (+slack)
@@ -355,30 +424,98 @@ function renderHoneycomb(root: HTMLElement, projects: Project[]): void {
       return da - db
     })
   }
+  // -- Shrink common area (about 1/3 radius) --
+  const COMMON_ID = 'area-common'
+  const commonNodes = groupedNodes[COMMON_ID] || []
+  const userNodes = groupedNodes['user'] || []
+  const commonCenterQR = commonNodes.length ? { q: commonNodes[0].q, r: commonNodes[0].r } : null
+  const userCenterQR = userNodes.length ? { q: userNodes[0].q, r: userNodes[0].r } : null
+  // Slightly larger (約1/2半径) and leave a 1-ring gap around it
+  const R_COMMON = Math.max(2, Math.round(R_CLUSTER * 0.5))
+  const isInsideCommon = (q: number, r: number): boolean => {
+    if (!commonCenterQR) return false
+    const a = oddqToAxial(q, r)
+    const b = oddqToAxial(commonCenterQR.q, commonCenterQR.r)
+    const d = hexDist(a, b)
+    return d <= R_COMMON
+  }
+  const isCommonGap = (q: number, r: number): boolean => {
+    if (!commonCenterQR) return false
+    const a = oddqToAxial(q, r)
+    const b = oddqToAxial(commonCenterQR.q, commonCenterQR.r)
+    const d = hexDist(a, b)
+    return d === (R_COMMON + 1)
+  }
   for (const [gid, arr] of Object.entries(byGroup)) {
     const spots = groupedNodes[gid] || []
     arr.forEach((p, idx) => { if (spots[idx]) spots[idx].i = projects.indexOf(p) })
+  }
+
+  // Determine focus tile (when returning from detail) in pixel coordinates
+  let focusPx: { x: number; y: number } | null = null
+  try {
+    const fid = sessionStorage.getItem('pj-back-focus-id')
+    if (fid) {
+      const idx = projects.findIndex((p) => String(p.id) === String(fid))
+      if (idx >= 0) {
+        const node = nodes.find((n) => n.i === idx)
+        if (node) { focusPx = { x: node.x + W / 2, y: node.y + H / 2 } }
+      }
+      // clear after reading so it won't affect future entries
+      try { sessionStorage.removeItem('pj-back-focus-id') } catch {}
+    }
+  } catch {}
+
+  // Decide hub tiles (first N center-most) for the common feature area
+  type Hub = { q: number; r: number; label: string; sub: string; route: string }
+  const hubs: Record<string, Hub[]> = {}
+  {
+    const gid = 'area-common'
+    const arr = groupedNodes[gid] || []
+    const defs: Array<{ label: string; sub: string; route: string }> = [
+      { label: 'チュートリアル', sub: '使い方を学ぶ', route: '#/project/tutorial' },
+      { label: '共有ウィジェット', sub: 'みんなの作品を使う', route: '#/widgets/share' },
+      { label: 'ウィジェット作成', sub: '自作ウィジェットを作る', route: '#/widget/create' },
+      { label: '自作ウィジェット管理', sub: '投稿・編集・削除', route: '#/widgets/manage' },
+    ]
+    if (arr.length) {
+      hubs[gid] = arr.slice(0, defs.length).map((n, i) => ({ q: n.q, r: n.r, ...defs[i] }))
+    }
   }
 
   // Initial centering on preferred group (once)
   if (!st.inited) {
     let pref = null as string | null
     try { pref = sessionStorage.getItem('proj-center-gid') } catch {}
+    const wantAnim = (() => { try { return sessionStorage.getItem('proj-center-anim') === '1' } catch { return false } })()
+    const justCreated = (() => { try { return sessionStorage.getItem('group-just-created') === '1' } catch { return false } })()
     const sel = pref || getSelectedGroup(me?.id) || groups[0]?.id || 'user'
-    centerOnGroup(root, sel, false)
+    centerOnGroup(root, sel, !!wantAnim)
     st.inited = true
+    try { updateGroupInfoPanel(document.getElementById('app') as HTMLElement, sel) } catch {}
+    // Show success toast if it was just created
+    try {
+      if (justCreated) {
+        const delay = wantAnim ? 280 : 0
+        setTimeout(() => { try { showMiniToastList('グループを作成しました') } catch {} }, delay)
+      }
+    } catch {}
     try { if (pref) sessionStorage.removeItem('proj-center-gid') } catch {}
+    try { if (wantAnim) sessionStorage.removeItem('proj-center-anim') } catch {}
+    try { if (justCreated) sessionStorage.removeItem('group-just-created') } catch {}
   }
 
   // Save nodes for minimap rendering
   // Save for minimap: tint empty cells by group color
-  ;(wrap as any)._hx.nodes = nodes.map(n => ({
-    x: n.x,
-    y: n.y,
-    filled: n.i >= 0,
-    // Minimap: always show region color by group for clear boundaries
-    color: colorForGroupId(groups, n.gid)
-  }))
+  ;(wrap as any)._hx.nodes = nodes
+    .filter((n) => !isCommonGap(n.q, n.r))
+    .filter((n) => n.gid !== COMMON_ID || isInsideCommon(n.q, n.r))
+    .map(n => ({
+      x: n.x,
+      y: n.y,
+      filled: n.i >= 0,
+      color: colorForGroupId(groups, n.gid)
+    }))
 
   // Render (with one create tile per group if there is a free spot)
   const createdSpot = new Set<string>()
@@ -399,18 +536,26 @@ function renderHoneycomb(root: HTMLElement, projects: Project[]): void {
     tile.style.top = `${pt.y}px`
     tile.style.width = `${W}px`
     tile.style.height = `${H}px`
+    if (pt.gid === COMMON_ID && !isInsideCommon(pt.q, pt.r)) return
+    if (isCommonGap(pt.q, pt.r)) return
+    let gid = pt.gid
     if (pt.i >= 0) {
       const p = projects[pt.i]
       tile.setAttribute('data-id', String(p.id))
       const title = (p.alias && String(p.alias).trim() !== '' ? p.alias : p.name)
       // Use group color for filled tiles to unify honeycomb color by group
-      const gcol = colorForGroupId(groups, pt.gid)
+      const gcol = colorForGroupId(groups, gid)
       const tone = hexTone(gcol)
+      const facets = deriveFacets(tone.bg)
       tile.innerHTML = `
-        <div class="hx-clip hx-plain" style="background:${tone.bg}; border-color:${tone.border}">
+        <div class="hx-clip hx-plain hx-svgclip" style="color:${tone.bg}; --hx-side:${facets.side}; --hx-hi:${facets.hi}; --hx-edge:${facets.side}">
+          ${honeyHexFilledSvg()}
           <div class="hx-info hx-plain"><div>${escapeHtml(title)}</div></div>
         </div>`
+      // Start deeper prefetch at the earliest selection moment
+      tile.addEventListener('pointerdown', () => { try { prefetchProjectDetailDeep(p.id) } catch {} }, { once: true })
       tile.addEventListener('click', () => {
+        try { document.querySelectorAll('#giInfo').forEach((el) => (el as HTMLElement).remove()) } catch {}
         // 保存: 戻ってきた時にこのプロジェクトのグループを中心に
         try {
           const me = (root as any)._me as { id?: number } | undefined
@@ -418,23 +563,153 @@ function renderHoneycomb(root: HTMLElement, projects: Project[]): void {
           const gid = map[String(p.id)] || 'user'
           sessionStorage.setItem('proj-center-gid', gid)
         } catch {}
-        try { prefetchProjectDetail(p.id) } catch {}
-        try { showRouteLoading(title, p.color) } catch {}
-        window.location.hash = `#/project/detail?id=${p.id}`
+        try { prefetchProjectDetailDeep(p.id) } catch {}
+        // Suppress group location toast during transition
+        try { sessionStorage.setItem('suppress-group-toast', '1') } catch {}
+        try { document.body.setAttribute('data-suppress-group-toast', '1') } catch {}
+        // Native transition: move actual list honeycomb off-screen with dim
+        try {
+          const wrap = root.querySelector('#honeyWrap') as HTMLElement | null
+          if (wrap) {
+            // Fixed direction for consistency: list moves left, detail enters from right
+            try { sessionStorage.setItem('proj-entry-dir', 'right') } catch {}
+            // Dimmer
+            let dim = document.getElementById('pageDimmer') as HTMLElement | null
+            if (!dim) {
+              dim = document.createElement('div')
+              dim.id = 'pageDimmer'
+              document.body.appendChild(dim)
+            }
+            // Sequence using actual canvas transform (no cut-out): shrink via zoomAt, then pan left
+            const canvas = root.querySelector('#honeyCanvas') as HTMLElement | null
+            const st: any = (wrap as any)._hx
+            let sent = false
+            const go = () => { if (sent) return; sent = true; try { document.querySelectorAll('#giInfo').forEach((el) => (el as HTMLElement).remove()) } catch {}; window.location.hash = `#/project/detail?id=${p.id}` }
+            if (!canvas || !st) { setTimeout(go, 50); return }
+            const rect = tile.getBoundingClientRect()
+            const cx = Math.round(rect.left + rect.width / 2)
+            const cy = Math.round(rect.top + rect.height / 2)
+            const startScale = st.scale || 1
+            const endScale = startScale * 0.6
+            const durationShrink = 400
+            const durationMove = 800
+            // S-curve easing (easeInOutCubic): 徐々に加速→徐々に減速
+            const ease = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2)
+            const now = () => performance.now()
+            const animate = (dur: number, step: (t:number)=>void, done: ()=>void) => {
+              const t0 = now()
+              const tick = () => {
+                const t = Math.min(1, (now() - t0) / dur)
+                step(ease(t))
+                if (t < 1) requestAnimationFrame(tick); else done()
+              }
+              requestAnimationFrame(tick)
+            }
+            // Helper: zoom keeping a screen point fixed (same logic as wheel pinch)
+            const zoomAtPoint = (clientX: number, clientY: number, nextScale: number) => {
+              const min = Math.max(0.2, (st.minScale || 0))
+              const ns = Math.max(min, Math.min(2.4, nextScale))
+              const rect = wrap.getBoundingClientRect()
+              const prev = st.scale
+              const cx2 = clientX - rect.left
+              const cy2 = clientY - rect.top
+              const wx = (cx2 - st.offsetX) / prev
+              const wy = (cy2 - st.offsetY) / prev
+              st.scale = ns
+              st.offsetX = cx2 - wx * ns
+              st.offsetY = cy2 - wy * ns
+              applyHexTransform(wrap, canvas!, st)
+            }
+            // No full-screen dim; keep it transparent to avoid flash
+            // setTimeout(() => { dim!.style.opacity = '0.25' }, 180)
+            // Phase 1: shrink around tile center using built-in zoomAt
+            animate(durationShrink, (t) => {
+              const s = startScale + (endScale - startScale) * t
+              try { zoomAtPoint(cx, cy, s) } catch { /* ignore */ }
+            }, () => {
+              // Persist achieved shrink ratio for detail to match visual scale
+              try {
+                const achieved = st.scale || endScale
+                const ratio = (startScale > 0.0001) ? (achieved / startScale) : 0.6
+                sessionStorage.setItem('proj-shrink-ratio', String(ratio))
+                // Persist the on-screen unit size (tile * scale) at small state to match detail visually
+                const unitSmall = (st.tile || 1) * (achieved || endScale)
+                sessionStorage.setItem('proj-small-unit', String(unitSmall))
+              } catch {}
+              // Phase 2: pan left while small
+              const startX = st.offsetX || 0
+              const targetX = startX - Math.max(wrap.clientWidth * 1.2, 600)
+              const startY = st.offsetY || 0
+              animate(durationMove, (t2) => {
+                st.offsetX = Math.round(startX + (targetX - startX) * t2)
+                st.offsetY = startY
+                try { applyHexTransform(wrap, canvas!, st) } catch {}
+              }, () => {})
+              // Navigate near end of move so edge is gone
+              setTimeout(go, Math.max(600, durationMove - 180))
+              setTimeout(go, durationMove + 700) // absolute fallback
+            })
+          } else {
+            window.location.hash = `#/project/detail?id=${p.id}`
+          }
+        } catch { window.location.hash = `#/project/detail?id=${p.id}` }
       })
       // Hover/touch prefetch for snappier transition
       const doPrefetch = () => { try { prefetchProjectDetail(p.id) } catch {} }
       tile.addEventListener('mouseenter', doPrefetch)
       tile.addEventListener('touchstart', doPrefetch, { passive: true })
     } else {
-      const gid = pt.gid
+      // use effective gid for rendering logic below
+      if (gid === 'area-common') {
+        // Render hub tiles with labels; others as tinted background
+        const gcol = colorForGroupId(groups, gid)
+        const tone = hexTone(gcol)
+        const picks = hubs[gid] || []
+        const h = picks.find((x) => x.q === pt.q && x.r === pt.r)
+        if (h) {
+          const label = h.label
+          const sub = h.sub
+          // Vibrant palette for hub tiles (distinct, eye-catching)
+          const picksIdx = Math.max(0, (picks || []).findIndex(x => x.q === h.q && x.r === h.r))
+          const hubPalette = [
+            'rgba(255, 64, 129, 0.50)', // vivid pink
+            'rgba(0, 200, 255, 0.52)',  // bright cyan
+            'rgba(255, 214, 10, 0.52)', // vivid yellow
+            'rgba(168, 85, 247, 0.52)', // vibrant purple
+            'rgba(255, 128, 0, 0.50)',  // vivid orange
+            'rgba(80, 220, 100, 0.50)', // bright lime green
+          ]
+          const hubBg = hubPalette[picksIdx % hubPalette.length]
+          const facets = deriveFacets(hubBg)
+          tile.innerHTML = `
+            <div class="hx-clip hx-plain hx-svgclip" style="color:${hubBg}; --hx-side:${facets.side}; --hx-hi:${facets.hi}; --hx-edge:${facets.side}; filter: drop-shadow(0 0 10px rgba(255,255,255,0.16))">
+              ${honeyHexFilledSvg()}
+              <div class="hx-info hx-plain"><div>${escapeHtml(label)}</div><div class="text-[10px] opacity-80 mt-0.5">${escapeHtml(sub)}</div></div>
+            </div>`
+          tile.addEventListener('click', () => {
+            try { sessionStorage.setItem('proj-center-gid', gid) } catch {}
+            try { showRouteLoading(h.label, 'blue', { style: 'single', spinMs: 1200, minMs: 900 }) } catch {}
+            window.location.hash = h.route
+          })
+        } else {
+          const theme = (document.documentElement.getAttribute('data-theme') || 'dark')
+          const light = theme === 'warm' || theme === 'sakura'
+          const emptyTone = light ? 'rgba(120,120,128,0.26)' : 'rgba(120,120,128,0.22)'
+          const f = deriveFacets(emptyTone)
+          tile.innerHTML = `<div class="hx-clip hx-plain hx-svgclip" style="color:${emptyTone}; --hx-side:${f.side}; --hx-hi:${f.hi}">${honeyHexEmptySvg()}</div>`
+        }
+        canvas.appendChild(tile)
+        return
+      }
       let makeCreate = false
       if (!createdSpot.has(gid)) {
         // place create tile next to existing project if any in this group
         const adj = nbrs(pt.q, pt.r)
         makeCreate = adj.some(([aq, ar]) => occ.has(idxKey(gid, aq, ar)))
         // fallback: ifグループに1件もない場合は中心に近い最初の空きを使う
-        if (!makeCreate && !(byGroup[gid] && byGroup[gid].length > 0)) {
+        if (gid === 'area-common') {
+          makeCreate = false
+        } else if (!makeCreate && !(byGroup[gid] && byGroup[gid].length > 0)) {
           const c = centers[gid]
           const dist = (pt.x - c.x) ** 2 + (pt.y - c.y) ** 2
           // Threshold based on cluster radius in pixels
@@ -445,17 +720,27 @@ function renderHoneycomb(root: HTMLElement, projects: Project[]): void {
       if (makeCreate) {
         createdSpot.add(gid)
         tile.classList.add('hx-create')
-        tile.innerHTML = `<div class="hx-clip"><div class="hx-info"><div class="text-xs">プロジェクト追加</div><div class="plus">＋</div></div></div>`
+        // Use occupied-tile SVG for create button as requested
+        const theme = (document.documentElement.getAttribute('data-theme') || 'dark')
+        const light = theme === 'warm' || theme === 'sakura'
+        const base = light ? 'rgba(120,120,128,0.26)' : 'rgba(120,120,128,0.22)'
+        const facets = deriveFacets(base)
+        tile.innerHTML = `
+          <div class="hx-clip hx-svgclip" style="color:${base}; --hx-side:${facets.side}; --hx-hi:${facets.hi}; --hx-edge:${facets.side}">
+            ${honeyHexFilledSvg()}
+            <div class="hx-info"><div class="text-xs">プロジェクト追加</div><div class="plus">＋</div></div>
+          </div>`
         tile.addEventListener('click', () => {
           try { localStorage.setItem('createTargetGroup', gid) } catch {}
           openCreateProjectModal(root)
         })
       } else {
-        // Group-tinted empty cell for visible boundaries (no .hx-empty to avoid neutral override)
+        // Empty cells in list should be tinted per area/group (keep area differentiation)
         const gcol = colorForGroupId(groups, gid)
         const gt = groupTone(gcol)
+        const f = deriveFacets(gt.bg)
         tile.setAttribute('data-group', gid)
-        tile.innerHTML = `<div class="hx-clip hx-plain" style="background:${gt.bg}; border-color:${gt.border}"></div>`
+        tile.innerHTML = `<div class="hx-clip hx-plain hx-svgclip" style="color:${gt.bg}; --hx-side:${f.side}; --hx-hi:${f.hi}">${honeyHexEmptySvg()}</div>`
       }
     }
     canvas.appendChild(tile)
@@ -463,6 +748,80 @@ function renderHoneycomb(root: HTMLElement, projects: Project[]): void {
   // apply transform
   applyHexTransform(wrap, canvas, st)
   bindHoneyInteractions(root, wrap, canvas, st)
+  // Run reverse arrival (from left, then grow) if flagged
+  try {
+    const need = (root as HTMLElement).getAttribute('data-back-anim') === '1'
+    if (need && !(wrap as any)._backArrivalRun) {
+      ;(wrap as any)._backArrivalRun = true
+      const origScale = st.scale || 1
+      // Small state target (mirror of forward path)
+      let smallRatio = 0.6
+      try {
+        const r = parseFloat(sessionStorage.getItem('pj-back-shrink-ratio') || '')
+        if (isFinite(r) && r > 0.1 && r < 2.0) smallRatio = r
+      } catch {}
+      const small = Math.max(0.1, origScale * smallRatio)
+      // Compute target offsets at small scale such that the focused tile (if any)
+      // is centered on screen; otherwise center the whole content.
+      const viewW = wrap.clientWidth || 0
+      const viewH = wrap.clientHeight || 0
+      let targetXSmall: number, targetYSmall: number
+      if (focusPx) {
+        targetXSmall = Math.round(viewW / 2 - focusPx.x * small)
+        targetYSmall = Math.round(viewH / 2 - focusPx.y * small)
+      } else {
+        const contentWSmall = st.width * small
+        const contentHSmall = st.height * small
+        targetXSmall = Math.round((viewW - contentWSmall) / 2)
+        targetYSmall = Math.round((viewH - contentHSmall) / 2)
+      }
+      st.scale = small
+      st.offsetX = targetXSmall - Math.max(viewW * 1.2, 600)
+      st.offsetY = targetYSmall
+      applyHexTransform(wrap, canvas, st)
+      wrap.style.visibility = ''
+      const durationMove = 800
+      const durationGrow = 400
+      const ease = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2)
+      const now = () => performance.now()
+      const animate = (dur: number, step: (t:number)=>void, done: ()=>void) => {
+        const t0 = now()
+        const tick = () => { const tt = Math.min(1, (now()-t0)/dur); step(ease(tt)); if (tt<1) requestAnimationFrame(tick); else done() }
+        requestAnimationFrame(tick)
+      }
+      // Phase A: slide in from left while small
+      const startXOff = st.offsetX
+      animate(durationMove, (t) => {
+        st.offsetX = Math.round(startXOff + (targetXSmall - startXOff) * t)
+        st.offsetY = targetYSmall
+        applyHexTransform(wrap, canvas, st)
+      }, () => {
+        // Phase B: grow to normal scale around viewport center
+        const rect = wrap.getBoundingClientRect()
+        const cx2 = rect.width / 2
+        const cy2 = rect.height / 2
+        const zoomAtCenter = (s: number) => {
+          const prev = st.scale
+          const wx = (cx2 - st.offsetX) / prev
+          const wy = (cy2 - st.offsetY) / prev
+          st.scale = s
+          st.offsetX = Math.round(cx2 - wx * s)
+          st.offsetY = Math.round(cy2 - wy * s)
+          applyHexTransform(wrap, canvas, st)
+        }
+        const startS = st.scale
+        animate(durationGrow, (t2) => {
+          const s = startS + (origScale - startS) * t2
+          zoomAtCenter(s)
+        }, () => {
+          // Clear suppression and hide loader now that arrival is complete
+          try { sessionStorage.removeItem('suppress-group-toast'); document.body.removeAttribute('data-suppress-group-toast') } catch {}
+          try { hideRouteLoading() } catch {}
+          try { (root as HTMLElement).removeAttribute('data-back-anim') } catch {}
+        })
+      })
+    }
+  } catch {}
 }
 
 function escapeHtml(s: string): string { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;') }
@@ -488,6 +847,25 @@ function hexTone(color?: Project['color']): { bg: string; border: string; textur
     case 'white': return { bg: rgba(255, 255, 255, light ? 0.65 : 0.10), border, texture }
     default: /* blue */ return { bg: rgba(59, 130, 246, alpha), border, texture }
   }
+}
+
+// Derive darker side and lighter highlight from a base rgba() color string
+function deriveFacets(main: string): { side: string; hi: string } {
+  // expect rgba(r,g,b,a) or rgb(r,g,b)
+  let m = main.match(/^rgba?\((\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([0-9.]+))?\)$/)
+  if (!m) return { side: main, hi: main }
+  const r = parseInt(m[1], 10), g = parseInt(m[2], 10), b = parseInt(m[3], 10)
+  const a = m[4] != null ? Math.max(0, Math.min(1, parseFloat(m[4]))) : 1
+  const clamp = (x: number) => Math.max(0, Math.min(255, Math.round(x)))
+  // side: darker, black-mix strong
+  const sr = clamp(r * 0.35), sg = clamp(g * 0.35), sb = clamp(b * 0.35)
+  const sa = Math.max(0.65, Math.min(0.9, a + 0.30))
+  // hi: subtle white-mix to avoid wash-out
+  const hr = clamp(r + (255 - r) * 0.12)
+  const hg = clamp(g + (255 - g) * 0.12)
+  const hb = clamp(b + (255 - b) * 0.12)
+  const ha = Math.max(0.16, Math.min(0.3, a + 0.06))
+  return { side: `rgba(${sr},${sg},${sb},${sa})`, hi: `rgba(${hr},${hg},${hb},${ha})` }
 }
 
 function clampOffsets(wrap: HTMLElement, st: HexLayout): void {
@@ -522,61 +900,73 @@ function applyHexTransform(wrap: HTMLElement, canvas: HTMLElement, st: HexLayout
     }
     if (best) {
       const uid = st.uid
-      const cur = getSelectedGroup(uid)
-      if (best[0] && cur !== best[0]) {
-        setSelectedGroup(uid, best[0])
+      const curSel = getSelectedGroup(uid)
+      const gidNow = best[0]
+      const prevLoc = (wrap as any)._locCenter
+      // Toast when center group actually changes (real or common)
+      if (gidNow && gidNow !== prevLoc) {
+        try {
+          if (!document.body.hasAttribute('data-suppress-group-toast') && !document.getElementById('pageDimmer')) {
+            showGroupLocationToast(gidNow, uid)
+          }
+        } catch {}
+        try { (wrap as any)._locCenter = gidNow } catch {}
+        try { updateGroupInfoPanel(document.getElementById('app') as HTMLElement, gidNow) } catch {}
+      }
+      // Maintain selected group only for real groups
+      const real = getGroupById(uid, gidNow)
+      if (gidNow && real && curSel !== gidNow) {
+        setSelectedGroup(uid, gidNow)
         // Slightly update title text without reload
         const me = (document.getElementById('app') as any)?._me
         updateListTitle(document.getElementById('app') as HTMLElement, me || {})
         // highlight in sidebar if present
         const sb = document.getElementById('groupSidebar')
         sb?.querySelectorAll('[data-group]')?.forEach((el) => {
-          el.classList.toggle('ring-sky-500', (el as HTMLElement).getAttribute('data-group') === best![0])
-          el.classList.toggle('ring-neutral-600', (el as HTMLElement).getAttribute('data-group') !== best![0])
+          el.classList.toggle('ring-sky-500', (el as HTMLElement).getAttribute('data-group') === gidNow)
+          el.classList.toggle('ring-neutral-600', (el as HTMLElement).getAttribute('data-group') !== gidNow)
         })
         // highlight in quickbar as well
         const qb = document.getElementById('groupQuick')
         qb?.querySelectorAll('[data-group]')?.forEach((el) => {
-          const on = (el as HTMLElement).getAttribute('data-group') === best![0]
+          const on = (el as HTMLElement).getAttribute('data-group') === gidNow
           el.classList.toggle('gq-active', on)
           el.classList.toggle('ring-sky-500', on)
           el.classList.toggle('ring-neutral-600', !on)
           if (on) (el as HTMLElement).style.zIndex = '9000'
         })
-        // Show center-screen group banner like game location display
-        try { showGroupLocationToast(best[0], uid) } catch {}
+        // Refresh info panel contents for the selected group
+        try { updateGroupInfoPanel(document.getElementById('app') as HTMLElement, gidNow) } catch {}
       }
+      // Ensure info panel reflects current center even if group didn't change
+      try { updateGroupInfoPanel(document.getElementById('app') as HTMLElement, gidNow) } catch {}
     }
   } catch {}
 }
 
 function showGroupLocationToast(gid: string, uid?: number): void {
+  // Disable while navigating to detail
+  try { if (sessionStorage.getItem('suppress-group-toast') === '1') return } catch {}
+  if (document.body.hasAttribute('data-suppress-group-toast')) return
+  if (document.getElementById('pageDimmer')) return
   // Throttle a bit to avoid overwhelming on rapid toggles
   const app = document.getElementById('app') as HTMLElement | null
   const host = app || document.body
   const overlayId = 'groupLocToast'
   // Find group name
   let name = ''
-  let accent: { r: number; g: number; b: number } | null = null
+  let accentRgb: string | null = null
   try {
     const g = getGroupById(uid, gid)
     name = g?.name || ''
-    // Resolve group color for accent
-    const groups = ensureDefaultGroups(uid)
+    // Resolve group color for accent using the same layout group ordering
+    const groups = layoutGroups(uid)
     const col = colorForGroupId(groups as any, gid)
-    const pick = (c: string): { r: number; g: number; b: number } => {
-      switch (c) {
-        case 'red': return { r: 248, g: 113, b: 113 } // red-400
-        case 'green': return { r: 52, g: 211, b: 153 } // emerald-400
-        case 'purple': return { r: 192, g: 132, b: 252 } // purple-400
-        case 'orange': return { r: 251, g: 146, b: 60 } // orange-400
-        case 'yellow': return { r: 250, g: 204, b: 21 } // yellow-400
-        case 'gray': return { r: 156, g: 163, b: 175 } // gray-400
-        default: /* blue */ return { r: 96, g: 165, b: 250 } // blue-400
-      }
-    }
-    accent = pick(col as any)
+    // Use the same solid color used for group icons; force white for 共有スペース
+    accentRgb = (gid === 'area-common') ? '#ffffff' : groupSolid(col as any)
   } catch {}
+  // Fallback names for virtual areas
+  if (!name && gid === 'area-common') name = '共有スペース'
   if (!name) return
   // Recreate to restart animation cleanly
   document.getElementById(overlayId)?.remove()
@@ -586,13 +976,233 @@ function showGroupLocationToast(gid: string, uid?: number): void {
   const inner = document.createElement('div')
   inner.className = 'loc-inner'
   inner.textContent = name
-  if (accent) {
-    inner.style.setProperty('--loc-color', `rgb(${accent.r}, ${accent.g}, ${accent.b})`)
-  }
+  if (accentRgb) { inner.style.setProperty('--loc-color', accentRgb) }
   wrap.appendChild(inner)
   host.appendChild(wrap)
   // Auto remove after animation
   setTimeout(() => { wrap.remove() }, 1100)
+}
+
+// Small success/danger toast for project list (top-right)
+function showMiniToastList(message: string, opts?: { variant?: 'success' | 'danger' }): void {
+  try {
+    const id = 'miniToast'
+    document.getElementById(id)?.remove()
+    const wrap = document.createElement('div')
+    wrap.id = id
+    wrap.className = 'mini-toast'
+    if (opts?.variant === 'danger') wrap.classList.add('is-danger'); else wrap.classList.add('is-success')
+    // Position like detail: under minimap or 10px under modal top; right edge hugged
+    let top = 164
+    let right = -16
+    try {
+      const modal = document.querySelector('.pop-modal') as HTMLElement | null
+      if (modal) {
+        const r = modal.getBoundingClientRect()
+        top = Math.max(10, Math.round(r.top + 10))
+      } else {
+        const miniWrap = document.querySelector('.hx-mini') as HTMLElement | null
+        const mini = document.getElementById('hxMini') as HTMLCanvasElement | null
+        const ref = miniWrap || mini
+        if (ref) {
+          const r = ref.getBoundingClientRect()
+          top = Math.round(r.bottom + 8)
+        }
+      }
+    } catch {}
+    wrap.style.top = `${top}px`
+    wrap.style.right = `${right}px`
+    const inner = document.createElement('div')
+    inner.className = 'mini-inner'
+    const body = document.createElement('div')
+    body.className = 'mini-body'
+    const icon = document.createElement('span')
+    icon.className = 'mini-ico'
+    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
+    svg.setAttribute('width', '16'); svg.setAttribute('height', '16'); svg.setAttribute('viewBox', '0 0 24 24'); svg.setAttribute('fill', 'currentColor'); svg.setAttribute('aria-hidden', 'true')
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
+    if (opts?.variant === 'danger') {
+      path.setAttribute('d', 'M12 2a10 10 0 100 20 10 10 0 000-20zm1 5v6h-2V7h2zm0 8v2h-2v-2h2z')
+    } else {
+      path.setAttribute('d', 'M20.285 6.709l-11.1 11.1-5.47-5.47 1.414-1.415 4.056 4.056 9.686-9.686 1.414 1.415z')
+    }
+    svg.appendChild(path)
+    icon.appendChild(svg)
+    const sep = document.createElement('span')
+    sep.className = 'mini-sep'
+    const text = document.createElement('span')
+    text.className = 'mini-text'
+    text.textContent = message
+    body.appendChild(icon)
+    body.appendChild(sep)
+    body.appendChild(text)
+    inner.appendChild(body)
+    wrap.appendChild(inner)
+    document.body.appendChild(wrap)
+  } catch {}
+}
+
+// ----- Group Info Panel (bottom) -----
+function updateGroupInfoPanel(root: HTMLElement, gid: string): void {
+  const info = root.querySelector('#giInfo') as HTMLElement | null
+  const body = root.querySelector('#giInfoBody') as HTMLElement | null
+  const handle = root.querySelector('#giInfoHandle') as HTMLElement | null
+  if (!info || !body || !handle) return
+  // Hide for common area
+  if (!gid || gid === 'area-common') { info.classList.add('hidden'); return }
+  // Resolve group
+  const me = (root as any)._me as { id?: number } | undefined
+  const g = getGroupById(me?.id, gid)
+  if (!g) { info.classList.add('hidden'); return }
+  // Resolve projects in this group
+  const all = ((root as any)._projectsList as Project[]) || []
+  const map = getGroupMap(me?.id)
+  const list = all.filter((p) => (map[String(p.id)] || 'user') === gid)
+  // Build
+  const head = `<div class=\"flex items-center justify-between\">
+    <div class=\"text-[15px] font-semibold\">${escapeHtml(g.name)}</div>
+    <div class=\"flex items-center gap-2\">
+      <button id=\"giDelGroup\" class=\"rounded bg-rose-700 hover:bg-rose-600 text-white text-xs font-medium px-3 py-1\">グループ削除</button>
+    </div>
+  </div>`
+  const projList = list.length
+    ? list.map((p) => `<div class=\"flex items-center justify-between rounded bg-neutral-900/60 ring-2 ring-neutral-600 px-2 py-1\">
+          <div class=\"truncate pr-2\">${escapeHtml(p.alias && p.alias.trim() ? p.alias : p.name)}</div>
+          <button class=\"rounded bg-rose-700 hover:bg-rose-600 text-white text-xs font-medium px-2 py-0.5\" data-del-pid=\"${p.id}\" data-del-name=\"${escapeHtml(p.name)}\">削除</button>
+        </div>`).join('')
+    : '<div class="text-xs text-gray-400">このグループに所属するプロジェクトはありません。</div>'
+  body.innerHTML = `${head}<div class="mt-2 space-y-2" id="giList">${projList}</div>`
+  // Mild spacing polish for generated rows (increase internal padding)
+  try {
+    const listWrap = body.querySelector('#giList') as HTMLElement | null
+    listWrap?.querySelectorAll(':scope > div')?.forEach((row) => {
+      const el = row as HTMLElement
+      el.classList.remove('px-2'); el.classList.remove('py-1')
+      el.classList.add('px-3'); el.classList.add('py-1.5')
+    })
+  } catch {}
+  // Animated collapse/expand (same behavior as widget info)
+  const panelAny: any = info
+  const cont = root.querySelector('#giInfoPanel') as HTMLElement | null
+  info.classList.remove('hidden')
+  const applyCollapsed = (on: boolean) => {
+    try {
+      if (!cont || !handle) return
+      handle.setAttribute('aria-expanded', on ? 'false' : 'true')
+      handle.title = on ? '展開' : 'しまう'
+      // measure, then animate
+      const h = cont.scrollHeight
+      cont.style.maxHeight = h + 'px'
+      void cont.offsetHeight
+      if (on) {
+        cont.style.maxHeight = '0px'
+        cont.style.opacity = '0'
+        cont.style.transform = 'translateY(8px)'
+        cont.style.pointerEvents = 'none'
+        info.setAttribute('data-collapsed', '1')
+      } else {
+        const target = cont.scrollHeight || 1
+        cont.style.maxHeight = target + 'px'
+        cont.style.opacity = '1'
+        cont.style.transform = 'translateY(0)'
+        cont.style.pointerEvents = ''
+        info.removeAttribute('data-collapsed')
+      }
+      panelAny._giCollapsed = !!on
+    } catch {}
+  }
+  if (!panelAny._giBound) {
+    panelAny._giBound = true
+    // initialize visual state once
+    try { if (cont) { cont.style.maxHeight = '0px'; cont.style.opacity = '0'; cont.style.transform = 'translateY(8px)'; cont.style.pointerEvents = 'none' } } catch {}
+    const initCollapsed = !!panelAny._giCollapsed
+    requestAnimationFrame(() => applyCollapsed(initCollapsed))
+    handle.addEventListener('click', (e) => { e.preventDefault(); applyCollapsed(!panelAny._giCollapsed) })
+  } else {
+    // preserve current state across updates
+    applyCollapsed(!!panelAny._giCollapsed)
+  }
+  // (old toggle override removed; use unified applyCollapsed above)
+  // Bind delete group
+  const delGroupBtn = body.querySelector('#giDelGroup') as HTMLElement | null
+  delGroupBtn?.addEventListener('click', () => openGroupDeleteConfirm(root, g))
+  // Bind project deletes
+  body.querySelectorAll('[data-del-pid]')?.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const pid = Number((btn as HTMLElement).getAttribute('data-del-pid') || '0')
+      const name = String((btn as HTMLElement).getAttribute('data-del-name') || '')
+      openProjectDeleteConfirm(root, pid, name)
+    })
+  })
+}
+
+function openProjectDeleteConfirm(root: HTMLElement, id: number, requiredName: string): void {
+  const overlay = document.createElement('div')
+  overlay.className = 'fixed inset-0 z-[70] bg-black/60 grid place-items-center'
+  overlay.innerHTML = `
+    <div class="relative w-[min(520px,92vw)] rounded-xl bg-neutral-900 ring-2 ring-neutral-600 shadow-2xl text-gray-100">
+      <header class="h-10 flex items-center px-4 border-b border-neutral-600"><div class="font-semibold">プロジェクトを削除</div><button id="pdelClose" class="ml-auto text-xl">×</button></header>
+      <div class="p-4 space-y-3">
+        <p class="text-sm text-gray-300">削除するには <span class="px-2 py-0.5 rounded bg-neutral-800/70 ring-1 ring-neutral-600">${escapeHtml(requiredName) || '（名前未取得）'}</span> と入力してください。</p>
+        <input id="pdelInput" class="w-full rounded-md bg-neutral-800/70 ring-2 ring-neutral-600 px-3 py-2 text-gray-100" placeholder="プロジェクト名を入力" />
+        <div class="flex justify-end gap-2 pt-2">
+          <button id="pdelCancel" class="px-3 py-1.5 rounded bg-neutral-800/60 text-gray-200 text-sm">キャンセル</button>
+          <button id="pdelOk" class="px-3 py-1.5 rounded bg-rose-700 text-white text-sm opacity-60 pointer-events-none">削除</button>
+        </div>
+      </div>
+    </div>`
+  const close = () => overlay.remove()
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close() })
+  overlay.querySelector('#pdelClose')?.addEventListener('click', close)
+  overlay.querySelector('#pdelCancel')?.addEventListener('click', close)
+  const input = overlay.querySelector('#pdelInput') as HTMLInputElement
+  const ok = overlay.querySelector('#pdelOk') as HTMLButtonElement
+  const apply = () => { const match = input.value.trim() === requiredName && requiredName.length > 0; ok.style.opacity = match ? '1' : '0.6'; ok.style.pointerEvents = match ? 'auto' : 'none' }
+  input.addEventListener('input', apply)
+  ok.addEventListener('click', async () => {
+    try {
+      await apiFetch(`/projects/${id}`, { method: 'DELETE' })
+      close()
+      loadProjects(root)
+      try { showMiniToastList('プロジェクトを削除しました', { variant: 'danger' }) } catch {}
+    } catch { alert('削除に失敗しました') }
+  })
+  document.body.appendChild(overlay)
+}
+
+function openGroupDeleteConfirm(root: HTMLElement, g: Group): void {
+  const overlay = document.createElement('div')
+  overlay.className = 'fixed inset-0 z-[70] bg-black/60 grid place-items-center'
+  overlay.innerHTML = `
+    <div class="relative w-[min(520px,92vw)] rounded-xl bg-neutral-900 ring-2 ring-neutral-600 shadow-2xl text-gray-100">
+      <header class="h-10 flex items-center px-4 border-b border-neutral-600"><div class="font-semibold">グループを削除</div><button id="gidelClose" class="ml-auto text-xl">×</button></header>
+      <div class="p-4 space-y-3">
+        <p class="text-sm text-gray-300">削除するには <span class="px-2 py-0.5 rounded bg-neutral-800/70 ring-1 ring-neutral-600">${escapeHtml(g.name)}</span> と入力してください。</p>
+        <input id="gidelInput" class="w-full rounded-md bg-neutral-800/70 ring-2 ring-neutral-600 px-3 py-2 text-gray-100" placeholder="グループ名を入力" />
+        <div class="flex justify-end gap-2 pt-2">
+          <button id="gidelCancel" class="px-3 py-1.5 rounded bg-neutral-800/60 text-gray-200 text-sm">キャンセル</button>
+          <button id="gidelOk" class="px-3 py-1.5 rounded bg-rose-700 text-white text-sm opacity-60 pointer-events-none">削除</button>
+        </div>
+      </div>
+    </div>`
+  const close = () => overlay.remove()
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) close() })
+  overlay.querySelector('#gidelClose')?.addEventListener('click', close)
+  overlay.querySelector('#gidelCancel')?.addEventListener('click', close)
+  const input = overlay.querySelector('#gidelInput') as HTMLInputElement
+  const ok = overlay.querySelector('#gidelOk') as HTMLButtonElement
+  const apply = () => { const match = input.value.trim() === g.name; ok.style.opacity = match ? '1' : '0.6'; ok.style.pointerEvents = match ? 'auto' : 'none' }
+  input.addEventListener('input', apply)
+  ok.addEventListener('click', () => {
+    const me = (root as any)._me as { id?: number } | undefined
+    deleteGroup(me?.id, g.id)
+    close()
+    renderGroupQuickbar(root, (root as any)._me)
+    loadProjects(root)
+    try { (root.querySelector('#hxwInfo') as HTMLElement | null)?.classList.add('hidden') } catch {}
+    try { showMiniToastList('グループを削除しました', { variant: 'danger' }) } catch {}
+  })
+  document.body.appendChild(overlay)
 }
 
 function drawMiniMap(wrap: HTMLElement, st: HexLayout): void {
@@ -702,7 +1312,8 @@ function bindHoneyInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTM
     if (e.ctrlKey) {
       e.preventDefault()
       const prev = st.scale
-      const ds = Math.exp(-e.deltaY * 0.0022) // more sensitive
+      // Match detail view 2D zoom sensitivity
+      const ds = Math.exp(-e.deltaY * 0.0055)
       zoomAt(e.clientX, e.clientY, prev * ds)
     } else {
       // two-finger pan on trackpad
@@ -729,7 +1340,8 @@ function bindHoneyInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTM
       const d = dist()
       if (startDist === 0) { startDist = d; startScale = st.scale }
       if (d > 0 && startDist > 0) {
-        const s = Math.pow(d / startDist, 1.25) // increase pinch response
+        // Match detail view 2D pinch sensitivity
+        const s = Math.pow(d / startDist, 1.9)
         // Zoom around pinch midpoint
         const a = Array.from(pts.values())
         const midX = (a[0].x + a[1].x) / 2
@@ -810,30 +1422,19 @@ function loadProjects(root: HTMLElement): void {
         end: p.end_date || p.end || undefined,
         color: ((p.github_meta && p.github_meta.ui && p.github_meta.ui.color) || (p.ui && p.ui.color) || 'blue'),
       })
-      // filter by selected group
-      const me = (root as any)._me as { id?: number } | undefined
-      const map = getGroupMap(me?.id)
+      // filter minimal invalids and render
       const all = list
         .filter((p) => p && typeof p === 'object' && Number(p.id) > 0 && (p.name ?? '').toString().trim().length > 0)
-      const ids = new Set(all.map((p) => String(p.id)))
-      let items = all.map(toCard)
-      // If API unexpectedly returns 0 projects but we have a recent cache, use it to avoid "all disappeared" perception
-      try {
-        if (items.length === 0) {
-          const cached = JSON.parse(localStorage.getItem('projects-cache') || '[]') as Project[]
-          if (Array.isArray(cached) && cached.length > 0) items = cached
-        }
-      } catch {}
-      // Cache the successful snapshot for resilience
+      const items = all.map(toCard)
+      // Cache snapshot (best-effort) but do not use cache for rendering to avoid showing non-existent projects
       try { localStorage.setItem('projects-cache', JSON.stringify(items)) } catch {}
+      // Cache for group-info usage
+      try { (root as any)._projectsList = items } catch {}
       renderHoneycomb(root, items)
     })
     .catch(() => {
-      // Fallback to last known projects from cache when API fails
-      try {
-        const cached = JSON.parse(localStorage.getItem('projects-cache') || '[]') as Project[]
-        if (Array.isArray(cached) && cached.length > 0) renderHoneycomb(root, cached)
-      } catch { /* ignore */ }
+      // On failure, render empty state (do not use stale cache to avoid 404-on-click)
+      renderHoneycomb(root, [])
     })
 }
 
@@ -842,9 +1443,22 @@ function bindGridInteractions(root: HTMLElement): void {
   if (!grid) return
   // card click + menu
   grid.querySelectorAll('[data-id]')?.forEach((el) => {
+    // Light prefetch on hover/touch
+    const idAttr = (el as HTMLElement).getAttribute('data-id')
+    if (idAttr) {
+      const pid = Number(idAttr)
+      el.addEventListener('mouseenter', () => { try { prefetchProjectDetail(pid) } catch {} })
+      el.addEventListener('touchstart', () => { try { prefetchProjectDetail(pid) } catch {} }, { passive: true })
+      // Deep prefetch as soon as selection starts
+      el.addEventListener('pointerdown', () => { try { prefetchProjectDetailDeep(pid) } catch {} }, { once: true })
+    }
     el.addEventListener('click', () => {
+      try { document.querySelectorAll('#giInfo').forEach((n)=> (n as HTMLElement).remove()) } catch {}
       const id = (el as HTMLElement).getAttribute('data-id')
-      if (id) window.location.hash = `#/project/detail?id=${encodeURIComponent(id)}`
+      if (id) {
+        try { sessionStorage.setItem('proj-entry-dir', 'right') } catch {}
+        window.location.hash = `#/project/detail?id=${encodeURIComponent(id)}`
+      }
     })
     // right-click context menu
     el.addEventListener('contextmenu', (ev) => {
@@ -901,6 +1515,7 @@ type Group = { id: string; name: string; avatar?: string }
 function groupsKey(uid?: number): string { return `groups-${uid ?? 'guest'}` }
 function groupMapKey(uid?: number): string { return `groupMap-${uid ?? 'guest'}` }
 function groupSelectedKey(uid?: number): string { return `groupSelected-${uid ?? 'guest'}` }
+function userNameKey(uid?: number): string { return `userName-${uid ?? 'guest'}` }
 
 function getGroups(uid?: number): Group[] {
   try {
@@ -934,10 +1549,32 @@ function ensureDefaultGroups(uid?: number, avatar?: string): Group[] {
   let list = getGroups(uid)
   const hasUser = list.some((g) => g.id === 'user')
   if (!hasUser) {
-    list = [{ id: 'user', name: 'マイグループ', avatar }, ...list]
+    // Default name will be replaced by stored user name if available
+    const fallback = 'マイグループ'
+    let uname = fallback
+    try { const s = localStorage.getItem(userNameKey(uid)); if (s && s.trim()) uname = s } catch {}
+    list = [{ id: 'user', name: uname, avatar }, ...list]
     saveGroups(uid, list)
   }
+  // Keep user group name in sync with stored user name (first-time rename)
+  try {
+    const s = localStorage.getItem(userNameKey(uid))
+    if (s && s.trim()) {
+      const idx = list.findIndex((g) => g.id === 'user')
+      if (idx >= 0 && list[idx].name !== s) {
+        list[idx] = { ...list[idx], name: s }
+        saveGroups(uid, list)
+      }
+    }
+  } catch {}
   return list
+}
+
+// Groups used for honeycomb layout and color mapping (includes the common feature area)
+function layoutGroups(uid?: number, avatar?: string): Group[] {
+  const base = ensureDefaultGroups(uid, avatar)
+  // Friendly common hub name
+  return [{ id: 'area-common', name: '共有スペース' } as Group].concat(base)
 }
 
 function renderGroupSidebar(root: HTMLElement, me: { id?: number; github_id?: number }): void {
@@ -994,6 +1631,7 @@ function renderGroupQuickbar(root: HTMLElement, me: { id?: number; github_id?: n
   host.innerHTML = ''
   const avatar = me.github_id ? `https://avatars.githubusercontent.com/u/${me.github_id}?s=64` : undefined
   const groups = ensureDefaultGroups(me.id, avatar)
+  const mapGroups = layoutGroups(me.id, avatar)
   const selected = getSelectedGroup(me.id) || 'user'
   setSelectedGroup(me.id, selected)
   const makeBtn = (g: Group, idx: number) => {
@@ -1002,7 +1640,7 @@ function renderGroupQuickbar(root: HTMLElement, me: { id?: number; github_id?: n
     el.className = `gq-icon ${selected === g.id ? 'gq-active ring-2 ring-sky-500' : 'ring-2 ring-neutral-600'} overflow-hidden grid place-items-center rounded-full text-base`
     el.style.zIndex = selected === g.id ? '9000' : String(100 + idx)
     try {
-      const gcol = colorForGroupId(groups as any, g.id)
+      const gcol = colorForGroupId(mapGroups as any, g.id)
       // Apply solid background to non-avatar icons
       if (!(g.avatar && idx === 0)) {
         el.textContent = g.name.charAt(0)
@@ -1039,6 +1677,11 @@ function renderGroupQuickbar(root: HTMLElement, me: { id?: number; github_id?: n
       renderGroupQuickbar(root, me)
       updateListTitle(root, (root as any)._me)
       centerOnGroup(root, g.id, true)
+    })
+    // 右クリックでグループメニュー（削除など）
+    el.addEventListener('contextmenu', (ev) => {
+      ev.preventDefault()
+      openGroupMenu(root, me, g, el)
     })
     return el
   }
@@ -1117,11 +1760,42 @@ function openGroupMenu(root: HTMLElement, me: { id?: number }, g: Group, anchor:
   setTimeout(() => document.addEventListener('click', onDoc), 0)
   document.body.appendChild(menu)
   menu.querySelector('#gdel')?.addEventListener('click', () => {
-    if (!confirm(`グループ「${g.name}」を削除しますか？`)) return
-    deleteGroup(me.id, g.id)
-    renderGroupQuickbar(root, (root as any)._me)
-    loadProjects(root)
-    close()
+    const overlay = document.createElement('div')
+    overlay.className = 'fixed inset-0 z-[70] bg-black/60 grid place-items-center'
+    overlay.innerHTML = `
+      <div class="relative w-[min(520px,92vw)] rounded-xl bg-neutral-900 ring-2 ring-neutral-600 shadow-2xl text-gray-100">
+        <header class="h-10 flex items-center px-4 border-b border-neutral-600"><div class="font-semibold">グループを削除</div><button id="gdelClose" class="ml-auto text-xl">×</button></header>
+        <div class="p-4 space-y-3">
+          <p class="text-sm text-gray-300">削除するには <span class="px-2 py-0.5 rounded bg-neutral-800/70 ring-1 ring-neutral-600">${g.name}</span> と入力してください。</p>
+          <input id="gdelInput" class="w-full rounded-md bg-neutral-800/70 ring-2 ring-neutral-600 px-3 py-2 text-gray-100" placeholder="グループ名を入力" />
+          <div class="flex justify-end gap-2 pt-2">
+            <button id="gdelCancel" class="px-3 py-1.5 rounded bg-neutral-800/60 text-gray-200 text-sm">キャンセル</button>
+            <button id="gdelOk" class="px-3 py-1.5 rounded bg-rose-700 text-white text-sm opacity-60 pointer-events-none">削除</button>
+          </div>
+        </div>
+      </div>
+    `
+    const closeModal = () => overlay.remove()
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) closeModal() })
+    overlay.querySelector('#gdelClose')?.addEventListener('click', closeModal)
+    overlay.querySelector('#gdelCancel')?.addEventListener('click', closeModal)
+    const input = overlay.querySelector('#gdelInput') as HTMLInputElement
+    const okBtn = overlay.querySelector('#gdelOk') as HTMLButtonElement
+    const applyState = () => {
+      const match = input.value.trim() === g.name
+      okBtn.style.opacity = match ? '1' : '0.6'
+      okBtn.style.pointerEvents = match ? 'auto' : 'none'
+    }
+    input.addEventListener('input', applyState)
+    okBtn.addEventListener('click', () => {
+      deleteGroup(me.id, g.id)
+      renderGroupQuickbar(root, (root as any)._me)
+      loadProjects(root)
+      closeModal()
+      close()
+      try { showMiniToastList('グループを削除しました', { variant: 'danger' }) } catch {}
+    })
+    document.body.appendChild(overlay)
   })
 }
 
@@ -1172,6 +1846,12 @@ function openCreateGroupPopover(root: HTMLElement, me: { id?: number }): void {
     list.push({ id, name })
     saveGroups(me.id, list)
     setSelectedGroup(me.id, id)
+    // Prepare centering and success toast after reload
+    try { sessionStorage.setItem('proj-center-gid', id) } catch {}
+    try { sessionStorage.setItem('proj-center-anim', '1') } catch {}
+    try { sessionStorage.setItem('group-just-created', '1') } catch {}
+    // Force next render to run initial centering again
+    try { const wrap = root.querySelector('#honeyWrap') as HTMLElement | null; if (wrap && (wrap as any)._hx) (wrap as any)._hx.inited = false } catch {}
     renderGroupQuickbar(root, (root as any)._me)
     loadProjects(root)
     close()
@@ -1822,7 +2502,12 @@ function openCardMenu(root: HTMLElement, anchor: HTMLElement, id: number): void 
   const remove = () => menu.remove()
   const onDoc = (e: MouseEvent) => { if (!menu.contains(e.target as Node)) { remove(); document.removeEventListener('click', onDoc) } }
   setTimeout(() => document.addEventListener('click', onDoc), 0)
-  menu.querySelector('[data-act="open"]')?.addEventListener('click', () => {
+  const openBtn = menu.querySelector('[data-act="open"]') as HTMLElement | null
+  openBtn?.addEventListener('mousedown', () => { try { prefetchProjectDetailDeep(id) } catch {} }, { once: true })
+  openBtn?.addEventListener('click', () => {
+    try { document.querySelectorAll('#giInfo').forEach((n)=> (n as HTMLElement).remove()) } catch {}
+    try { sessionStorage.setItem('proj-entry-dir', 'right') } catch {}
+    try { prefetchProjectDetailDeep(id) } catch {}
     window.location.hash = `#/project/detail?id=${id}`
     remove()
   })
@@ -1854,16 +2539,53 @@ function openCardMenu(root: HTMLElement, anchor: HTMLElement, id: number): void 
     })
   })
   menu.querySelector('[data-act="delete"]')?.addEventListener('click', async () => {
-    if (!confirm('このプロジェクトを削除しますか？（GitHubリポジトリは削除されません）')) return
+    let requiredName = ''
     try {
-      await apiFetch(`/projects/${id}`, { method: 'DELETE' })
-      // remove card from UI
-      const btn = root.querySelector(`[data-id="${id}"]`)
-      btn?.parentElement?.removeChild(btn)
+      const p = await apiFetch<any>(`/projects/${id}`)
+      requiredName = (p?.name || '').toString()
     } catch {
-      alert('削除に失敗しました')
+      const host = root.querySelector(`[data-id="${id}"]`) as HTMLElement | null
+      requiredName = host?.querySelector('.text-base')?.textContent?.trim() || ''
     }
-    remove()
+    const overlay = document.createElement('div')
+    overlay.className = 'fixed inset-0 z-[70] bg-black/60 grid place-items-center'
+    overlay.innerHTML = `
+      <div class="relative w-[min(520px,92vw)] rounded-xl bg-neutral-900 ring-2 ring-neutral-600 shadow-2xl text-gray-100">
+        <header class="h-10 flex items-center px-4 border-b border-neutral-600"><div class="font-semibold">プロジェクトを削除</div><button id="delClose" class="ml-auto text-xl">×</button></header>
+        <div class="p-4 space-y-3">
+          <p class="text-sm text-gray-300">削除するには <span class="px-2 py-0.5 rounded bg-neutral-800/70 ring-1 ring-neutral-600">${requiredName || '（名前未取得）'}</span> と入力してください。</p>
+          <input id="delInput" class="w-full rounded-md bg-neutral-800/70 ring-2 ring-neutral-600 px-3 py-2 text-gray-100" placeholder="プロジェクト名を入力" />
+          <div class="flex justify-end gap-2 pt-2">
+            <button id="delCancel" class="px-3 py-1.5 rounded bg-neutral-800/60 text-gray-200 text-sm">キャンセル</button>
+            <button id="delOk" class="px-3 py-1.5 rounded bg-rose-700 text-white text-sm opacity-60 pointer-events-none">削除</button>
+          </div>
+        </div>
+      </div>
+    `
+    const closeModal = () => overlay.remove()
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) closeModal() })
+    overlay.querySelector('#delClose')?.addEventListener('click', closeModal)
+    overlay.querySelector('#delCancel')?.addEventListener('click', closeModal)
+    const input = overlay.querySelector('#delInput') as HTMLInputElement
+    const okBtn = overlay.querySelector('#delOk') as HTMLButtonElement
+    const applyState = () => {
+      const match = input.value.trim() === requiredName && requiredName.length > 0
+      okBtn.style.opacity = match ? '1' : '0.6'
+      okBtn.style.pointerEvents = match ? 'auto' : 'none'
+    }
+    input.addEventListener('input', applyState)
+    okBtn.addEventListener('click', async () => {
+      try {
+        await apiFetch(`/projects/${id}`, { method: 'DELETE' })
+        closeModal()
+        remove()
+        loadProjects(root)
+        try { showMiniToastList('プロジェクトを削除しました', { variant: 'danger' }) } catch {}
+      } catch {
+        alert('削除に失敗しました')
+      }
+    })
+    document.body.appendChild(overlay)
   })
   // Append group actions
   try {

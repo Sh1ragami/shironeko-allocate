@@ -23,3 +23,32 @@ export function consumePrefetchedProject(id: number): { project: any; me?: any }
   return { project: v.project, me: v.me }
 }
 
+// Optional, heavier prefetch that warms additional data the detail screen needs right away.
+// Use on pointerdown/selection timing (not on mere hover) to avoid excessive network.
+const deepPrefetched = new Set<number>()
+export async function prefetchProjectDetailDeep(id: number): Promise<void> {
+  if (deepPrefetched.has(id)) return
+  deepPrefetched.add(id)
+  try {
+    // Ensure light prefetch (project + me) and also warm server-cached GETs
+    await prefetchProjectDetail(id)
+    // Warm widget-state (detail reads this early via apiFetch, which has an in-memory cache)
+    try { await apiFetch(`/projects/${id}/widget-state`) } catch {}
+    // Warm README/proxy fetch if repo is known
+    try {
+      // Re-use apiFetch cache to read project quickly
+      const project: any = await apiFetch(`/projects/${id}`)
+      const full = (project?.github_meta?.full_name || project?.link_repo || '').toString()
+      if (full) {
+        const token = localStorage.getItem('apiToken')
+        // Warm the browser HTTP cache for README; detail uses the same URL
+        fetch(`/api/github/readme?full_name=${encodeURIComponent(full)}`, {
+          headers: token ? { Authorization: `Bearer ${token}` } as any : undefined,
+          // Keep defaults so normal caching applies
+        }).catch(() => {})
+      }
+    } catch {}
+  } catch {
+    // ignore
+  }
+}
