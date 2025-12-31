@@ -1,0 +1,13 @@
+# SPA fallback for static hosting on Apache (e.g., Lolipop)
+# - Serve real files if they exist
+# - Otherwise rewrite to /index.html so client-side routing works
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /
+  RewriteCond %{REQUEST_FILENAME} -f [OR]
+  RewriteCond %{REQUEST_FILENAME} -d
+  RewriteRule ^ - [L]
+  RewriteRule . /index.html [L]
+</IfModule>
+

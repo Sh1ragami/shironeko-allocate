@@ -17,12 +17,12 @@ export function openTabPickerModal(root: HTMLElement, opts: PickerOptions): void
   const overlay = document.createElement('div')
   overlay.className = 'fixed inset-0 z-[65] bg-black/60 backdrop-blur-[1px] grid place-items-center fade-overlay'
   overlay.innerHTML = `
-    <div class="relative w-[min(1200px,96vw)] max-h-[90vh] overflow-hidden rounded-xl bg-neutral-800 ring-2 ring-neutral-600 shadow-2xl text-gray-100 pop-modal">
+    <div class="relative w-[min(1200px,96vw)] overflow-hidden rounded-xl bg-neutral-900 ring-2 ring-neutral-600 shadow-2xl text-gray-100 pop-modal modal-fixed">
       <header class="h-12 flex items-center px-5 border-b border-neutral-600">
         <h3 class="text-lg font-semibold">タブ一覧</h3>
         <button id="tp-close" class="ml-auto text-2xl text-neutral-300 hover:text-white">×</button>
       </header>
-      <div class="flex h-[calc(90vh-3rem)]">
+      <div class="flex h-[calc(86vh-3rem)]">
         <aside class="w-64 shrink-0 p-4 border-r border-neutral-600 space-y-2">
           <div class="text-sm text-gray-300 mb-2">種別</div>
           <button class="tp-cat w-full text-left px-3 py-2 rounded bg-neutral-800/70 ring-2 ring-neutral-600 text-sm" data-cat="all">すべて</button>

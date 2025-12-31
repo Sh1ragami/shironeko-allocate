@@ -84,6 +84,19 @@ class GitHubProxyController extends Controller
         return response()->json($res->json());
     }
 
+    public function collaborators(Request $request)
+    {
+        $full = (string) $request->query('full_name');
+        if (!$full) return response()->json(['message' => 'full_name required'], 422);
+        $headers = ['User-Agent' => 'shironeko-allocate', 'Accept' => 'application/vnd.github+json'];
+        $tokenEnc = $request->user()?->github_access_token;
+        if ($tokenEnc) { try { $headers['Authorization'] = 'Bearer '.Crypt::decryptString($tokenEnc); } catch (\Throwable $e) {} }
+        $res = Http::withHeaders($headers)
+            ->get("https://api.github.com/repos/{$full}/collaborators", ['affiliation' => 'all', 'per_page' => 100]);
+        if (!$res->ok()) return response()->json([], $res->status());
+        return response()->json($res->json());
+    }
+
     public function readme(Request $request)
     {
         $full = (string) $request->query('full_name');

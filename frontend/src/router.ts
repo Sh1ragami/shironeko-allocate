@@ -1,10 +1,12 @@
 export type Render = (container: HTMLElement) => void
+import { hideRouteLoading, showRouteLoading } from './utils/route-loading'
 
 type RouteTable = Record<string, Render>
 
 export class Router {
   private routes: RouteTable
   private outlet: HTMLElement
+  private lastPath: string | null = null
 
   constructor(outlet: HTMLElement, routes: RouteTable) {
     this.routes = routes
@@ -24,10 +26,36 @@ export class Router {
 
   render(): void {
     const path = this.normalize(window.location.hash)
+    const prev = this.lastPath
+    this.lastPath = path
+    // Ensure loader for widget-create screen even on direct navigation
+    try {
+      if (path === '/widget/create' || path === '/project/widget-create') {
+        showRouteLoading('ウィジェット作成', 'blue', { style: 'single', spinMs: 1200, minMs: 900 })
+      }
+    } catch {}
+    // When returning from project detail to list, show a brief transition overlay
+    if (prev && prev.startsWith('/project/detail') && path === '/project') {
+      let bc: string | undefined
+      try { bc = sessionStorage.getItem('pj-back-color') || undefined } catch { bc = undefined }
+      try { showRouteLoading('プロジェクト一覧', (bc as any), { style: 'single', spinMs: 950 }) } catch {}
+    }
     this.cleanupFloatingUI()
+    // Clear route-loading unless an animation is controlling its own end (single / seamless)
+    try {
+      const rl = document.getElementById('routeLoading') as HTMLElement | null
+      const mode = rl?.getAttribute('data-style') || ''
+      const controlled = !!rl && (mode === 'single' || mode === 'seamless')
+      if (!controlled) hideRouteLoading()
+    } catch {}
     // Auth guard: allow only public paths when not logged in
     const publicPaths = new Set<string>(['/', '/login', '/404'])
     const token = localStorage.getItem('apiToken')
+    // If already authenticated, avoid showing the login page
+    if (token && path === '/login') {
+      window.location.hash = '#/project'
+      return
+    }
     if (!token && !publicPaths.has(path)) {
       window.location.hash = '#/login'
       return
@@ -39,8 +67,6 @@ export class Router {
       this.outlet.innerHTML = '<p class="text-rose-700">Route not found</p>'
       return
     }
-
-    render(this.outlet)
   }
 
   private cleanupFloatingUI(): void {
