@@ -6,10 +6,6 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Allocate-GitHub%20Task%20Manager-111827?style=for-the-badge" />
-</p>
-
-<p align="center">
   <img src="https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white&style=flat" />
   <img src="https://img.shields.io/badge/PHP-777BB4?logo=php&logoColor=white&style=flat" />
   <img src="https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=white&style=flat" />
@@ -19,6 +15,12 @@
 </p>
 
 <br>
+
+<p align="center">
+  <a href="https://shironeko-allocate.vercel.app/">
+    <img src="https://img.shields.io/badge/Allocate-%20プレイしてみる-5865F2?style=for-the-badge" alt="Allocate Demo">
+  </a>
+</p>
 
 ## 概要
 
@@ -37,6 +39,39 @@
 本システムでは、GitHubと連携し、タスク生成・割り当て・進捗管理を自動化することで、リーダーの負担を軽減し迅速な開発サイクルを実現します。
 
 <br>
+
+## 画面一覧
+
+<table>
+  <tr>
+    <td align="center">
+      <b>プロジェクト一覧</b><br>
+      <img src="https://github.com/user-attachments/assets/3d3e864b-41a0-491d-834c-65846762cea0" width="100%">
+    </td>
+    <td align="center">
+      <b>プロジェクト詳細</b><br>
+      <img src="https://github.com/user-attachments/assets/fb143406-b7b5-40f5-a91c-32bb40f6ff71" width="100%">
+    </td>
+    <td align="center">
+      <b>ウィジェット一覧</b><br>
+      <img src="https://github.com/user-attachments/assets/c511e48e-0aca-45a9-9fd0-4742f4efc243" width="100%">
+    </td>
+  </tr>
+  <tr>
+    <td align="center">
+      <b>ウィジェット機能作成</b><br>
+      <img src="https://github.com/user-attachments/assets/fd2e3f24-a2f9-4084-b098-9e282f98aba8" width="100%">
+    </td>
+      <td align="center">
+      <b>ウィジェット見た目作成</b><br>
+      <img src="https://github.com/user-attachments/assets/a24bc19c-62f1-4420-a7a6-ce1e66d3449d" width="100%">
+    </td>
+    <td align="center">
+      <b>ユーザー設定</b><br>
+      <img src="https://github.com/user-attachments/assets/74de9ab2-d58b-4df5-b9cc-0d87d587b159" width="100%">
+    </td>
+  </tr>
+</table>
 
 ## 主な機能
 
