@@ -2131,7 +2131,7 @@ const SKILL_ICON: Record<string, string> = {
 function slugSkill(name: string): string { return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') }
 function skillIcon(name: string): string {
   const slug = slugSkill(name)
-  return `<img src="/icons/${slug}.svg" alt="${name}" class="w-4 h-4 mr-1 inline-block align-[-2px]" onerror="this.style.display='none'" />`
+  return `<img src="./icons/${slug}.svg" alt="${name}" class="w-4 h-4 mr-1 inline-block align-[-2px]" onerror="this.style.display='none'" />`
 }
 function skillsKey(uid?: number, kind: SkillGroup = 'owned'): string { return `acct-skills-${uid ?? 'guest'}-${kind}` }
 function loadSkills(uid?: number, kind: SkillGroup = 'owned'): string[] {

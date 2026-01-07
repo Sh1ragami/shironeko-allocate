@@ -3,7 +3,7 @@ export function renderRoot(container: HTMLElement): void {
   container.innerHTML = `
     <div class="w-screen h-screen grid place-content-center bg-neutral-900">
       <img
-        src="/src/public/imgs/allocate.png"
+        src="./imgs/allocate.png"
         alt="App Logo"
         class="w-64 h-auto animate-pulse"
       />

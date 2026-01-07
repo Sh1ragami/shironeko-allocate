@@ -5,7 +5,7 @@ export function renderNotFound(container: HTMLElement): void {
   container.innerHTML = `
     <section class="min-h-screen flex flex-col items-center justify-center p-6 text-center">
       <img
-        src="/src/public/imgs/aroneko.png"
+        src="./imgs/aroneko.png"
         alt="Not Found イメージ"
         class="mx-auto mb-4 w-96 h-auto"
       />
@@ -13,4 +13,3 @@ export function renderNotFound(container: HTMLElement): void {
     </section>
   `
 }
-
