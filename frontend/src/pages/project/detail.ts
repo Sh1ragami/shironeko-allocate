@@ -7924,7 +7924,18 @@ function applyCoreTabs(root: HTMLElement, pid: string): void {
     if (topBoardBtn) topBoardBtn.classList.toggle('hidden', !core.board.visible)
   } catch {}
   // Ensure at least one visible
-  const visibleCount = Array.from(bar.querySelectorAll('.tab-btn')).filter(b => (b as HTMLElement).getAttribute('data-tab') !== 'new' && !(b as HTMLElement).classList.contains('hidden')).length
+  let visibleCount = 0
+  try {
+    if (bar) {
+      visibleCount = Array.from(bar.querySelectorAll('.tab-btn'))
+        .filter(b => (b as HTMLElement).getAttribute('data-tab') !== 'new' && !(b as HTMLElement).classList.contains('hidden')).length
+    } else {
+      // Fallback: derive from sections visibility
+      const secSumHidden = sumSec?.classList.contains('hidden') || false
+      const secBrdHidden = brdSec?.classList.contains('hidden') || false
+      visibleCount = (secSumHidden ? 0 : 1) + (secBrdHidden ? 0 : 1)
+    }
+  } catch { visibleCount = 0 }
   if (visibleCount === 0) {
     core.summary.visible = true
     saveCoreTabs(pid, core)
@@ -7932,8 +7943,14 @@ function applyCoreTabs(root: HTMLElement, pid: string): void {
     if (sumSec) sumSec.classList.remove('hidden')
   }
   // persist overall order of tabs (core + custom)
-  const ids = Array.from(bar.querySelectorAll('.tab-btn')).map(b => (b as HTMLElement).getAttribute('data-tab') || '').filter(id => id && id !== 'new')
-  localStorage.setItem(`tabs-order-${pid}`, JSON.stringify(ids))
+  try {
+    if (bar) {
+      const ids = Array.from(bar.querySelectorAll('.tab-btn'))
+        .map(b => (b as HTMLElement).getAttribute('data-tab') || '')
+        .filter(id => id && id !== 'new')
+      localStorage.setItem(`tabs-order-${pid}`, JSON.stringify(ids))
+    }
+  } catch {}
 }
 
 // Context menu for tabs (rename/delete)
