@@ -344,8 +344,8 @@ export function renderWidgetCreate(container: HTMLElement): void {
   alphaInput.addEventListener('input', () => renderBoard())
   window.addEventListener('resize', () => renderBoard())
 
-  // Logic editor (minimal)
-  type WcNode = { id: string; kind: 'trigger'|'action'; type: string; x: number; y: number; label?: string }
+  // Logic editor（日本語 + プロパティ編集）
+  type WcNode = { id: string; kind: 'trigger'|'action'; type: string; x: number; y: number; label?: string; cfg?: Record<string, any> }
   type WcEdge = { from: string; to: string }
   const g: { nodes: WcNode[]; edges: WcEdge[] } = { nodes: [], edges: [] }
   let pending: string | null = null
@@ -353,9 +353,9 @@ export function renderWidgetCreate(container: HTMLElement): void {
   const lCanvas = container.querySelector('.wcl-canvas') as HTMLElement
   try { (lCanvas.style as any).touchAction = 'none' } catch {}
   const lSvg = container.querySelector('.wcl-svg') as SVGSVGElement
-  const addNode = (kind: 'trigger'|'action', type: string, x: number, y: number, label: string) => {
+  const addNode = (kind: 'trigger'|'action', type: string, x: number, y: number, label: string, cfg?: Record<string, any>) => {
     const id = `n-${Date.now()}-${Math.floor(Math.random()*999)}`
-    g.nodes.push({ id, kind, type, x, y, label }); drawNodes(); drawEdges()
+    g.nodes.push({ id, kind, type, x, y, label, cfg }); drawNodes(); drawEdges(); renderProps()
   }
   const drawNodes = () => {
     lCanvas.innerHTML = ''
@@ -367,7 +367,7 @@ export function renderWidgetCreate(container: HTMLElement): void {
       el.style.display = 'grid'; (el.style as any).placeItems = 'center'
       el.style.background = 'transparent'
       el.setAttribute('data-node', n.id)
-      const visualKind = (n.type === 'expr' || n.type === 'condition') ? 'transform' : (n.kind === 'trigger' ? 'trigger' : 'action')
+      const visualKind = (['map','filter','template','datetime'].includes(n.type) ? 'transform' : (n.kind === 'trigger' ? 'trigger' : 'action'))
       const outline = visualKind === 'trigger' ? '#10b981' : (visualKind === 'transform' ? '#d946ef' : '#38bdf8')
       let shapeStyle = `position:absolute; inset:0; background: rgba(38,38,38,.8);`
       if (visualKind !== 'action') shapeStyle += ` box-shadow: 0 0 0 2px ${outline};`
@@ -387,6 +387,8 @@ export function renderWidgetCreate(container: HTMLElement): void {
           <div class="port-out absolute left-1/2 -translate-x-1/2 rounded-full ring-2 ring-neutral-500" style="bottom:2px;width:${portSize}px; height:${portSize}px; background:#34d399; pointer-events:auto;"></div>
         </div>`
       lCanvas.appendChild(el)
+      // select
+      el.addEventListener('click', (ev) => { ev.stopPropagation(); selNodeId = n.id; renderProps() })
       const head = el.querySelector('.fn-bar') as HTMLElement | null
       const startDragNode = (ev: MouseEvent) => {
         ev.preventDefault()
@@ -410,7 +412,7 @@ export function renderWidgetCreate(container: HTMLElement): void {
         startDragNode(e as MouseEvent)
       })
       const del = el.querySelector('.fn-del') as HTMLElement | null
-      del?.addEventListener('click', () => { g.nodes = g.nodes.filter(x => x.id !== n.id); g.edges = g.edges.filter(x => x.from !== n.id && x.to !== n.id); drawNodes(); drawEdges() })
+      del?.addEventListener('click', () => { g.nodes = g.nodes.filter(x => x.id !== n.id); g.edges = g.edges.filter(x => x.from !== n.id && x.to !== n.id); if (selNodeId===n.id) selNodeId=null; renderProps(); drawNodes(); drawEdges() })
       // simple connect: click out then in（ドラッグ接続も後段で付与）
       const out = el.querySelector('.port-out') as HTMLElement | null
       out?.addEventListener('click', (ev) => { ev.stopPropagation(); pending = n.id })
@@ -476,25 +478,66 @@ export function renderWidgetCreate(container: HTMLElement): void {
     const mkPath = (a:{x:number;y:number}, b:{x:number;y:number}) => { const dx=(b.x-a.x)*0.5; const c1x=a.x, c1y=a.y+Math.max(10,Math.abs(dx))*0.15; const c2x=b.x, c2y=b.y-Math.max(10,Math.abs(dx))*0.15; return `M ${a.x} ${a.y} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${b.x} ${b.y}` }
     g.edges.forEach(e => { const a = getCenter(e.from,'out'); const b = getCenter(e.to,'in'); if (!a||!b) return; const p = document.createElementNS('http://www.w3.org/2000/svg','path'); p.setAttribute('d', mkPath(a,b)); p.setAttribute('stroke','#34d399'); p.setAttribute('stroke-width','2'); p.setAttribute('fill','none'); lSvg.appendChild(p) })
   }
-  // Palette buttons to add nodes
+  // Properties pane (right)
+  let selNodeId: string | null = null
+  const propsPane = container.querySelector('#wcl-props') as HTMLElement | null
+  const renderProps = () => {
+    if (!propsPane) return
+    const node = g.nodes.find(x => x.id === selNodeId) || null
+    propsPane.innerHTML = ''
+    propsPane.classList.toggle('hidden', !node)
+    if (!node) return
+    const hdr = document.createElement('div'); hdr.className = 'text-sm text-gray-200 mb-2 font-semibold'; hdr.textContent = `ノード設定: ${node.label || node.type}`; propsPane.appendChild(hdr)
+    const form = document.createElement('div'); form.className = 'space-y-3 text-sm'; propsPane.appendChild(form)
+    const put = (label: string, body: HTMLElement) => { const r=document.createElement('div'); const l=document.createElement('div'); l.className='text-xs text-gray-400 mb-1'; l.textContent=label; r.appendChild(l); r.appendChild(body); form.appendChild(r) }
+    const cfg = (node.cfg = node.cfg || {})
+    if (node.kind === 'trigger') {
+      if (node.type === 'manual') { const p=document.createElement('div'); p.className='text-gray-400'; p.textContent='手動トリガー（クリックで起動）'; form.appendChild(p) }
+      else if (node.type === 'timer') { const inp=document.createElement('input'); inp.type='number'; inp.min='1'; inp.value=String(cfg.minutes||60); inp.className='w-full rounded bg-neutral-800/60 ring-2 ring-neutral-600 px-2 py-1 text-gray-100'; inp.addEventListener('input',()=>{ cfg.minutes=Math.max(1,parseInt(inp.value||'60',10)||60) }); put('間隔（分）', inp) }
+    } else {
+      if (node.type === 'filter') {
+        const selF=document.createElement('select'); selF.className='w-full rounded bg-neutral-800/60 ring-2 ring-neutral-600 px-2 py-1 text-gray-100'; ['タイトル','本文','状態','ラベル'].forEach(t=>{ const o=document.createElement('option'); o.value=t; o.textContent=t; selF.appendChild(o) }); selF.value=cfg.field||'タイトル'; selF.addEventListener('change',()=>{ cfg.field=selF.value }); put('対象', selF)
+        const selOp=document.createElement('select'); selOp.className=selF.className; ['含む','含まない','等しい','等しくない'].forEach(t=>{ const o=document.createElement('option'); o.value=t; o.textContent=t; selOp.appendChild(o) }); selOp.value=cfg.op||'含む'; selOp.addEventListener('change',()=>{ cfg.op=selOp.value }); put('条件', selOp)
+        const val=document.createElement('input'); val.type='text'; val.value=cfg.value||''; val.className=selF.className; val.addEventListener('input',()=>{ cfg.value=val.value }); put('値', val)
+      } else if (node.type === 'map') {
+        const ta=document.createElement('textarea'); ta.rows=4; ta.placeholder='式（例: title + " - " + assignee）'; ta.value=cfg.expr||''; ta.className='w-full rounded bg-neutral-800/60 ring-2 ring-neutral-600 px-2 py-1 text-gray-100 font-mono'; ta.addEventListener('input',()=>{ cfg.expr=ta.value }); put('式', ta)
+      } else if (node.type === 'template') {
+        const ta=document.createElement('textarea'); ta.rows=4; ta.placeholder='テンプレート（例: {{title}} を処理しました）'; ta.value=cfg.tpl||''; ta.className='w-full rounded bg-neutral-800/60 ring-2 ring-neutral-600 px-2 py-1 text-gray-100 font-mono'; ta.addEventListener('input',()=>{ cfg.tpl=ta.value }); put('本文テンプレート', ta)
+      } else if (node.type === 'datetime') {
+        const fmt=document.createElement('input'); fmt.type='text'; fmt.placeholder='YYYY-MM-DD HH:mm'; fmt.value=cfg.format||'YYYY-MM-DD'; fmt.className='w-full rounded bg-neutral-800/60 ring-2 ring-neutral-600 px-2 py-1 text-gray-100'; fmt.addEventListener('input',()=>{ cfg.format=fmt.value }); put('フォーマット', fmt)
+      } else if (node.type === 'notify') {
+        const via=document.createElement('select'); via.className='w-full rounded bg-neutral-800/60 ring-2 ring-neutral-600 px-2 py-1 text-gray-100'; ['アプリ内','メール'].forEach(t=>{ const o=document.createElement('option'); o.value=t; o.textContent=t; via.appendChild(o) }); via.value=cfg.via||'アプリ内'; via.addEventListener('change',()=>{ cfg.via=via.value; renderProps() }); put('送信方法', via)
+        if ((cfg.via||'アプリ内')==='メール') { const em=document.createElement('input'); em.type='email'; em.placeholder='you@example.com'; em.value=cfg.email||''; em.className='w-full rounded bg-neutral-800/60 ring-2 ring-neutral-600 px-2 py-1 text-gray-100'; em.addEventListener('input',()=>{ cfg.email=em.value }); put('宛先メールアドレス', em) }
+        const msg=document.createElement('textarea'); msg.rows=3; msg.placeholder='通知メッセージ'; msg.value=cfg.message||''; msg.className='w-full rounded bg-neutral-800/60 ring-2 ring-neutral-600 px-2 py-1 text-gray-100'; msg.addEventListener('input',()=>{ cfg.message=msg.value }); put('メッセージ', msg)
+      }
+    }
+  }
+
+  // Palette buttonsを日本語化
   container.querySelectorAll('[data-node]')?.forEach((btn) => {
     btn.addEventListener('click', () => {
       const val = (btn as HTMLElement).getAttribute('data-node') || ''
-      const add = (k:'trigger'|'action', t:string, label:string) => addNode(k, t, k==='trigger'?24:220, k==='trigger'?24:140, label)
+      const add = (k:'trigger'|'action', t:string, label:string, cfg?: Record<string, any>) => addNode(k, t, k==='trigger'?24:220, k==='trigger'?24:140, label, cfg)
       if (val.startsWith('trigger:')) {
         const t = val.split(':')[1]
-        if (t === 'click') add('trigger','manual','Manual')
-        else if (t === 'cron') add('trigger','timer','Timer')
+        if (t === 'click') add('trigger','manual','手動')
+        else if (t === 'cron') add('trigger','timer','スケジュール', { minutes: 60 })
       } else if (val.startsWith('action:')) {
         const t = val.split(':')[1]
-        if (t === 'notify' || t === 'ui' || t === 'db') add('action','notify','Notify')
+        if (t === 'notify' || t === 'ui' || t === 'db') add('action','notify','通知', { via: 'アプリ内', message: '' })
       } else if (val.startsWith('transform:')) {
         const t = val.split(':')[1]
-        if (t === 'map' || t === 'filter' || t === 'template' || t === 'datetime') add('action','expr','Expr')
+        if (t === 'map') add('action','map','マップ', { expr: '' })
+        else if (t === 'filter') add('action','filter','フィルタ', { field: 'タイトル', op: '含む', value: '' })
+        else if (t === 'template') add('action','template','テンプレート', { tpl: '' })
+        else if (t === 'datetime') add('action','datetime','日時計算', { format: 'YYYY-MM-DD' })
       }
+      renderProps()
     })
   })
-  drawNodes(); drawEdges()
+  // click outside to deselect
+  lCanvas.addEventListener('click', () => { selNodeId = null; renderProps() })
+  drawNodes(); drawEdges(); renderProps()
 
   // Save to library and go back
   saveBtn.addEventListener('click', async (e) => {
@@ -510,6 +553,8 @@ export function renderWidgetCreate(container: HTMLElement): void {
       const id = await resolveUid()
       if (id != null) { const list = userLibGet(id); list.push(entry); userLibSet(id, list) }
     } catch {}
+    // 再表示用フラグ（詳細へ戻ったらピッカーを自動オープン）
+    try { sessionStorage.setItem('wc-return-to-picker', '1') } catch {}
     backToDetail()
   })
 
