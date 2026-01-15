@@ -770,7 +770,7 @@ function renderTopCustomTabs(root: HTMLElement, pid: string): void {
       const panel = root.querySelector(`section[data-tab="${id}"]`) as HTMLElement | null
       const hx = panel?.querySelector('#hxwCanvas') as HTMLElement | null
       if (hx && (hx as any)._setEdit) {
-        const on = localStorage.getItem(`wg-edit-${pid}:${id}`) === '1' || localStorage.getItem(`wg-edit-${pid}:${id}`) === '1'
+        const on = localStorage.getItem(`wg-edit-${pid}:${id}`) === '1'
         ;(hx as any)._setEdit(on)
       }
     })
@@ -7710,8 +7710,8 @@ function buildWidgetTab(panel: HTMLElement, pid: string, scope: string, defaults
   // Honeycomb field (scoped to this panel): reuse hxw engine with local IDs (allowed since we call render with panel root)
   const scoped = `${pid}:${scope}`
   panel.innerHTML = `
-    <section class="relative rounded-xl ring-2 ring-neutral-600 bg-neutral-900/40 overflow-hidden" id="hxwHost" data-pid="${scoped}" style="min-height: 62vh;">
-      <section class="hxw-wrap" id="hxwWrap" style="min-height: 60vh;">
+    <section class="fixed inset-0 z-0" id="hxwHost" data-pid="${scoped}">
+      <section class="hxw-wrap" id="hxwWrap">
         <div class="hxw-stage" id="hxwStage">
           <div class="hxw-canvas hxw-base" id="hxwBase" style="width:1600px; height:1200px"></div>
           <div class="hxw-canvas" id="hxwCanvas" style="width:1600px; height:1200px"></div>
@@ -7879,7 +7879,7 @@ function detailLayout(ctx: { id: number; name: string; fullName: string; owner?:
               </div>
             </section>
 
-            <section class="mt-16 px-4 pt-14 pb-16 hidden" id="tab-board" data-tab="board">
+            <section class="mt-16 px-6 pt-20 pb-20 hidden" id="tab-board" data-tab="board">
               ${kanbanShell()}
             </section>
           </main>
@@ -8214,7 +8214,7 @@ function addCustomTab(root: HTMLElement, pid: string, type: TabTemplate, persist
   }
 
   const panel = document.createElement('section')
-  panel.className = 'mt-8 hidden'
+  panel.className = 'hidden'
   panel.setAttribute('data-tab', id)
   if (type === 'kanban') {
     const boardId = `kb-board-${id}`
