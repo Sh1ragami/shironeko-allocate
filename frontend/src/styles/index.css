@@ -557,6 +557,13 @@ body[data-lock]:not([data-lock="0"]) .hx-wrap { pointer-events: none; }
 @keyframes pdTitleIn { from { transform: translate(-50%, -50%) translateY(42px); opacity: 0 } to { transform: translate(-50%, -50%) translateY(0); opacity: 1 } }
 @keyframes pdTitleOut { from { transform: translate(-50%, -50%) translateY(0); opacity: 1 } to { transform: translate(-50%, -50%) translateY(-16px); opacity: 0 } }
 
+/* Tab switch title: smaller variant */
+#tabIntroTitle { position: fixed; left: 50%; top: 14%; transform: translate(-50%, 12px); opacity: 0; z-index: 31; pointer-events: none; font-weight: 800; letter-spacing: .01em; font-size: clamp(16px, 2.6vw, 28px); color: #ffffff; text-align: center; text-shadow: 0 4px 14px rgba(0,0,0,.32); }
+#tabIntroTitle.tab-in { animation: tabTitleIn .36s ease-out forwards; }
+#tabIntroTitle.tab-out { animation: tabTitleOut .30s ease-in forwards; }
+@keyframes tabTitleIn { from { transform: translate(-50%, 18px); opacity: 0 } to { transform: translate(-50%, 0); opacity: 1 } }
+@keyframes tabTitleOut { from { transform: translate(-50%, 0); opacity: 1 } to { transform: translate(-50%, -10px); opacity: 0 } }
+
 /* Minimap */
 .hx-mini { position: fixed; right: 14px; top: 16px; width: 140px; height: 140px; border-radius: 50%; background: rgba(0,0,0,.32); backdrop-filter: blur(4px) saturate(120%); border: 1px solid var(--gh-border); display: grid; place-items: center; z-index: 11; }
 :root[data-theme="warm"] .hx-mini, :root[data-theme="sakura"] .hx-mini { background: rgba(255,255,255,.45); }

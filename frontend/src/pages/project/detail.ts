@@ -780,7 +780,7 @@ function renderTopCustomTabs(root: HTMLElement, pid: string): void {
         const on = localStorage.getItem(`wg-edit-${pid}:${id}`) === '1'
         ;(hx as any)._setEdit(on)
       }
-      try { showCenterTitle(b.textContent || 'タブ') } catch {}
+      try { showTabTitle(b.textContent || 'タブ') } catch {}
     })
     top.appendChild(b)
   })
@@ -1452,7 +1452,7 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
         const btn = container.querySelector(`#tabBar .tab-btn[data-tab="${name}"]`) as HTMLElement | null
         label = btn?.textContent?.trim() || label
       }
-      showCenterTitle(label)
+      showTabTitle(label)
     } catch {}
     // Apply saved edit state for the activated tab's widget grid (if any)
     const panel = container.querySelector(`section[data-tab="${name}"]`) as HTMLElement | null
@@ -5293,12 +5293,18 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
           </div>`
           const go = host.querySelector('.tn-go') as HTMLElement | null
           const goAction = () => {
+            const from = (root.querySelector('section[data-tab]:not(.hidden)') as HTMLElement | null)?.getAttribute('data-tab') || null
             const btn = root.querySelector(`#tabBar .tab-btn[data-tab="${st.id}"]`) as HTMLElement | null
-            if (btn) (btn as HTMLButtonElement).click()
-            else {
+            if (btn) {
+              try { switchWithSlide(root, from, st.id) } catch {}
+              ;(btn as HTMLButtonElement).click()
+            } else {
+              try { switchWithSlide(root, from, st.id) } catch {}
               root.querySelectorAll('section[data-tab]')
                 .forEach((sec) => (sec as HTMLElement).classList.toggle('hidden', sec.getAttribute('data-tab') !== st.id))
+              try { setActiveTabVisual(root, st.id) } catch {}
             }
+            try { showTabTitle(title) } catch {}
           }
           go?.addEventListener('click', (e) => { e.stopPropagation(); goAction() })
           // Whole tile acts as a button; overwrite handler each render
@@ -8041,7 +8047,7 @@ function setupTabs(container: HTMLElement, pid: string): void {
       try { setActiveTabVisual(container, name) } catch {}
       if (name === 'board') renderKanban(container, pid)
       // Center title overlay
-      try { showCenterTitle((btn as HTMLElement).textContent || name || '') } catch {}
+      try { showTabTitle((btn as HTMLElement).textContent || name || '') } catch {}
       // Apply saved edit state for the activated tab's widget grid (if any)
       const panel = container.querySelector(`section[data-tab="${name}"]`) as HTMLElement | null
       const grid = panel?.querySelector('#widgetGrid') as HTMLElement | null
@@ -8055,15 +8061,15 @@ function setupTabs(container: HTMLElement, pid: string): void {
 }
 
 // Show floating tab name near top center briefly
-// Center title float-up (same visual as arrival repo title)
-function showCenterTitle(title: string): void {
-  try { const old = document.getElementById('pdIntroTitle'); if (old) old.remove() } catch {}
+// Smaller floating title for tab switches (not as large as repo arrival)
+function showTabTitle(title: string): void {
+  try { document.getElementById('tabIntroTitle')?.remove() } catch {}
   const el = document.createElement('div')
-  el.id = 'pdIntroTitle'
+  el.id = 'tabIntroTitle'
   el.textContent = title
   document.body.appendChild(el)
-  el.classList.add('pd-in')
-  setTimeout(() => { el.classList.remove('pd-in'); el.classList.add('pd-out'); setTimeout(()=>el.remove(), 420) }, 1200)
+  el.classList.add('tab-in')
+  setTimeout(() => { el.classList.remove('tab-in'); el.classList.add('tab-out'); setTimeout(()=>el.remove(), 360) }, 1000)
 }
 
 // Slide transition between tab panels (mimic list->detail feel)
@@ -8081,10 +8087,18 @@ function switchWithSlide(root: HTMLElement, fromName: string | null, toName: str
   try { slideElTo.style.willChange = 'transform, opacity' } catch {}
   try { slideElFrom && (slideElFrom.style.willChange = 'transform, opacity') } catch {}
   slideElTo.style.transform = 'translateX(120vw)'
-  slideElTo.style.opacity = '0.9'
+  slideElTo.style.opacity = '0.96'
+  // Edge dimmer (reuse same visual feel as list->detail)
+  let dim = document.getElementById('pageDimmer') as HTMLElement | null
+  if (!dim) {
+    dim = document.createElement('div')
+    dim.id = 'pageDimmer'
+    dim.style.opacity = '0'
+    document.body.appendChild(dim)
+  }
   // ensure a frame
   requestAnimationFrame(() => {
-    const dur = 420
+    const dur = 800
     slideElTo.style.transition = `transform ${dur}ms cubic-bezier(.2,.8,.2,1), opacity ${dur}ms ease`
     slideElTo.style.transform = 'translateX(0)'
     slideElTo.style.opacity = '1'
@@ -8093,6 +8107,7 @@ function switchWithSlide(root: HTMLElement, fromName: string | null, toName: str
       slideElFrom.style.transform = 'translateX(-120vw)'
       slideElFrom.style.opacity = '0.96'
     }
+    try { dim!.style.transition = `opacity ${Math.floor(dur*0.7)}ms ease`; dim!.style.opacity = '1' } catch {}
     setTimeout(() => {
       // finalize: hide previous and cleanup styles
       root.querySelectorAll('section[data-tab]')
@@ -8104,6 +8119,7 @@ function switchWithSlide(root: HTMLElement, fromName: string | null, toName: str
         el.style.opacity = ''
         el.style.willChange = ''
       })
+      try { dim!.style.opacity = '0'; setTimeout(()=>dim?.remove(), 260) } catch {}
     }, dur + 20)
   })
 }
