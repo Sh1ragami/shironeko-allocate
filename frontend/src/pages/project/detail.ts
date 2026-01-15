@@ -769,15 +769,18 @@ function renderTopCustomTabs(root: HTMLElement, pid: string): void {
     b.style.cssText = 'clip-path: polygon(20% 0%, 100% 0%, 80% 100%, 0% 100%); -webkit-clip-path: polygon(20% 0%, 100% 0%, 80% 100%, 0% 100%); margin-left:-12px;'
     b.textContent = label
     b.addEventListener('click', () => {
-      root.querySelectorAll('section[data-tab]')
-        .forEach((sec) => (sec as HTMLElement).classList.toggle('hidden', (sec as HTMLElement).getAttribute('data-tab') !== id))
+      const active = (root.querySelector('section[data-tab]:not(.hidden)') as HTMLElement | null)?.getAttribute('data-tab') || null
+      try { switchWithSlide(root, active, id) } catch {
+        root.querySelectorAll('section[data-tab]')
+          .forEach((sec) => (sec as HTMLElement).classList.toggle('hidden', (sec as HTMLElement).getAttribute('data-tab') !== id))
+      }
       const panel = root.querySelector(`section[data-tab="${id}"]`) as HTMLElement | null
       const hx = panel?.querySelector('#hxwCanvas') as HTMLElement | null
       if (hx && (hx as any)._setEdit) {
         const on = localStorage.getItem(`wg-edit-${pid}:${id}`) === '1'
         ;(hx as any)._setEdit(on)
       }
-      try { flashTabName(root, b.textContent || 'タブ') } catch {}
+      try { showCenterTitle(b.textContent || 'タブ') } catch {}
     })
     top.appendChild(b)
   })
@@ -1433,8 +1436,12 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
 
   // Global top-left quick tab switch (always accessible)
   const showTab = (name: string) => {
-    container.querySelectorAll('section[data-tab]')
-      .forEach((sec) => (sec as HTMLElement).classList.toggle('hidden', sec.getAttribute('data-tab') !== name))
+    const active = (container.querySelector('section[data-tab]:not(.hidden)') as HTMLElement | null)?.getAttribute('data-tab') || null
+    try { switchWithSlide(container, active, name) } catch {
+      container.querySelectorAll('section[data-tab]')
+        .forEach((sec) => (sec as HTMLElement).classList.toggle('hidden', sec.getAttribute('data-tab') !== name))
+    }
+    try { setActiveTabVisual(container, name) } catch {}
     if (name === 'board') renderKanban(container, String(project.id))
     // Flash overlay with human title
     try {
@@ -1445,7 +1452,7 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
         const btn = container.querySelector(`#tabBar .tab-btn[data-tab="${name}"]`) as HTMLElement | null
         label = btn?.textContent?.trim() || label
       }
-      flashTabName(container, label)
+      showCenterTitle(label)
     } catch {}
     // Apply saved edit state for the activated tab's widget grid (if any)
     const panel = container.querySelector(`section[data-tab="${name}"]`) as HTMLElement | null
@@ -3675,6 +3682,25 @@ function openLibWidgetDeleteConfirm(root: HTMLElement, pid: string, entry: { id:
     try { if (onDone) onDone() } catch {}
   })
   document.body.appendChild(overlay)
+  // Simulate basic flow execution feedback for notify nodes
+  if (type === 'flow') {
+    try {
+      const g = flowLoad(pid, id)
+      const body = overlay.querySelector('#wr-body') as HTMLElement | null
+      const notes: string[] = []
+      g.nodes.forEach((n) => {
+        if (n.type === 'notify') {
+          const via = (n.cfg?.via || 'アプリ内') as string
+          if (via === 'メール') notes.push(`メール通知を送信: ${n.cfg?.email || '(宛先未設定)'} - ${n.cfg?.message || ''}`)
+          else notes.push(`アプリ内通知: ${n.cfg?.message || ''}`)
+        }
+      })
+      if (notes.length && body) {
+        body.innerHTML = `<div class="space-y-1">${notes.map(s => `<div class=\"text-gray-300\">${s}</div>`).join('')}</div>`
+        try { showMiniToast('フローを実行しました', { variant: 'default' }) } catch {}
+      }
+    } catch {}
+  }
 }
 
 function openWidgetPickerModal(root: HTMLElement, pid: string, onPick?: (type: string) => void): void {
@@ -4088,6 +4114,16 @@ function openWidgetPickerModal(root: HTMLElement, pid: string, onPick?: (type: s
             // Seed pending for hex placement when caller uses hxwStartPlacement via onPick
             ;(window as any)._hxwPending = { shape: en.shape, rgb: en.rgb, alpha: en.alpha, name: en.name, flowGraph: en.flowGraph }
           } catch {}
+          // Mirror into local project library (chips)
+          try {
+            const pj = wpLibGet(pid)
+            const pjId = `pj-${en.owner || 'p'}-${en.id}`
+            if (!pj.some(x => x && x.id === pjId)) {
+              const entry = { id: pjId, type: (en.type || 'custom') as 'custom'|'flow', name: en.name || '', shape: en.shape || [[0,0]], rgb: en.rgb, alpha: en.alpha, flowGraph: en.flowGraph }
+              wpLibSet(pid, pj.concat(entry as any))
+            }
+            renderPickerLibrary(pid)
+          } catch {}
           close()
           setTimeout(() => { try { onPick('custom') } catch {} }, 0)
           return
@@ -4342,8 +4378,8 @@ function openWidgetPickerModal(root: HTMLElement, pid: string, onPick?: (type: s
     canvas.appendChild(host)
   })
 
-  // Render user's saved widgets library at the bottom of the field
-  // Library items are now integrated as honeycomb shapes in the field
+  // Render user's/project's saved widgets quick list (chips) at the bottom of the field
+  try { renderPickerLibrary(pid) } catch {}
 
   // Pan and zoom similar to project detail (simple)
   const viewport = field // absolute inset-0
@@ -4504,8 +4540,19 @@ function openWidgetPickerModal(root: HTMLElement, pid: string, onPick?: (type: s
             await wsSet(pid, 'lib_widgets', cur.concat(copy))
           }
         } catch {}
+        // Also mirror into local project library (for quick chips at bottom)
+        try {
+          const pj = wpLibGet(pid)
+          const pjId = `pj-${uid}-${it.lib.id}`
+          const has = pj.some(x => x && x.id === pjId)
+          if (!has) {
+            const entry = { id: pjId, type: (it.lib.type || 'custom') as 'custom'|'flow', name: it.lib.name || '', shape: it.lib.shape || [[0,0]], rgb: it.lib.rgb, alpha: it.lib.alpha, flowGraph: it.lib.flowGraph }
+            wpLibSet(pid, pj.concat(entry as any))
+          }
+        } catch {}
         try { showMiniToast(existed ? '既に追加されています' : 'ウィジェットを追加しました', { variant: existed ? 'danger' : 'default' }) } catch {}
         try { renderProjLibList() } catch {}
+        try { renderPickerLibrary(pid) } catch {}
         // Slide back and rebuild main field focusing the item (existing or new)
         try { setMode('browse') } catch {}
         const fid = newId
@@ -7415,15 +7462,26 @@ function openWidgetCreatorModal(root: HTMLElement, pid: string): void {
   alphaInput.addEventListener('input', () => renderBoard())
   window.addEventListener('resize', () => renderBoard())
 
-  // Logic minimal editor inside creator
-  type WcNode = { id: string; kind: 'trigger'|'action'; type: string; x: number; y: number; label?: string }
+  // Logic editor（日本語ラベル + プロパティ編集）
+  type WcNodeKind = 'trigger'|'action'
+  type WcNode = { id: string; kind: WcNodeKind; type: string; x: number; y: number; label?: string; cfg?: any }
   type WcEdge = { from: string; to: string }
   const g: { nodes: WcNode[]; edges: WcEdge[] } = { nodes: [], edges: [] }
   const lCanvas = overlay.querySelector('.wcl-canvas') as HTMLElement
   const lSvg = overlay.querySelector('.wcl-svg') as SVGSVGElement
-  const addNode = (kind: 'trigger'|'action', type: string, x: number, y: number, label: string) => {
+  // 右側プロパティペイン
+  let selNodeId: string | null = null
+  let propsPane = overlay.querySelector('#wcl-props') as HTMLElement | null
+  if (!propsPane) {
+    propsPane = document.createElement('aside')
+    propsPane.id = 'wcl-props'
+    propsPane.className = 'absolute right-0 top-0 h-full w-[280px] border-l border-neutral-700 bg-neutral-900/80 p-3 overflow-auto hidden'
+    const wrap = overlay.querySelector('#wcl-wrap') as HTMLElement | null
+    if (wrap) wrap.appendChild(propsPane)
+  }
+  const addNode = (kind: WcNodeKind, type: string, x: number, y: number, label: string, cfg?: any) => {
     const id = `n-${Date.now()}-${Math.floor(Math.random()*999)}`
-    g.nodes.push({ id, kind, type, x, y, label }); drawNodes(); drawEdges()
+    g.nodes.push({ id, kind, type, x, y, label, cfg }); drawNodes(); drawEdges(); renderProps()
   }
   const drawNodes = () => {
     lCanvas.innerHTML = ''
@@ -7435,7 +7493,7 @@ function openWidgetCreatorModal(root: HTMLElement, pid: string): void {
       el.style.display = 'grid'; (el.style as any).placeItems = 'center'
       el.style.background = 'transparent'
       el.setAttribute('data-node', n.id)
-      const visualKind = (n.type === 'expr' || n.type === 'condition') ? 'transform' : (n.kind === 'trigger' ? 'trigger' : 'action')
+      const visualKind: 'trigger'|'transform'|'action' = (['map','filter','template','datetime'].includes(n.type) ? 'transform' : (n.kind === 'trigger' ? 'trigger' : 'action'))
       const headCls = visualKind === 'trigger' ? 'bg-emerald-700' : (visualKind === 'transform' ? 'bg-fuchsia-700' : 'bg-sky-700')
       const outline = visualKind === 'trigger' ? '#10b981' : (visualKind === 'transform' ? '#d946ef' : '#38bdf8')
       let shapeStyle = `position:absolute; inset:0; background: rgba(38,38,38,.8);`
@@ -7474,8 +7532,10 @@ function openWidgetCreatorModal(root: HTMLElement, pid: string): void {
       }
       head?.addEventListener('mousedown', (ev) => startDragNode(ev as MouseEvent))
       el.addEventListener('mousedown', (ev) => { const t = ev.target as HTMLElement; if (t.closest('.port-in, .port-out, .fn-bar')) return; startDragNode(ev as MouseEvent) })
+      // select
+      el.addEventListener('click', (ev) => { ev.stopPropagation(); selNodeId = n.id; renderProps() })
       // delete
-      el.querySelector('.fn-del')?.addEventListener('click', () => { g.nodes = g.nodes.filter(x => x.id !== n.id); g.edges = g.edges.filter(e => e.from!==n.id && e.to!==n.id); drawNodes(); drawEdges() })
+      el.querySelector('.fn-del')?.addEventListener('click', () => { g.nodes = g.nodes.filter(x => x.id !== n.id); g.edges = g.edges.filter(e => e.from!==n.id && e.to!==n.id); if (selNodeId===n.id) selNodeId=null; renderProps(); drawNodes(); drawEdges() })
     })
     // drag-to-connect + click fallback
     let pending: string | null = null
@@ -7531,25 +7591,64 @@ function openWidgetCreatorModal(root: HTMLElement, pid: string): void {
     const mkPath = (a:{x:number;y:number}, b:{x:number;y:number}) => { const dx=(b.x-a.x)*0.5; const c1x=a.x, c1y=a.y+Math.max(10,Math.abs(dx))*0.15; const c2x=b.x, c2y=b.y-Math.max(10,Math.abs(dx))*0.15; return `M ${a.x} ${a.y} C ${c1x} ${c1y}, ${c2x} ${c2y}, ${b.x} ${b.y}` }
     g.edges.forEach(e => { const a = getCenter(e.from,'out'); const b = getCenter(e.to,'in'); if (!a||!b) return; const p = document.createElementNS('http://www.w3.org/2000/svg','path'); p.setAttribute('d', mkPath(a,b)); p.setAttribute('stroke','#34d399'); p.setAttribute('stroke-width','2'); p.setAttribute('fill','none'); lSvg.appendChild(p) })
   }
+  const renderProps = () => {
+    if (!propsPane) return
+    const node = g.nodes.find(x => x.id === selNodeId) || null
+    propsPane.innerHTML = ''
+    propsPane.classList.toggle('hidden', !node)
+    if (!node) return
+    const hdr = document.createElement('div'); hdr.className = 'text-sm text-gray-200 mb-2 font-semibold'; hdr.textContent = `ノード設定: ${node.label || node.type}`; propsPane.appendChild(hdr)
+    const form = document.createElement('div'); form.className = 'space-y-3 text-sm'; propsPane.appendChild(form)
+    const put = (label: string, body: HTMLElement) => { const r=document.createElement('div'); const l=document.createElement('div'); l.className='text-xs text-gray-400 mb-1'; l.textContent=label; r.appendChild(l); r.appendChild(body); form.appendChild(r) }
+    const cfg = (node.cfg = node.cfg || {})
+    if (node.kind === 'trigger') {
+      if (node.type === 'manual') { const p=document.createElement('div'); p.className='text-gray-400'; p.textContent='手動トリガー（クリックで起動）'; form.appendChild(p) }
+      else if (node.type === 'timer') { const inp=document.createElement('input'); inp.type='number'; inp.min='1'; inp.value=String(cfg.minutes||60); inp.className='w-full rounded bg-neutral-800/60 ring-2 ring-neutral-600 px-2 py-1 text-gray-100'; inp.addEventListener('input',()=>{ cfg.minutes=Math.max(1,parseInt(inp.value||'60',10)||60) }); put('間隔（分）', inp) }
+    } else if (node.kind === 'transform') {
+      if (node.type === 'filter') {
+        const selF=document.createElement('select'); selF.className='w-full rounded bg-neutral-800/60 ring-2 ring-neutral-600 px-2 py-1 text-gray-100'; ['タイトル','本文','状態','ラベル'].forEach(t=>{ const o=document.createElement('option'); o.value=t; o.textContent=t; selF.appendChild(o) }); selF.value=cfg.field||'タイトル'; selF.addEventListener('change',()=>{ cfg.field=selF.value }); put('対象', selF)
+        const selOp=document.createElement('select'); selOp.className=selF.className; ['含む','含まない','等しい','等しくない'].forEach(t=>{ const o=document.createElement('option'); o.value=t; o.textContent=t; selOp.appendChild(o) }); selOp.value=cfg.op||'含む'; selOp.addEventListener('change',()=>{ cfg.op=selOp.value }); put('条件', selOp)
+        const val=document.createElement('input'); val.type='text'; val.value=cfg.value||''; val.className=selF.className; val.addEventListener('input',()=>{ cfg.value=val.value }); put('値', val)
+      } else if (node.type === 'map') {
+        const ta=document.createElement('textarea'); ta.rows=4; ta.placeholder='式（例: title + " - " + assignee）'; ta.value=cfg.expr||''; ta.className='w-full rounded bg-neutral-800/60 ring-2 ring-neutral-600 px-2 py-1 text-gray-100 font-mono'; ta.addEventListener('input',()=>{ cfg.expr=ta.value }); put('式', ta)
+      } else if (node.type === 'template') {
+        const ta=document.createElement('textarea'); ta.rows=4; ta.placeholder='テンプレート（例: {{title}} を処理しました）'; ta.value=cfg.tpl||''; ta.className='w-full rounded bg-neutral-800/60 ring-2 ring-neutral-600 px-2 py-1 text-gray-100 font-mono'; ta.addEventListener('input',()=>{ cfg.tpl=ta.value }); put('本文テンプレート', ta)
+      } else if (node.type === 'datetime') {
+        const fmt=document.createElement('input'); fmt.type='text'; fmt.placeholder='YYYY-MM-DD HH:mm'; fmt.value=cfg.format||'YYYY-MM-DD'; fmt.className='w-full rounded bg-neutral-800/60 ring-2 ring-neutral-600 px-2 py-1 text-gray-100'; fmt.addEventListener('input',()=>{ cfg.format=fmt.value }); put('フォーマット', fmt)
+      }
+    } else if (node.kind === 'action') {
+      if (node.type === 'notify') {
+        const via=document.createElement('select'); via.className='w-full rounded bg-neutral-800/60 ring-2 ring-neutral-600 px-2 py-1 text-gray-100'; ['アプリ内','メール'].forEach(t=>{ const o=document.createElement('option'); o.value=t; o.textContent=t; via.appendChild(o) }); via.value=cfg.via||'アプリ内'; via.addEventListener('change',()=>{ cfg.via=via.value; renderProps() }); put('送信方法', via)
+        if ((cfg.via||'アプリ内')==='メール') { const em=document.createElement('input'); em.type='email'; em.placeholder='you@example.com'; em.value=cfg.email||''; em.className='w-full rounded bg-neutral-800/60 ring-2 ring-neutral-600 px-2 py-1 text-gray-100'; em.addEventListener('input',()=>{ cfg.email=em.value }); put('宛先メールアドレス', em) }
+        const msg=document.createElement('textarea'); msg.rows=3; msg.placeholder='通知メッセージ'; msg.value=cfg.message||''; msg.className='w-full rounded bg-neutral-800/60 ring-2 ring-neutral-600 px-2 py-1 text-gray-100'; msg.addEventListener('input',()=>{ cfg.message=msg.value }); put('メッセージ', msg)
+      }
+    }
+  }
   // Add from left palette
   overlay.querySelectorAll('[data-node]')?.forEach((btn) => {
     btn.addEventListener('click', () => {
       const val = (btn as HTMLElement).getAttribute('data-node') || ''
-      const add = (k:'trigger'|'action', t:string, label:string) => addNode(k, t, k==='trigger'?24:220, k==='trigger'?24:140, label)
+      const add = (k:WcNodeKind, t:string, label:string, cfg?: any) => addNode(k, t, k==='trigger'?24:220, k==='trigger'?24:140, label, cfg)
       if (val.startsWith('trigger:')) {
         const t = val.split(':')[1]
-        if (t === 'click') add('trigger','manual','Manual')
-        else if (t === 'cron') add('trigger','timer','Timer')
+        if (t === 'click') add('trigger','manual','手動')
+        else if (t === 'cron') add('trigger','timer','スケジュール', { minutes: 60 })
       } else if (val.startsWith('action:')) {
         const t = val.split(':')[1]
-        if (t === 'notify' || t === 'ui' || t === 'db') add('action','notify','Notify')
+        if (t === 'notify' || t === 'ui' || t === 'db') add('action','notify','通知', { via: 'アプリ内', message: '' })
       } else if (val.startsWith('transform:')) {
         const t = val.split(':')[1]
-        if (t === 'map' || t === 'filter' || t === 'template' || t === 'datetime') add('action','expr','Expr')
+        if (t === 'map') add('action','map','マップ', { expr: '' })
+        else if (t === 'filter') add('action','filter','フィルタ', { field: 'タイトル', op: '含む', value: '' })
+        else if (t === 'template') add('action','template','テンプレート', { tpl: '' })
+        else if (t === 'datetime') add('action','datetime','日時計算', { format: 'YYYY-MM-DD' })
       }
+      renderProps()
     })
   })
-  drawNodes(); drawEdges()
+  // click outside to deselect
+  lCanvas.addEventListener('click', () => { selNodeId = null; renderProps() })
+  drawNodes(); drawEdges(); renderProps()
 
   saveBtn.addEventListener('click', (e) => {
     e.preventDefault()
@@ -7769,8 +7868,16 @@ function buildWidgetTab(panel: HTMLElement, pid: string, scope: string, defaults
       <div class="hxw-ctl" aria-label="Actions">
         <button id="wgEditSwitch" class="edit-switch" title="編集モード" aria-label="編集モード" aria-pressed="false">
           <div class="es-track">
-            <div class="es-seg es-on" aria-hidden="true"></div>
-            <div class="es-seg es-off" aria-hidden="true"></div>
+            <div class="es-seg es-on" aria-hidden="true">
+              <span class="es-ico">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.862 4.487a1.75 1.75 0 0 1 2.475 2.475l-9.9 9.9a1 1 0 0 1-.425.25l-4 1a1 1 0 0 1-1.212-1.212l1-4a1 1 0 0 1 .25-.425l9.9-9.9Z"/><path d="M15 6l3 3"/></svg>
+              </span>
+            </div>
+            <div class="es-seg es-off" aria-hidden="true">
+              <span class="es-ico">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 5c-5 0-9 3.582-10 7 1 3.418 5 7 10 7s9-3.582 10-7c-1-3.418-5-7-10-7Zm0 2a5 5 0 1 1 0 10 5 5 0 0 1 0-10Z"/></svg>
+              </span>
+            </div>
             <div class="es-indicator" aria-hidden="true"></div>
           </div>
         </button>
@@ -7926,22 +8033,15 @@ function setupTabs(container: HTMLElement, pid: string): void {
         } as any)
         return
       }
-      container.querySelectorAll('section[data-tab]')
-        .forEach((sec) => (sec as HTMLElement).classList.toggle('hidden', sec.getAttribute('data-tab') !== name))
-      container.querySelectorAll('#tabBar .tab-btn').forEach((b) => {
-        // Active style: light gray background on full row; no orange borders
-        b.classList.remove('border-emerald-500', 'ring-2', 'ring-neutral-600', 'bg-neutral-800/60', 'border-l-2', 'border-b-2', 'border-orange-500')
-        const active = b === btn
-        const wrap = (b as HTMLElement).closest('.tab-row') as HTMLElement | null
-        if (wrap) {
-          wrap.classList.toggle('bg-neutral-500/50', active)
-        }
-        b.classList.toggle('text-gray-100', active)
-        b.classList.toggle('text-gray-400', !active)
-      })
+      const active = (container.querySelector('section[data-tab]:not(.hidden)') as HTMLElement | null)?.getAttribute('data-tab') || null
+      try { switchWithSlide(container, active, name) } catch { /* fallback below */
+        container.querySelectorAll('section[data-tab]')
+          .forEach((sec) => (sec as HTMLElement).classList.toggle('hidden', sec.getAttribute('data-tab') !== name))
+      }
+      try { setActiveTabVisual(container, name) } catch {}
       if (name === 'board') renderKanban(container, pid)
-      // Flash tab name overlay
-      try { flashTabName(container, (btn as HTMLElement).textContent || name || '') } catch {}
+      // Center title overlay
+      try { showCenterTitle((btn as HTMLElement).textContent || name || '') } catch {}
       // Apply saved edit state for the activated tab's widget grid (if any)
       const panel = container.querySelector(`section[data-tab="${name}"]`) as HTMLElement | null
       const grid = panel?.querySelector('#widgetGrid') as HTMLElement | null
@@ -7955,17 +8055,94 @@ function setupTabs(container: HTMLElement, pid: string): void {
 }
 
 // Show floating tab name near top center briefly
-function flashTabName(root: HTMLElement, title: string): void {
-  try { document.getElementById('tabNameFlash')?.remove() } catch {}
+// Center title float-up (same visual as arrival repo title)
+function showCenterTitle(title: string): void {
+  try { const old = document.getElementById('pdIntroTitle'); if (old) old.remove() } catch {}
   const el = document.createElement('div')
-  el.id = 'tabNameFlash'
-  el.className = 'fixed top-16 left-1/2 -translate-x-1/2 z-[40] px-4 py-2 rounded-md bg-black/60 ring-2 ring-neutral-600 text-gray-100 text-sm font-semibold'
+  el.id = 'pdIntroTitle'
   el.textContent = title
-  el.style.opacity = '0'
-  el.style.transition = 'opacity 180ms ease'
   document.body.appendChild(el)
-  requestAnimationFrame(() => { el.style.opacity = '1' })
-  setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 200) }, 1200)
+  el.classList.add('pd-in')
+  setTimeout(() => { el.classList.remove('pd-in'); el.classList.add('pd-out'); setTimeout(()=>el.remove(), 420) }, 1200)
+}
+
+// Slide transition between tab panels (mimic list->detail feel)
+function switchWithSlide(root: HTMLElement, fromName: string | null, toName: string): void {
+  if (fromName === toName) return
+  const secFrom = fromName ? (root.querySelector(`section[data-tab="${fromName}"]`) as HTMLElement | null) : null
+  const secTo = root.querySelector(`section[data-tab="${toName}"]`) as HTMLElement | null
+  const hostFrom = secFrom?.querySelector('#hxwHost') as HTMLElement | null
+  const hostTo = secTo?.querySelector('#hxwHost') as HTMLElement | null
+  const slideElFrom = hostFrom || secFrom
+  const slideElTo = hostTo || secTo
+  if (!secTo || !slideElTo) return
+  // show target first (off-screen), then animate
+  secTo.classList.remove('hidden')
+  try { slideElTo.style.willChange = 'transform, opacity' } catch {}
+  try { slideElFrom && (slideElFrom.style.willChange = 'transform, opacity') } catch {}
+  slideElTo.style.transform = 'translateX(120vw)'
+  slideElTo.style.opacity = '0.9'
+  // ensure a frame
+  requestAnimationFrame(() => {
+    const dur = 420
+    slideElTo.style.transition = `transform ${dur}ms cubic-bezier(.2,.8,.2,1), opacity ${dur}ms ease`
+    slideElTo.style.transform = 'translateX(0)'
+    slideElTo.style.opacity = '1'
+    if (slideElFrom) {
+      slideElFrom.style.transition = `transform ${dur}ms cubic-bezier(.2,.8,.2,1), opacity ${dur}ms ease`
+      slideElFrom.style.transform = 'translateX(-120vw)'
+      slideElFrom.style.opacity = '0.96'
+    }
+    setTimeout(() => {
+      // finalize: hide previous and cleanup styles
+      root.querySelectorAll('section[data-tab]')
+        .forEach((sec) => (sec as HTMLElement).classList.toggle('hidden', (sec as HTMLElement).getAttribute('data-tab') !== toName))
+      ;[slideElTo, slideElFrom].forEach((el) => {
+        if (!el) return
+        el.style.transition = ''
+        el.style.transform = ''
+        el.style.opacity = ''
+        el.style.willChange = ''
+      })
+    }, dur + 20)
+  })
+}
+
+// Apply active visual styles to left rail tab bar and top-left quick buttons
+function setActiveTabVisual(root: HTMLElement, name: string): void {
+  // Left rail (#tabBar)
+  const bar = root.querySelector('#tabBar') as HTMLElement | null
+  if (bar) {
+    bar.querySelectorAll('.tab-btn').forEach((b) => {
+      const id = (b as HTMLElement).getAttribute('data-tab') || ''
+      const on = id === name
+      // Reset
+      b.classList.remove('ring-2','ring-emerald-600','bg-neutral-800/60','text-gray-100')
+      b.classList.add('text-gray-400')
+      const wrap = (b as HTMLElement).closest('.tab-row') as HTMLElement | null
+      if (wrap) wrap.classList.toggle('bg-neutral-500/40', on)
+      if (on) {
+        b.classList.remove('text-gray-400')
+        b.classList.add('text-gray-100','bg-neutral-800/60','ring-2','ring-emerald-600')
+      }
+      ;(b as HTMLElement).setAttribute('aria-selected', on ? 'true' : 'false')
+    })
+  }
+  // Top-left quick tabs (#topTabsRow)
+  const top = root.querySelector('#topTabsRow') as HTMLElement | null
+  if (top) {
+    const buttons = Array.from(top.querySelectorAll('button')) as HTMLElement[]
+    buttons.forEach((b) => {
+      const id = b.id === 'topGoSummary' ? 'summary' : (b.id === 'topGoBoard' ? 'board' : (b.getAttribute('data-top-tab') || ''))
+      const on = id === name
+      // Base visuals
+      b.classList.remove('ring-2','ring-white/40','bg-emerald-700/70')
+      if (on) {
+        b.classList.add('ring-2','ring-white/40','bg-emerald-700/70')
+      }
+      b.setAttribute('aria-selected', on ? 'true' : 'false')
+    })
+  }
 }
 
 // ---- Core tabs (summary/board) rename + delete with persistence ----
@@ -8290,15 +8467,11 @@ function addCustomTab(root: HTMLElement, pid: string, type: TabTemplate, persist
 
   if (btn) {
     btn.addEventListener('click', () => {
-      root.querySelectorAll('section[data-tab]').forEach((sec) => (sec as HTMLElement).classList.toggle('hidden', sec.getAttribute('data-tab') !== id))
-      root.querySelectorAll('#tabBar .tab-btn').forEach((b) => {
-        b.classList.remove('border-emerald-500', 'ring-2', 'ring-neutral-600', 'bg-neutral-800/60', 'border-l-2', 'border-b-2', 'border-orange-500')
-        const active = b === btn
-        const wrap = (b as HTMLElement).closest('.tab-row') as HTMLElement | null
-        if (wrap) wrap.classList.toggle('bg-neutral-500/50', active)
-        b.classList.toggle('text-gray-100', active)
-        b.classList.toggle('text-gray-400', !active)
-      })
+      const active = (root.querySelector('section[data-tab]:not(.hidden)') as HTMLElement | null)?.getAttribute('data-tab') || null
+      try { switchWithSlide(root, active, id) } catch {
+        root.querySelectorAll('section[data-tab]').forEach((sec) => (sec as HTMLElement).classList.toggle('hidden', sec.getAttribute('data-tab') !== id))
+      }
+      try { setActiveTabVisual(root, id) } catch {}
     })
   }
 
@@ -9428,7 +9601,8 @@ function hxwApplyTransform(wrap: HTMLElement, canvas: HTMLElement, st: HexWLayou
   // Keep scale consistent; 3D depth is controlled by --hxw-elev instead of shrinking
   const sc = st.scale
   // Stage handles rotation/elevation so panning stays parallel to plane
-  const stage = document.getElementById('hxwStage') as HTMLElement | null
+  const host = (wrap.closest('#hxwHost') as HTMLElement | null)
+  const stage = host ? (host.querySelector('#hxwStage') as HTMLElement | null) : null
   if (stage) {
     // Make the transition feel smooth and predictable
     let pivot = (wrap as any)._hxwPivot as [number, number] | undefined
@@ -9443,7 +9617,7 @@ function hxwApplyTransform(wrap: HTMLElement, canvas: HTMLElement, st: HexWLayou
   }
   const move = `translate(${st.offsetX}px, ${st.offsetY}px) scale(${sc})`
   canvas.style.transform = move
-  const base = document.getElementById('hxwBase') as HTMLElement | null
+  const base = host ? (host.querySelector('#hxwBase') as HTMLElement | null) : null
   if (base) base.style.transform = move
   // update minimap
   try { hxwDrawMini(wrap, st) } catch { }
@@ -9485,7 +9659,8 @@ function hxwEnsureContentInView(wrap: HTMLElement, canvas: HTMLElement, st: HexW
 }
 
 function hxwDrawMini(wrap: HTMLElement, st: HexWLayout): void {
-  const mini = document.getElementById('hxwMini') as HTMLCanvasElement | null
+  const host = wrap.closest('#hxwHost') as HTMLElement | null
+  const mini = host ? (host.querySelector('#hxwMini') as HTMLCanvasElement | null) : null
   if (!mini) return
   const ctx = mini.getContext('2d')!
   const W = mini.width, H = mini.height
@@ -11137,7 +11312,11 @@ export function renderHexWidgets(root: HTMLElement, pid: string): void {
   st.width = width; st.height = height
   canvas.style.width = `${width}px`
   canvas.style.height = `${height}px`
-  try { const base = document.getElementById('hxwBase') as HTMLElement | null; if (base) { base.style.width = `${width}px`; base.style.height = `${height}px` } } catch {}
+  try {
+    const host = wrap.closest('#hxwHost') as HTMLElement | null
+    const base = host ? (host.querySelector('#hxwBase') as HTMLElement | null) : null
+    if (base) { base.style.width = `${width}px`; base.style.height = `${height}px` }
+  } catch {}
   ; (wrap as any)._hxw = st
   ; (wrap as any)._hxwCols = COLS
   ; (wrap as any)._hxwRows = ROWS
