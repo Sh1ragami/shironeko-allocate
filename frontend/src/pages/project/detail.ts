@@ -742,7 +742,11 @@ function renderTopCustomTabs(root: HTMLElement, pid: string): void {
   Object.entries(meta).forEach(([wid, m]) => {
     if ((m as any)?.type === 'tabnew') {
       try {
-        const st = wsGet(pid, `tabnew:${wid}`) as { id?: string; title?: string } | null
+        // Merge server state and local fallback
+        const localAll = (() => { try { return JSON.parse(localStorage.getItem(`tn-assoc-${pid}`) || '{}') } catch { return {} } })()
+        const stLocal = localAll[`tabnew:${wid}`] as { id?: string; title?: string } | undefined
+        const stSrv = wsGet(pid, `tabnew:${wid}`) as { id?: string; title?: string } | null
+        const st = stSrv || stLocal || null
         if (st && st.id) assoc.set(st.id, st.title || '')
       } catch {}
     }
@@ -773,6 +777,7 @@ function renderTopCustomTabs(root: HTMLElement, pid: string): void {
         const on = localStorage.getItem(`wg-edit-${pid}:${id}`) === '1'
         ;(hx as any)._setEdit(on)
       }
+      try { flashTabName(root, b.textContent || 'タブ') } catch {}
     })
     top.appendChild(b)
   })
@@ -1431,6 +1436,17 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
     container.querySelectorAll('section[data-tab]')
       .forEach((sec) => (sec as HTMLElement).classList.toggle('hidden', sec.getAttribute('data-tab') !== name))
     if (name === 'board') renderKanban(container, String(project.id))
+    // Flash overlay with human title
+    try {
+      let label = name
+      if (name === 'summary') label = getCoreTabs(String(project.id)).summary.title
+      else if (name === 'board') label = getCoreTabs(String(project.id)).board.title
+      else {
+        const btn = container.querySelector(`#tabBar .tab-btn[data-tab="${name}"]`) as HTMLElement | null
+        label = btn?.textContent?.trim() || label
+      }
+      flashTabName(container, label)
+    } catch {}
     // Apply saved edit state for the activated tab's widget grid (if any)
     const panel = container.querySelector(`section[data-tab="${name}"]`) as HTMLElement | null
     const grid = panel?.querySelector('#widgetGrid') as HTMLElement | null
@@ -5199,9 +5215,15 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
     if (m.type === 'tabnew') {
       const slotsWrap = w.querySelector('.hxw-cells') as HTMLElement | null
       const wsKey = `tabnew:${id}`
-      const tnGet = (): { id: string; title?: string } | null => { try { return wsGet(pid, wsKey) || null } catch { return null } }
-      const tnSet = (v: { id: string; title?: string }) => { try { wsSet(pid, wsKey, v) } catch {} }
-      const tnClear = () => { try { wsSet(pid, wsKey, null) } catch {} }
+      const tnLocalKey = `tn-assoc-${pid}`
+      const tnLocalAll = (): Record<string, { id: string; title?: string }> => { try { return JSON.parse(localStorage.getItem(tnLocalKey) || '{}') } catch { return {} } }
+      const tnLocalSet = (k: string, v: { id: string; title?: string } | null) => { try { const m = tnLocalAll(); if (v) m[k] = v; else delete m[k]; localStorage.setItem(tnLocalKey, JSON.stringify(m)) } catch {} }
+      const tnGet = (): { id: string; title?: string } | null => {
+        try { const m = tnLocalAll(); if (m[wsKey]) return m[wsKey] } catch {}
+        try { return wsGet(pid, wsKey) || null } catch { return null }
+      }
+      const tnSet = (v: { id: string; title?: string }) => { tnLocalSet(wsKey, v); try { wsSet(pid, wsKey, v) } catch {} }
+      const tnClear = () => { tnLocalSet(wsKey, null); try { wsSet(pid, wsKey, null) } catch {} }
       const renderCell = (host: HTMLElement) => {
         const assoc = tnGet()
         if (assoc && assoc.id && assoc.id.startsWith('custom-')) {
@@ -7879,8 +7901,10 @@ function detailLayout(ctx: { id: number; name: string; fullName: string; owner?:
               </div>
             </section>
 
-            <section class="mt-16 px-6 pt-20 pb-20 hidden" id="tab-board" data-tab="board">
-              ${kanbanShell()}
+            <section class="mt-20 px-8 pt-28 pb-28 hidden" id="tab-board" data-tab="board">
+              <div class="max-w-[1400px] mx-auto">
+                ${kanbanShell()}
+              </div>
             </section>
           </main>
         </div>
@@ -7916,6 +7940,8 @@ function setupTabs(container: HTMLElement, pid: string): void {
         b.classList.toggle('text-gray-400', !active)
       })
       if (name === 'board') renderKanban(container, pid)
+      // Flash tab name overlay
+      try { flashTabName(container, (btn as HTMLElement).textContent || name || '') } catch {}
       // Apply saved edit state for the activated tab's widget grid (if any)
       const panel = container.querySelector(`section[data-tab="${name}"]`) as HTMLElement | null
       const grid = panel?.querySelector('#widgetGrid') as HTMLElement | null
@@ -7926,6 +7952,20 @@ function setupTabs(container: HTMLElement, pid: string): void {
       }
     })
   })
+}
+
+// Show floating tab name near top center briefly
+function flashTabName(root: HTMLElement, title: string): void {
+  try { document.getElementById('tabNameFlash')?.remove() } catch {}
+  const el = document.createElement('div')
+  el.id = 'tabNameFlash'
+  el.className = 'fixed top-16 left-1/2 -translate-x-1/2 z-[40] px-4 py-2 rounded-md bg-black/60 ring-2 ring-neutral-600 text-gray-100 text-sm font-semibold'
+  el.textContent = title
+  el.style.opacity = '0'
+  el.style.transition = 'opacity 180ms ease'
+  document.body.appendChild(el)
+  requestAnimationFrame(() => { el.style.opacity = '1' })
+  setTimeout(() => { el.style.opacity = '0'; setTimeout(() => el.remove(), 200) }, 1200)
 }
 
 // ---- Core tabs (summary/board) rename + delete with persistence ----
