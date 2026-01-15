@@ -780,7 +780,7 @@ function renderTopCustomTabs(root: HTMLElement, pid: string): void {
         const on = localStorage.getItem(`wg-edit-${pid}:${id}`) === '1'
         ;(hx as any)._setEdit(on)
       }
-      try { showTabTitle(b.textContent || 'タブ') } catch {}
+      try { showArrivalSwitchTitle(b.textContent || 'タブ') } catch {}
     })
     top.appendChild(b)
   })
@@ -1452,7 +1452,7 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
         const btn = container.querySelector(`#tabBar .tab-btn[data-tab="${name}"]`) as HTMLElement | null
         label = btn?.textContent?.trim() || label
       }
-      showTabTitle(label)
+      showArrivalSwitchTitle(label)
     } catch {}
     // Apply saved edit state for the activated tab's widget grid (if any)
     const panel = container.querySelector(`section[data-tab="${name}"]`) as HTMLElement | null
@@ -5304,7 +5304,7 @@ function refreshDynamicWidgets(root: HTMLElement, pid: string): void {
                 .forEach((sec) => (sec as HTMLElement).classList.toggle('hidden', sec.getAttribute('data-tab') !== st.id))
               try { setActiveTabVisual(root, st.id) } catch {}
             }
-            try { showTabTitle(title) } catch {}
+            try { showArrivalSwitchTitle(title) } catch {}
           }
           go?.addEventListener('click', (e) => { e.stopPropagation(); goAction() })
           // Whole tile acts as a button; overwrite handler each render
@@ -8047,7 +8047,7 @@ function setupTabs(container: HTMLElement, pid: string): void {
       try { setActiveTabVisual(container, name) } catch {}
       if (name === 'board') renderKanban(container, pid)
       // Center title overlay
-      try { showTabTitle((btn as HTMLElement).textContent || name || '') } catch {}
+      try { showArrivalSwitchTitle((btn as HTMLElement).textContent || name || '') } catch {}
       // Apply saved edit state for the activated tab's widget grid (if any)
       const panel = container.querySelector(`section[data-tab="${name}"]`) as HTMLElement | null
       const grid = panel?.querySelector('#widgetGrid') as HTMLElement | null
@@ -8062,15 +8062,7 @@ function setupTabs(container: HTMLElement, pid: string): void {
 
 // Show floating tab name near top center briefly
 // Smaller floating title for tab switches (not as large as repo arrival)
-function showTabTitle(title: string): void {
-  try { document.getElementById('tabIntroTitle')?.remove() } catch {}
-  const el = document.createElement('div')
-  el.id = 'tabIntroTitle'
-  el.textContent = title
-  document.body.appendChild(el)
-  el.classList.add('tab-in')
-  setTimeout(() => { el.classList.remove('tab-in'); el.classList.add('tab-out'); setTimeout(()=>el.remove(), 360) }, 1000)
-}
+function showTabTitle(title: string): void { showArrivalSwitchTitle(title) }
 
 // Slide transition between tab panels (mimic list->detail feel)
 function switchWithSlide(root: HTMLElement, fromName: string | null, toName: string): void {
@@ -8089,18 +8081,23 @@ function switchWithSlide(root: HTMLElement, fromName: string | null, toName: str
   const now = () => performance.now()
   const animate = (dur: number, step: (t:number)=>void, done: ()=>void) => { const t0 = now(); const tick = () => { const t = Math.min(1, (now()-t0)/dur); step(ease(t)); if (t<1) requestAnimationFrame(tick); else done() }; requestAnimationFrame(tick) }
   const DUR_MOVE = 800, DUR_GROW = 400
+  // decide direction based on tab order
+  const ids = Array.from(root.querySelectorAll('#tabBar .tab-btn')).map(b => (b as HTMLElement).getAttribute('data-tab') || '').filter(x=>x && x!=='new')
+  const fromIdx = fromName ? Math.max(0, ids.indexOf(fromName)) : 0
+  const toIdx = Math.max(0, ids.indexOf(toName))
+  const dirSign = (toIdx >= fromIdx) ? 1 : -1
   // No hxw on either side → fallback simple slide
   if (!wrapTo || !canvasTo || !wrapFrom || !canvasFrom || !(wrapTo as any)._hxw || !(wrapFrom as any)._hxw) {
     const slideElFrom = (secFrom?.querySelector('#hxwHost') as HTMLElement | null) || secFrom
     const slideElTo = (secTo.querySelector('#hxwHost') as HTMLElement | null) || secTo
     if (!slideElTo) return
     secTo.classList.remove('hidden')
-    slideElTo.style.transform = 'translateX(120vw)'; slideElTo.style.opacity = '0.96'; slideElTo.style.willChange = 'transform,opacity'
+    slideElTo.style.transform = `translateX(${dirSign>0? '120vw':'-120vw'})`; slideElTo.style.opacity = '0.96'; slideElTo.style.willChange = 'transform,opacity'
     if (slideElFrom) slideElFrom.style.willChange = 'transform,opacity'
     requestAnimationFrame(() => {
       slideElTo.style.transition = `transform ${DUR_MOVE}ms cubic-bezier(.2,.8,.2,1), opacity ${DUR_MOVE}ms ease`
       slideElTo.style.transform = 'translateX(0)'; slideElTo.style.opacity = '1'
-      if (slideElFrom) { slideElFrom.style.transition = `transform ${DUR_MOVE}ms cubic-bezier(.2,.8,.2,1), opacity ${DUR_MOVE}ms ease`; slideElFrom.style.transform = 'translateX(-120vw)' }
+      if (slideElFrom) { slideElFrom.style.transition = `transform ${DUR_MOVE}ms cubic-bezier(.2,.8,.2,1), opacity ${DUR_MOVE}ms ease`; slideElFrom.style.transform = `translateX(${dirSign>0? '-120vw':'120vw'})` }
       dim!.style.transition = `opacity ${Math.floor(DUR_MOVE*0.7)}ms ease`; dim!.style.opacity = '1'
       setTimeout(() => {
         root.querySelectorAll('section[data-tab]').forEach((sec) => (sec as HTMLElement).classList.toggle('hidden', (sec as HTMLElement).getAttribute('data-tab') !== toName))
@@ -8122,7 +8119,7 @@ function switchWithSlide(root: HTMLElement, fromName: string | null, toName: str
   const hSmall = (stTo.height || 0) * smallScaleTo
   const toX = Math.round((viewW - wSmall) / 2)
   const toY = Math.round((viewH - hSmall) / 2)
-  stTo.offsetX = toX + wrapTo.clientWidth * 1.2; stTo.offsetY = toY
+  stTo.offsetX = toX + (wrapTo.clientWidth * 1.2 * dirSign); stTo.offsetY = toY
   try { (hxwApplyTransform as any)(wrapTo, canvasTo, stTo) } catch {}
   secTo.classList.remove('hidden')
   // Phase A: shrink current to small center, then slide out left; slide target in to small center
@@ -8134,8 +8131,8 @@ function switchWithSlide(root: HTMLElement, fromName: string | null, toName: str
   const startS = stFrom.scale || 1; const endS = Math.max(0.1, startS * 0.6)
   dim!.style.transition = `opacity ${Math.floor(DUR_MOVE*0.7)}ms ease`; dim!.style.opacity = '1'
   animate(300, (tS) => { const s = startS + (endS - startS) * tS; zoomCenter(wrapFrom, canvasFrom, stFrom, s) }, () => {
-    const startX = stFrom.offsetX; const endX = startX - wrapFrom.clientWidth * 1.2
-    animate(DUR_MOVE, (tM) => { stFrom.offsetX = Math.round(startX + (endX - startX) * tM); try { (hxwApplyTransform as any)(wrapFrom, canvasFrom, stFrom) } catch {} }, () => {})
+    const startX = stFrom.offsetX; const endX = startX - (wrapFrom.clientWidth * 1.2 * dirSign)
+    animate(DUR_MOVE, (tM) => { stFrom.offsetX = Math.round(startX + (endX - startX) * tM); try { (hxwApplyTransform as any)(wrapFrom, canvasFrom, stFrom) } catch {} }, () => { try { secFrom?.classList.add('hidden') } catch {} })
   })
   const startXTo = stTo.offsetX
   animate(DUR_MOVE, (t) => { stTo.offsetX = Math.round(startXTo + (toX - startXTo) * t); stTo.offsetY = toY; try { (hxwApplyTransform as any)(wrapTo, canvasTo, stTo) } catch {} }, () => {
@@ -8143,6 +8140,8 @@ function switchWithSlide(root: HTMLElement, fromName: string | null, toName: str
     animate(DUR_GROW, (t2) => { const s = smallScaleTo + (origScaleTo - smallScaleTo) * t2; zoomCenter(wrapTo, canvasTo, stTo, s) }, () => {
       root.querySelectorAll('section[data-tab]').forEach((sec) => (sec as HTMLElement).classList.toggle('hidden', (sec as HTMLElement).getAttribute('data-tab') !== toName))
       try { dim!.style.opacity = '0'; setTimeout(()=>dim?.remove(), 200) } catch {}
+      // ensure previous section is fully hidden to avoid ghost
+      try { if (secFrom) secFrom.classList.add('hidden') } catch {}
     })
   })
 }
@@ -8156,13 +8155,13 @@ function setActiveTabVisual(root: HTMLElement, name: string): void {
       const id = (b as HTMLElement).getAttribute('data-tab') || ''
       const on = id === name
       // Reset
-      b.classList.remove('ring-2','ring-emerald-600','bg-neutral-800/60','text-gray-100')
+      b.classList.remove('ring-2','ring-emerald-600','bg-neutral-800/60','text-gray-100','ring-sky-500','bg-sky-700/60')
       b.classList.add('text-gray-400')
       const wrap = (b as HTMLElement).closest('.tab-row') as HTMLElement | null
-      if (wrap) wrap.classList.toggle('bg-neutral-500/40', on)
+      if (wrap) wrap.classList.toggle('bg-neutral-700/40', on)
       if (on) {
         b.classList.remove('text-gray-400')
-        b.classList.add('text-gray-100','bg-neutral-800/60','ring-2','ring-emerald-600')
+        b.classList.add('text-gray-100','bg-sky-700/60','ring-2','ring-sky-500')
       }
       ;(b as HTMLElement).setAttribute('aria-selected', on ? 'true' : 'false')
     })

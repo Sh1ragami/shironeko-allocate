@@ -378,6 +378,7 @@ export function renderWidgetCreate(container: HTMLElement): void {
       if (visualKind === 'trigger') shapeStyle += ' clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%);'
       else if (visualKind === 'transform') shapeStyle += ' clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);'
       else shapeStyle += ' border-radius: 12px;'
+      const selected = (n.id === selNodeId)
       el.innerHTML = `
         <div class="fn-shape" style="${shapeStyle}"></div>
         <div class="fn-bar absolute top-1 right-1" style="z-index:8">
@@ -391,6 +392,10 @@ export function renderWidgetCreate(container: HTMLElement): void {
           <div class="port-out absolute left-1/2 -translate-x-1/2 rounded-full ring-2 ring-neutral-500" style="bottom:2px;width:${portSize}px; height:${portSize}px; background:#34d399; pointer-events:auto;"></div>
         </div>`
       lCanvas.appendChild(el)
+      // Click to select and show properties
+      el.style.cursor = 'pointer'
+      if (selected) { el.style.boxShadow = '0 0 0 2px #60a5fa' } else { el.style.boxShadow = '' }
+      el.addEventListener('click', (ev) => { ev.stopPropagation(); selNodeId = n.id; drawNodes(); drawEdges(); renderProps() })
       // select
       el.addEventListener('click', (ev) => { ev.stopPropagation(); selNodeId = n.id; renderProps() })
       const head = el.querySelector('.fn-bar') as HTMLElement | null
@@ -540,7 +545,7 @@ export function renderWidgetCreate(container: HTMLElement): void {
     })
   })
   // click outside to deselect
-  lCanvas.addEventListener('click', () => { selNodeId = null; renderProps() })
+  lCanvas.addEventListener('click', () => { selNodeId = null; drawNodes(); drawEdges(); renderProps() })
   drawNodes(); drawEdges(); renderProps()
 
   // Save to library and go back
