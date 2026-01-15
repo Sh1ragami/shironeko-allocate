@@ -8066,6 +8066,14 @@ function showTabTitle(title: string): void { showArrivalSwitchTitle(title) }
 
 // Slide transition between tab panels (mimic list->detail feel)
 function switchWithSlide(root: HTMLElement, fromName: string | null, toName: string): void {
+  // Animation disabled: switch immediately
+  try {
+    root.querySelectorAll('section[data-tab]').forEach((sec) => {
+      (sec as HTMLElement).classList.toggle('hidden', (sec as HTMLElement).getAttribute('data-tab') !== toName)
+    })
+    document.getElementById('pageDimmer')?.remove()
+  } catch {}
+  return
   if (fromName === toName) return
   const secFrom = fromName ? (root.querySelector(`section[data-tab="${fromName}"]`) as HTMLElement | null) : null
   const secTo = root.querySelector(`section[data-tab="${toName}"]`) as HTMLElement | null
