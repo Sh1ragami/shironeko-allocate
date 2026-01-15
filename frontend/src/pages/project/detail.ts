@@ -1319,16 +1319,19 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
   const applyEditTo = (on: boolean, name: string) => {
     const panel = container.querySelector(`section[data-tab="${name}"]`) as HTMLElement | null
     const grid = panel?.querySelector('#widgetGrid') as HTMLElement | null
-    const hx = container.querySelector('#hxwCanvas') as HTMLElement | null
+    const hx = (name === 'summary')
+      ? (container.querySelector('#hxwCanvas') as HTMLElement | null)
+      : (panel?.querySelector('#hxwCanvas') as HTMLElement | null)
     if (name === 'summary') {
       if (hx && (hx as any)._setEdit) (hx as any)._setEdit(on)
       try { localStorage.setItem(`wg-edit-${project.id}`, on ? '1' : '0') } catch {}
     } else {
-      if (grid && (grid as any)._setEdit) {
-        const scoped = grid.getAttribute('data-pid') || ''
-        (grid as any)._setEdit(on)
-        try { if (scoped) localStorage.setItem(`wg-edit-${scoped}`, on ? '1' : '0') } catch {}
-      }
+      // Prefer honeycomb if exists; otherwise legacy grid
+      const scoped = (panel?.querySelector('#hxwCanvas') as HTMLElement | null)?.getAttribute('data-pid')
+        || (grid?.getAttribute('data-pid') || '')
+      if (hx && (hx as any)._setEdit) (hx as any)._setEdit(on)
+      else if (grid && (grid as any)._setEdit) (grid as any)._setEdit(on)
+      try { if (scoped) localStorage.setItem(`wg-edit-${scoped}`, on ? '1' : '0') } catch {}
     }
   }
   edt?.addEventListener('click', () => {
@@ -1362,6 +1365,7 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
     try { enableDragAndDrop(container) } catch {}
     try { renderKanban(container, String(project.id)) } catch {}
     try { loadCustomTabs(container, String(project.id)) } catch {}
+    try { renderTopCustomTabs(container, String(project.id)) } catch {}
     try { applySavedTabOrder(container, String(project.id)) } catch {}
     try { await wsLoadAll(String(project.id)) } catch {}
     try { refreshDynamicWidgets(container, String(project.id)) } catch {}
@@ -1382,15 +1386,48 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
     if (name === 'board') renderKanban(container, String(project.id))
     // Apply saved edit state for the activated tab's widget grid (if any)
     const panel = container.querySelector(`section[data-tab="${name}"]`) as HTMLElement | null
-    const grid = panel?.querySelector('#widgetGrid') as HTMLElement | null
-    if (grid && (grid as any)._setEdit) {
-      const scoped = grid.getAttribute('data-pid') || ''
-      const on = localStorage.getItem(`wg-edit-${scoped}`) === '1'
-        ; (grid as any)._setEdit(on)
+    // Re-render honeycomb field when panel becomes visible to ensure correct sizing
+    if (name !== 'summary' && panel) {
+      const hx = panel.querySelector('#hxwCanvas') as HTMLElement | null
+      const scoped = hx?.getAttribute('data-pid') || ''
+      if (scoped) { try { renderHexWidgets(panel, scoped) } catch {} }
     }
+    const hx = (name === 'summary')
+      ? (container.querySelector('#hxwCanvas') as HTMLElement | null)
+      : (panel?.querySelector('#hxwCanvas') as HTMLElement | null)
+    const scoped = (hx?.getAttribute('data-pid') || '')
+    const on = scoped ? (localStorage.getItem(`wg-edit-${scoped}`) === '1') : false
+    if (hx && (hx as any)._setEdit) (hx as any)._setEdit(on)
   }
   container.querySelector('#topGoSummary')?.addEventListener('click', () => showTab('summary'))
   container.querySelector('#topGoBoard')?.addEventListener('click', () => showTab('board'))
+  // Render top custom tabs (fallback rail)
+  try { renderTopCustomTabs(container, String(project.id)) } catch {}
+
+  // Fallback top-left custom tabs (when no #tabBar exists)
+  function renderTopCustomTabs(root: HTMLElement, pid: string): void {
+    const host = root.querySelector('#topCustomTabs') as HTMLElement | null
+    if (!host) return
+    const bar = root.querySelector('#tabBar') as HTMLElement | null
+    if (bar) { host.innerHTML = ''; return }
+    const saved = JSON.parse(localStorage.getItem(`tabs-${pid}`) || '[]') as Array<{ id: string; type: TabTemplate; title?: string }>
+    const order = JSON.parse(localStorage.getItem(`tabs-order-${pid}`) || '[]') as string[]
+    const map = new Map(saved.map(s => [s.id, s]))
+    const ids = (Array.isArray(order) && order.length) ? order.filter(id => id && map.has(id)).concat(saved.map(s => s.id).filter(id => !order.includes(id))) : saved.map(s => s.id)
+    host.innerHTML = ids.map(id => {
+      const t = map.get(id)
+      if (!t) return ''
+      const title = t.title || tabTitle(t.type)
+      return `<button class=\"px-2 py-1 text-xs rounded bg-neutral-800/60 ring-1 ring-neutral-600 hover:bg-neutral-800 text-gray-100 w-full text-left\" data-top-tab=\"${id}\">${title}</button>`
+    }).join('')
+    host.querySelectorAll('[data-top-tab]')?.forEach((el) => {
+      el.addEventListener('click', () => {
+        const id = (el as HTMLElement).getAttribute('data-top-tab') || ''
+        if (!id) return
+        root.querySelectorAll('section[data-tab]').forEach((sec) => (sec as HTMLElement).classList.toggle('hidden', (sec as HTMLElement).getAttribute('data-tab') !== id))
+      })
+    })
+  }
 
   // Activate default tab: prefer "概要" (summary); fallback to first visible (excluding "+ 新規タブ")
   try {
@@ -7661,11 +7698,44 @@ function buildWidgetTab(panel: HTMLElement, pid: string, scope: string, defaults
     <section class="relative rounded-xl ring-2 ring-neutral-600 bg-neutral-900/40 overflow-hidden" id="hxwHost" data-pid="${scoped}">
       <section class="hxw-wrap" id="hxwWrap">
         <div class="hxw-stage" id="hxwStage">
-          <div class="hxw-canvas hxw-base" id="hxwBase" style="width:1600px; height:1200px"></div>
-          <div class="hxw-canvas" id="hxwCanvas" style="width:1600px; height:1200px"></div>
+          <div class="hxw-canvas hxw-base" id="hxwBase" style="width:2000px; height:1400px"></div>
+          <div class="hxw-canvas" id="hxwCanvas" style="width:2000px; height:1400px"></div>
         </div>
       </section>
-      <div class="absolute right-3 bottom-3 z-10">
+      <!-- Shortcuts rail -->
+      <div id="hxwShortcuts" class="hxw-sc-rail flex flex-col"></div>
+      <!-- Capacity bar -->
+      <div id="hxwCap" class="hxw-cap"></div>
+      <!-- Minimap -->
+      <div class="hxw-mini"><canvas id="hxwMini" width="120" height="120"></canvas></div>
+      <!-- Info panel (bottom, edit mode only) -->
+      <aside id="hxwInfo" class="fixed inset-x-0 bottom-0 z-[18] hidden">
+        <div class="mx-auto w-[min(560px,94vw)]">
+          <button id="hxwInfoHandle" class="block mx-auto info-handle mb-1" aria-expanded="true" title="しまう">
+            <span class="ih-ico" aria-hidden="true">
+              <svg width="48" height="28" viewBox="0 0 24 16" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">
+                <g class="up"><polyline class="chev1" points="3,7 12,3 21,7" /><polyline class="chev2" points="3,13 12,9 21,13" /></g>
+                <g class="down"><polyline class="chev1" points="3,3 12,7 21,3" /><polyline class="chev2" points="3,9 12,13 21,9" /></g>
+              </svg>
+            </span>
+          </button>
+          <div id="hxwInfoPanel" class="rounded-t-xl rounded-b-none border-2 border-neutral-600 border-b-0 bg-neutral-950/70 backdrop-blur px-4 py-2 text-gray-100 shadow-xl">
+            <div class="flex items-center gap-2 mb-1"><div class="text-sm font-semibold">選択中のウィジェット</div></div>
+            <div id="hxwInfoBody" class="text-sm leading-tight space-y-1"><div class="text-gray-400">ウィジェットをクリックで選択</div></div>
+            <div id="hxwScCtl" class="mt-2 flex items-center gap-2"></div>
+            <div class="mt-2 flex items-center justify-end gap-2"><button id="hxwDel" class="hidden rounded bg-rose-700 hover:bg-rose-600 text-white text-xs font-medium px-3 py-1">削除</button></div>
+          </div>
+        </div>
+      </aside>
+      <!-- HUD: edit switch + add button -->
+      <div class="hxw-ctl" aria-label="Actions">
+        <button id="wgEditSwitch" class="edit-switch" title="編集モード" aria-label="編集モード" aria-pressed="false">
+          <div class="es-track">
+            <div class="es-seg es-on" aria-hidden="true"><span class="es-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M16.862 4.487a1.75 1.75 0 0 1 2.475 2.475l-9.9 9.9a1 1 0 0 1-.425.25l-4 1a1 1 0 0 1-1.212-1.212l1-4a1 1 0 0 1 .25-.425l9.9-9.9Z"/><path d="M15 6l3 3"/></svg></span></div>
+            <div class="es-seg es-off" aria-hidden="true"><span class="es-ico"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 5c-5 0-9 3.582-10 7 1 3.418 5 7 10 7s9-3.582 10-7c-1-3.418-5-7-10-7Zm0 2a5 5 0 1 1 0 10 5 5 0 0 1 0-10Z"/></svg></span></div>
+            <div class="es-indicator" aria-hidden="true"></div>
+          </div>
+        </button>
         <button id="hxwFab" class="hxw-fab" title="ウィジェットを追加" aria-label="ウィジェットを追加"><span class="fab-plus">＋</span></button>
       </div>
     </section>
@@ -7677,6 +7747,15 @@ function buildWidgetTab(panel: HTMLElement, pid: string, scope: string, defaults
     openWidgetPickerModal(panel, scoped, (type) => {
       try { hxwStartPlacement(panel, scoped, type) } catch {}
     })
+  })
+  // Link edit switch to this scoped field
+  const edt = panel.querySelector('#wgEditSwitch') as HTMLElement | null
+  edt?.addEventListener('click', () => {
+    const hx = panel.querySelector('#hxwCanvas') as HTMLElement | null
+    const cur = (hx?.getAttribute('data-edit') === '1')
+    const next = !cur
+    if (hx && (hx as any)._setEdit) (hx as any)._setEdit(next)
+    try { localStorage.setItem(`wg-edit-${scoped}`, next ? '1' : '0') } catch {}
   })
   // Seed defaults if empty
   try {
@@ -7703,6 +7782,7 @@ function detailLayout(ctx: { id: number; name: string; fullName: string; owner?:
             <button id="topGoSummary" class="px-6 py-1.5 text-white/95 text-xs font-semibold drop-shadow-sm ring-1 ring-white/20 backdrop-blur hover:bg-sky-600/60 bg-sky-700/60 transition select-none" style="clip-path: polygon(20% 0%, 100% 0%, 80% 100%, 0% 100%); -webkit-clip-path: polygon(20% 0%, 100% 0%, 80% 100%, 0% 100%);">概要</button>
             <button id="topGoBoard" class="px-6 py-1.5 text-white/95 text-xs font-semibold drop-shadow-sm ring-1 ring-white/20 backdrop-blur hover:bg-emerald-600/60 bg-emerald-700/60 transition select-none" style="clip-path: polygon(20% 0%, 100% 0%, 80% 100%, 0% 100%); -webkit-clip-path: polygon(20% 0%, 100% 0%, 80% 100%, 0% 100%); margin-left:-12px;">ボード</button>
           </div>
+          <div id="topCustomTabs" class="mt-2 space-y-1"></div>
         </div>
         <!-- Content -->
         <div class="flex-1 min-w-0">
@@ -7847,7 +7927,6 @@ function saveCoreTabs(pid: string, v: CoreTabs): void { localStorage.setItem(cor
 
 function applyCoreTabs(root: HTMLElement, pid: string): void {
   const bar = root.querySelector('#tabBar') as HTMLElement | null
-  if (!bar) return
   const core = getCoreTabs(pid)
   const ensureWrap = (btn: HTMLElement, key: 'summary' | 'board') => {
     let wrap = btn.parentElement as HTMLElement
@@ -7887,8 +7966,8 @@ function applyCoreTabs(root: HTMLElement, pid: string): void {
     // Double-click rename disabled (use context menu instead)
   }
 
-  const sumBtn = bar.querySelector('[data-tab="summary"]') as HTMLElement | null
-  const brdBtn = bar.querySelector('[data-tab="board"]') as HTMLElement | null
+  const sumBtn = bar ? (bar.querySelector('[data-tab="summary"]') as HTMLElement | null) : null
+  const brdBtn = bar ? (bar.querySelector('[data-tab="board"]') as HTMLElement | null) : null
   if (sumBtn) {
     sumBtn.textContent = core.summary.title
     sumBtn.classList.toggle('hidden', !core.summary.visible)
@@ -7914,7 +7993,7 @@ function applyCoreTabs(root: HTMLElement, pid: string): void {
     if (topBoardBtn) topBoardBtn.classList.toggle('hidden', !core.board.visible)
   } catch {}
   // Ensure at least one visible
-  const visibleCount = Array.from(bar.querySelectorAll('.tab-btn')).filter(b => (b as HTMLElement).getAttribute('data-tab') !== 'new' && !(b as HTMLElement).classList.contains('hidden')).length
+  const visibleCount = bar ? Array.from(bar.querySelectorAll('.tab-btn')).filter(b => (b as HTMLElement).getAttribute('data-tab') !== 'new' && !(b as HTMLElement).classList.contains('hidden')).length : (core.summary.visible ? 1 : 0) + (core.board.visible ? 1 : 0)
   if (visibleCount === 0) {
     core.summary.visible = true
     saveCoreTabs(pid, core)
@@ -7922,8 +8001,10 @@ function applyCoreTabs(root: HTMLElement, pid: string): void {
     if (sumSec) sumSec.classList.remove('hidden')
   }
   // persist overall order of tabs (core + custom)
-  const ids = Array.from(bar.querySelectorAll('.tab-btn')).map(b => (b as HTMLElement).getAttribute('data-tab') || '').filter(id => id && id !== 'new')
-  localStorage.setItem(`tabs-order-${pid}`, JSON.stringify(ids))
+  if (bar) {
+    const ids = Array.from(bar.querySelectorAll('.tab-btn')).map(b => (b as HTMLElement).getAttribute('data-tab') || '').filter(id => id && id !== 'new')
+    localStorage.setItem(`tabs-order-${pid}`, JSON.stringify(ids))
+  }
 }
 
 // Context menu for tabs (rename/delete)
@@ -7950,8 +8031,10 @@ function openTabContextMenu(root: HTMLElement, pid: string, arg: { kind: 'core' 
   setTimeout(() => document.addEventListener('click', onDoc), 0)
   document.body.appendChild(menu)
   const bar = root.querySelector('#tabBar') as HTMLElement
+  // Fallback: when #tabBar not present, operate against top custom tabs list
+  const useTopList = !bar
   const minCheck = (): boolean => {
-    const count = Array.from(bar.querySelectorAll('.tab-btn')).filter(b => (b as HTMLElement).getAttribute('data-tab') !== 'new' && !(b as HTMLElement).classList.contains('hidden')).length
+    const count = bar ? Array.from(bar.querySelectorAll('.tab-btn')).filter(b => (b as HTMLElement).getAttribute('data-tab') !== 'new' && !(b as HTMLElement).classList.contains('hidden')).length : (JSON.parse(localStorage.getItem(`tabs-${pid}`) || '[]') as any[]).length + (getCoreTabs(pid).summary.visible ? 1 : 0) + (getCoreTabs(pid).board.visible ? 1 : 0)
     if (count <= 1) { alert('少なくとも1つのタブは必要です。'); return false }
     return true
   }
@@ -8021,6 +8104,7 @@ function openTabContextMenu(root: HTMLElement, pid: string, arg: { kind: 'core' 
       const saved = JSON.parse(localStorage.getItem(`tabs-${pid}`) || '[]') as Array<{ id: string; type: TabTemplate; title?: string }>
       const next = saved.filter((t) => t.id !== id)
       localStorage.setItem(`tabs-${pid}`, JSON.stringify(next))
+      try { renderTopCustomTabs(root, pid) } catch {}
       // Also clear any "新規タブ" widget association pointing to this tab (server state)
       try {
         const meta = hxwGetMeta(pid)
@@ -8034,11 +8118,15 @@ function openTabContextMenu(root: HTMLElement, pid: string, arg: { kind: 'core' 
       } catch {}
     }
     // activate another visible tab
-    const nextBtn = bar.querySelector('.tab-btn:not(.hidden):not([data-tab="new"])') as HTMLElement | null
-    nextBtn?.click()
-    // persist order after deletion
-    const ids = Array.from(bar.querySelectorAll('.tab-btn')).map(b => (b as HTMLElement).getAttribute('data-tab') || '').filter(x => x && x !== 'new')
-    localStorage.setItem(`tabs-order-${pid}`, JSON.stringify(ids))
+    if (bar) {
+      const nextBtn = bar.querySelector('.tab-btn:not(.hidden):not([data-tab="new"])') as HTMLElement | null
+      nextBtn?.click()
+      // persist order after deletion
+      const ids = Array.from(bar.querySelectorAll('.tab-btn')).map(b => (b as HTMLElement).getAttribute('data-tab') || '').filter(x => x && x !== 'new')
+      localStorage.setItem(`tabs-order-${pid}`, JSON.stringify(ids))
+    } else {
+      try { renderTopCustomTabs(root, pid) } catch {}
+    }
     close()
   })
 }
@@ -8146,6 +8234,7 @@ function addCustomTab(root: HTMLElement, pid: string, type: TabTemplate, persist
     const saved = JSON.parse(localStorage.getItem(`tabs-${pid}`) || '[]') as Array<{ id: string; type: TabTemplate; title?: string }>
     saved.push({ id, type, title: (btn?.textContent) || preTitle || tabTitle(type) })
     localStorage.setItem(`tabs-${pid}`, JSON.stringify(saved))
+    try { renderTopCustomTabs(root, pid) } catch {}
   }
   // Activate the new tab panel only when creating a brand-new tab (persist=true)
   if (persist) {
@@ -8155,6 +8244,9 @@ function addCustomTab(root: HTMLElement, pid: string, type: TabTemplate, persist
       root.querySelectorAll('section[data-tab]').forEach((sec) => (sec as HTMLElement).classList.toggle('hidden', (sec as HTMLElement).getAttribute('data-tab') !== id))
     }
   }
+
+  // If #tabBar is not present, mirror into top-left custom tabs list
+  try { if (!tabBar) renderTopCustomTabs(root, pid) } catch {}
 
   // Initialize lock visual from saved state
   try {
@@ -8170,6 +8262,7 @@ function addCustomTab(root: HTMLElement, pid: string, type: TabTemplate, persist
 function loadCustomTabs(root: HTMLElement, pid: string): void {
   const saved = JSON.parse(localStorage.getItem(`tabs-${pid}`) || '[]') as Array<{ id: string; type: TabTemplate; title?: string }>
   saved.forEach((t) => addCustomTab(root, pid, t.type, false, t.id, t.title))
+  try { renderTopCustomTabs(root, pid) } catch {}
 }
 
 // Enable drag & drop reordering of custom tabs in the tab bar
@@ -9712,6 +9805,32 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
     overlay.querySelector('#hxwDelClose')?.addEventListener('click', close)
     overlay.querySelector('#hxwDelCancel')?.addEventListener('click', close)
     overlay.querySelector('#hxwDelOk')?.addEventListener('click', () => {
+      // If this is a tab-add widget, delete the associated custom tab as well
+      try {
+        const metaCur = hxwGetMeta(pid)
+        const mcur = metaCur[id]
+        if (mcur && mcur.type === 'tabnew') {
+          const wsKey = `tabnew:${id}`
+          const st: any = wsGet(pid, wsKey)
+          const tabId = st?.id as (string | undefined)
+          if (tabId) {
+            // Remove panel
+            const panel = root.querySelector(`section[data-tab="${tabId}"]`) as HTMLElement | null
+            panel?.parentElement?.removeChild(panel as Element)
+            // Remove from bar (if exists)
+            const btn = root.querySelector(`#tabBar .tab-btn[data-tab="${tabId}"]`) as HTMLElement | null
+            const wrap = btn?.closest('span') as HTMLElement | null
+            wrap?.remove()
+            // Update saved list
+            const saved = JSON.parse(localStorage.getItem(`tabs-${pid}`) || '[]') as Array<{ id: string; type: TabTemplate; title?: string }>
+            const next = saved.filter((t) => t.id !== tabId)
+            localStorage.setItem(`tabs-${pid}`, JSON.stringify(next))
+            // Clear association
+            try { wsSet(pid, wsKey, null) } catch {}
+            try { renderTopCustomTabs(root, pid) } catch {}
+          }
+        }
+      } catch {}
       try { delete meta[id]; hxwSetMeta(pid, meta); try { hxwCustomDelete(pid, id) } catch {} } catch {}
       // Hide panel, clear selection, and re-render
       try { selId = null; infoHide() } catch {}
