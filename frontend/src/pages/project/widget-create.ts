@@ -62,6 +62,10 @@ type LibEntry = { id: string; type: 'custom'|'flow'; name: string; shape: Array<
 function userLibKey(uid: number): string { return `pj-wp-lib-user-${uid}` }
 function userLibGet(uid: number): LibEntry[] { try { const v = JSON.parse(localStorage.getItem(userLibKey(uid))||'[]') as LibEntry[]; return Array.isArray(v)? v: [] } catch { return [] } }
 function userLibSet(uid: number, list: LibEntry[]): void { try { localStorage.setItem(userLibKey(uid), JSON.stringify(list)) } catch {} }
+// Project-local library (for picker chips)
+function wpLibKey(pid: string): string { return `pj-wp-lib-${pid}` }
+function wpLibGet(pid: string): LibEntry[] { try { const v = JSON.parse(localStorage.getItem(wpLibKey(pid))||'[]') as LibEntry[]; return Array.isArray(v)? v: [] } catch { return [] } }
+function wpLibSet(pid: string, list: LibEntry[]): void { try { localStorage.setItem(wpLibKey(pid), JSON.stringify(list)) } catch {} }
 
 export function renderWidgetCreate(container: HTMLElement): void {
   // Project-independent screen; if opened from project detail, a temporary pid may be provided for back navigation only
@@ -552,6 +556,14 @@ export function renderWidgetCreate(container: HTMLElement): void {
     try {
       const id = await resolveUid()
       if (id != null) { const list = userLibGet(id); list.push(entry); userLibSet(id, list) }
+    } catch {}
+    // Also mirror to project-local picker library if戻り先のプロジェクトがある
+    try {
+      if (targetPid) {
+        const cur = wpLibGet(targetPid)
+        cur.push({ ...entry, id: `pj-${Date.now()}` })
+        wpLibSet(targetPid, cur)
+      }
     } catch {}
     // 再表示用フラグ（詳細へ戻ったらピッカーを自動オープン）
     try { sessionStorage.setItem('wc-return-to-picker', '1') } catch {}

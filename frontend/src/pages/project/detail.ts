@@ -8077,50 +8077,73 @@ function switchWithSlide(root: HTMLElement, fromName: string | null, toName: str
   if (fromName === toName) return
   const secFrom = fromName ? (root.querySelector(`section[data-tab="${fromName}"]`) as HTMLElement | null) : null
   const secTo = root.querySelector(`section[data-tab="${toName}"]`) as HTMLElement | null
-  const hostFrom = secFrom?.querySelector('#hxwHost') as HTMLElement | null
-  const hostTo = secTo?.querySelector('#hxwHost') as HTMLElement | null
-  const slideElFrom = hostFrom || secFrom
-  const slideElTo = hostTo || secTo
-  if (!secTo || !slideElTo) return
-  // show target first (off-screen), then animate
-  secTo.classList.remove('hidden')
-  try { slideElTo.style.willChange = 'transform, opacity' } catch {}
-  try { slideElFrom && (slideElFrom.style.willChange = 'transform, opacity') } catch {}
-  slideElTo.style.transform = 'translateX(120vw)'
-  slideElTo.style.opacity = '0.96'
-  // Edge dimmer (reuse same visual feel as list->detail)
+  if (!secTo) return
+  const wrapFrom = secFrom?.querySelector('#hxwWrap') as HTMLElement | null
+  const canvasFrom = secFrom?.querySelector('#hxwCanvas') as HTMLElement | null
+  const wrapTo = secTo?.querySelector('#hxwWrap') as HTMLElement | null
+  const canvasTo = secTo?.querySelector('#hxwCanvas') as HTMLElement | null
+  // Edge dimmer
   let dim = document.getElementById('pageDimmer') as HTMLElement | null
-  if (!dim) {
-    dim = document.createElement('div')
-    dim.id = 'pageDimmer'
-    dim.style.opacity = '0'
-    document.body.appendChild(dim)
+  if (!dim) { dim = document.createElement('div'); dim.id = 'pageDimmer'; dim.style.opacity = '0'; document.body.appendChild(dim) }
+  const ease = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2)
+  const now = () => performance.now()
+  const animate = (dur: number, step: (t:number)=>void, done: ()=>void) => { const t0 = now(); const tick = () => { const t = Math.min(1, (now()-t0)/dur); step(ease(t)); if (t<1) requestAnimationFrame(tick); else done() }; requestAnimationFrame(tick) }
+  const DUR_MOVE = 800, DUR_GROW = 400
+  // No hxw on either side → fallback simple slide
+  if (!wrapTo || !canvasTo || !wrapFrom || !canvasFrom || !(wrapTo as any)._hxw || !(wrapFrom as any)._hxw) {
+    const slideElFrom = (secFrom?.querySelector('#hxwHost') as HTMLElement | null) || secFrom
+    const slideElTo = (secTo.querySelector('#hxwHost') as HTMLElement | null) || secTo
+    if (!slideElTo) return
+    secTo.classList.remove('hidden')
+    slideElTo.style.transform = 'translateX(120vw)'; slideElTo.style.opacity = '0.96'; slideElTo.style.willChange = 'transform,opacity'
+    if (slideElFrom) slideElFrom.style.willChange = 'transform,opacity'
+    requestAnimationFrame(() => {
+      slideElTo.style.transition = `transform ${DUR_MOVE}ms cubic-bezier(.2,.8,.2,1), opacity ${DUR_MOVE}ms ease`
+      slideElTo.style.transform = 'translateX(0)'; slideElTo.style.opacity = '1'
+      if (slideElFrom) { slideElFrom.style.transition = `transform ${DUR_MOVE}ms cubic-bezier(.2,.8,.2,1), opacity ${DUR_MOVE}ms ease`; slideElFrom.style.transform = 'translateX(-120vw)' }
+      dim!.style.transition = `opacity ${Math.floor(DUR_MOVE*0.7)}ms ease`; dim!.style.opacity = '1'
+      setTimeout(() => {
+        root.querySelectorAll('section[data-tab]').forEach((sec) => (sec as HTMLElement).classList.toggle('hidden', (sec as HTMLElement).getAttribute('data-tab') !== toName))
+        ;[slideElTo, slideElFrom].forEach((el) => { if (!el) return; el.style.transition=''; el.style.transform=''; el.style.opacity=''; el.style.willChange='' })
+        try { dim!.style.opacity = '0'; setTimeout(()=>dim?.remove(), 200) } catch {}
+      }, DUR_MOVE + 20)
+    })
+    return
   }
-  // ensure a frame
-  requestAnimationFrame(() => {
-    const dur = 800
-    slideElTo.style.transition = `transform ${dur}ms cubic-bezier(.2,.8,.2,1), opacity ${dur}ms ease`
-    slideElTo.style.transform = 'translateX(0)'
-    slideElTo.style.opacity = '1'
-    if (slideElFrom) {
-      slideElFrom.style.transition = `transform ${dur}ms cubic-bezier(.2,.8,.2,1), opacity ${dur}ms ease`
-      slideElFrom.style.transform = 'translateX(-120vw)'
-      slideElFrom.style.opacity = '0.96'
-    }
-    try { dim!.style.transition = `opacity ${Math.floor(dur*0.7)}ms ease`; dim!.style.opacity = '1' } catch {}
-    setTimeout(() => {
-      // finalize: hide previous and cleanup styles
-      root.querySelectorAll('section[data-tab]')
-        .forEach((sec) => (sec as HTMLElement).classList.toggle('hidden', (sec as HTMLElement).getAttribute('data-tab') !== toName))
-      ;[slideElTo, slideElFrom].forEach((el) => {
-        if (!el) return
-        el.style.transition = ''
-        el.style.transform = ''
-        el.style.opacity = ''
-        el.style.willChange = ''
-      })
-      try { dim!.style.opacity = '0'; setTimeout(()=>dim?.remove(), 260) } catch {}
-    }, dur + 20)
+  // Two-phase animation using hxw state
+  const stFrom: any = (wrapFrom as any)._hxw
+  const stTo: any = (wrapTo as any)._hxw
+  // Init target small & offscreen
+  const origScaleTo = stTo.scale || 1
+  const smallScaleTo = Math.max(0.1, origScaleTo * 0.6)
+  stTo.scale = smallScaleTo
+  const viewW = wrapTo.clientWidth, viewH = wrapTo.clientHeight
+  const wSmall = (stTo.width || 0) * smallScaleTo
+  const hSmall = (stTo.height || 0) * smallScaleTo
+  const toX = Math.round((viewW - wSmall) / 2)
+  const toY = Math.round((viewH - hSmall) / 2)
+  stTo.offsetX = toX + wrapTo.clientWidth * 1.2; stTo.offsetY = toY
+  try { (hxwApplyTransform as any)(wrapTo, canvasTo, stTo) } catch {}
+  secTo.classList.remove('hidden')
+  // Phase A: shrink current to small center, then slide out left; slide target in to small center
+  const zoomCenter = (wrap: HTMLElement, canvas: HTMLElement, st: any, s: number) => {
+    const rect = wrap.getBoundingClientRect(); const cx2 = rect.width/2, cy2 = rect.height/2
+    const prev = st.scale; const wx = (cx2 - st.offsetX) / prev; const wy = (cy2 - st.offsetY) / prev
+    st.scale = s; st.offsetX = cx2 - wx * s; st.offsetY = cy2 - wy * s; try { (hxwApplyTransform as any)(wrap, canvas, st) } catch {}
+  }
+  const startS = stFrom.scale || 1; const endS = Math.max(0.1, startS * 0.6)
+  dim!.style.transition = `opacity ${Math.floor(DUR_MOVE*0.7)}ms ease`; dim!.style.opacity = '1'
+  animate(300, (tS) => { const s = startS + (endS - startS) * tS; zoomCenter(wrapFrom, canvasFrom, stFrom, s) }, () => {
+    const startX = stFrom.offsetX; const endX = startX - wrapFrom.clientWidth * 1.2
+    animate(DUR_MOVE, (tM) => { stFrom.offsetX = Math.round(startX + (endX - startX) * tM); try { (hxwApplyTransform as any)(wrapFrom, canvasFrom, stFrom) } catch {} }, () => {})
+  })
+  const startXTo = stTo.offsetX
+  animate(DUR_MOVE, (t) => { stTo.offsetX = Math.round(startXTo + (toX - startXTo) * t); stTo.offsetY = toY; try { (hxwApplyTransform as any)(wrapTo, canvasTo, stTo) } catch {} }, () => {
+    // Phase B: grow target to original scale at center
+    animate(DUR_GROW, (t2) => { const s = smallScaleTo + (origScaleTo - smallScaleTo) * t2; zoomCenter(wrapTo, canvasTo, stTo, s) }, () => {
+      root.querySelectorAll('section[data-tab]').forEach((sec) => (sec as HTMLElement).classList.toggle('hidden', (sec as HTMLElement).getAttribute('data-tab') !== toName))
+      try { dim!.style.opacity = '0'; setTimeout(()=>dim?.remove(), 200) } catch {}
+    })
   })
 }
 
