@@ -7658,8 +7658,8 @@ function buildWidgetTab(panel: HTMLElement, pid: string, scope: string, defaults
   // Honeycomb field (scoped to this panel): reuse hxw engine with local IDs (allowed since we call render with panel root)
   const scoped = `${pid}:${scope}`
   panel.innerHTML = `
-    <section class="relative rounded-xl ring-2 ring-neutral-600 bg-neutral-900/40 overflow-hidden" id="hxwHost" data-pid="${scoped}">
-      <section class="hxw-wrap" id="hxwWrap">
+    <section class="relative rounded-xl ring-2 ring-neutral-600 bg-neutral-900/40 overflow-hidden" id="hxwHost" data-pid="${scoped}" style="min-height: 72vh;">
+      <section class="hxw-wrap" id="hxwWrap" style="min-height: 70vh;">
         <div class="hxw-stage" id="hxwStage">
           <div class="hxw-canvas hxw-base" id="hxwBase" style="width:1600px; height:1200px"></div>
           <div class="hxw-canvas" id="hxwCanvas" style="width:1600px; height:1200px"></div>
@@ -7699,9 +7699,9 @@ function detailLayout(ctx: { id: number; name: string; fullName: string; owner?:
             <span class="text-gray-500 text-2xl">/</span>
             <span class="text-gray-300 text-2xl font-semibold" id="topPathRepo" title="${ctx.repo ?? ''}">${ctx.repo ?? ''}</span>
           </div>
-          <div class="mt-2 flex items-center gap-0">
+          <div id="topTabsRow" class="mt-2 flex items-center gap-0">
             <button id="topGoSummary" class="px-6 py-1.5 text-white/95 text-xs font-semibold drop-shadow-sm ring-1 ring-white/20 backdrop-blur hover:bg-sky-600/60 bg-sky-700/60 transition select-none" style="clip-path: polygon(20% 0%, 100% 0%, 80% 100%, 0% 100%); -webkit-clip-path: polygon(20% 0%, 100% 0%, 80% 100%, 0% 100%);">概要</button>
-            <button id="topGoBoard" class="px-6 py-1.5 text-white/95 text-xs font-semibold drop-shadow-sm ring-1 ring-white/20 backdrop-blur hover:bg-emerald-600/60 bg-emerald-700/60 transition select-none" style="clip-path: polygon(20% 0%, 100% 0%, 80% 100%, 0% 100%); -webkit-clip-path: polygon(20% 0%, 100% 0%, 80% 100%, 0% 100%); margin-left:-12px;">ボード</button>
+            <button id="topGoBoard" class="hidden px-6 py-1.5 text-white/95 text-xs font-semibold drop-shadow-sm ring-1 ring-white/20 backdrop-blur hover:bg-emerald-600/60 bg-emerald-700/60 transition select-none" style="clip-path: polygon(20% 0%, 100% 0%, 80% 100%, 0% 100%); -webkit-clip-path: polygon(20% 0%, 100% 0%, 80% 100%, 0% 100%); margin-left:-12px;">ボード</button>
           </div>
         </div>
         <!-- Content -->
@@ -7847,7 +7847,6 @@ function saveCoreTabs(pid: string, v: CoreTabs): void { localStorage.setItem(cor
 
 function applyCoreTabs(root: HTMLElement, pid: string): void {
   const bar = root.querySelector('#tabBar') as HTMLElement | null
-  if (!bar) return
   const core = getCoreTabs(pid)
   const ensureWrap = (btn: HTMLElement, key: 'summary' | 'board') => {
     let wrap = btn.parentElement as HTMLElement
@@ -7887,8 +7886,8 @@ function applyCoreTabs(root: HTMLElement, pid: string): void {
     // Double-click rename disabled (use context menu instead)
   }
 
-  const sumBtn = bar.querySelector('[data-tab="summary"]') as HTMLElement | null
-  const brdBtn = bar.querySelector('[data-tab="board"]') as HTMLElement | null
+  const sumBtn = bar ? (bar.querySelector('[data-tab="summary"]') as HTMLElement | null) : null
+  const brdBtn = bar ? (bar.querySelector('[data-tab="board"]') as HTMLElement | null) : null
   if (sumBtn) {
     sumBtn.textContent = core.summary.title
     sumBtn.classList.toggle('hidden', !core.summary.visible)
@@ -7903,6 +7902,17 @@ function applyCoreTabs(root: HTMLElement, pid: string): void {
     if (wrap) wrap.classList.toggle('hidden', !core.board.visible)
     ensureWrap(brdBtn, 'board')
   }
+
+  // Also reflect core tab visibility/titles in the top-left quick tabs
+  try {
+    const topSum = root.querySelector('#topGoSummary') as HTMLElement | null
+    const topBrd = root.querySelector('#topGoBoard') as HTMLElement | null
+    if (topSum) topSum.textContent = core.summary.title || '概要'
+    if (topBrd) {
+      topBrd.textContent = core.board.title || 'ボード'
+      topBrd.classList.toggle('hidden', !core.board.visible)
+    }
+  } catch {}
   // hide sections if invisible
   const sumSec = root.querySelector('[data-tab="summary"]') as HTMLElement | null
   const brdSec = root.querySelector('[data-tab="board"]') as HTMLElement | null
@@ -7997,6 +8007,8 @@ function openTabContextMenu(root: HTMLElement, pid: string, arg: { kind: 'core' 
         const idx = saved.findIndex((t) => t.id === id)
         if (idx >= 0) saved[idx].title = val
         localStorage.setItem(`tabs-${pid}`, JSON.stringify(saved))
+        // Update top-left quick tab button text as well
+        try { const tb = root.querySelector(`[data-top-tab="${id}"]`) as HTMLElement | null; if (tb) tb.textContent = val } catch {}
       }
       remove()
     }
@@ -8021,6 +8033,8 @@ function openTabContextMenu(root: HTMLElement, pid: string, arg: { kind: 'core' 
       const saved = JSON.parse(localStorage.getItem(`tabs-${pid}`) || '[]') as Array<{ id: string; type: TabTemplate; title?: string }>
       const next = saved.filter((t) => t.id !== id)
       localStorage.setItem(`tabs-${pid}`, JSON.stringify(next))
+      // Remove top-left quick tab button
+      try { (root.querySelector(`[data-top-tab="${id}"]`) as HTMLElement | null)?.remove() } catch {}
       // Also clear any "新規タブ" widget association pointing to this tab (server state)
       try {
         const meta = hxwGetMeta(pid)
@@ -8135,6 +8149,36 @@ function addCustomTab(root: HTMLElement, pid: string, type: TabTemplate, persist
     })
   }
 
+  // Also add a top-left quick tab button similar to 概要/ボード
+  try {
+    const top = root.querySelector('#topTabsRow') as HTMLElement | null
+    if (top) {
+      let tb = top.querySelector(`[data-top-tab="${id}"]`) as HTMLButtonElement | null
+      if (!tb) {
+        tb = document.createElement('button')
+        tb.setAttribute('data-top-tab', id)
+        tb.className = 'px-6 py-1.5 text-white/95 text-xs font-semibold drop-shadow-sm ring-1 ring-white/20 backdrop-blur bg-neutral-700/60 hover:bg-neutral-600/60 transition select-none'
+        tb.style.cssText = 'clip-path: polygon(20% 0%, 100% 0%, 80% 100%, 0% 100%); -webkit-clip-path: polygon(20% 0%, 100% 0%, 80% 100%, 0% 100%); margin-left:-12px;'
+        tb.textContent = preTitle || tabTitle(type)
+        tb.addEventListener('click', () => {
+          // Show this panel
+          root.querySelectorAll('section[data-tab]').forEach((sec) => (sec as HTMLElement).classList.toggle('hidden', sec.getAttribute('data-tab') !== id))
+          // Apply saved edit state for this scoped field
+          const panel = root.querySelector(`section[data-tab="${id}"]`) as HTMLElement | null
+          const grid = panel?.querySelector('#widgetGrid') as HTMLElement | null
+          if (grid && (grid as any)._setEdit) {
+            const scoped = grid.getAttribute('data-pid') || ''
+            const on = localStorage.getItem(`wg-edit-${scoped}`) === '1'
+            ;(grid as any)._setEdit(on)
+          }
+        })
+        top.appendChild(tb)
+      } else {
+        tb.textContent = preTitle || tabTitle(type)
+      }
+    }
+  } catch {}
+
   // Double-click rename disabled (use context menu instead)
 
   // context menu
@@ -8153,6 +8197,8 @@ function addCustomTab(root: HTMLElement, pid: string, type: TabTemplate, persist
     else {
       // No #tabBar in DOM; show the panel directly
       root.querySelectorAll('section[data-tab]').forEach((sec) => (sec as HTMLElement).classList.toggle('hidden', (sec as HTMLElement).getAttribute('data-tab') !== id))
+      // Prefer to show via top-left button if present
+      try { (root.querySelector(`[data-top-tab="${id}"]`) as HTMLButtonElement | null)?.click() } catch {}
     }
   }
 
@@ -9727,6 +9773,8 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
               // Remove corresponding panel section
               const panel = root.querySelector(`section[data-tab="${st.id}"]`) as HTMLElement | null
               panel?.parentElement?.removeChild(panel as Element)
+              // Remove corresponding top-left quick button
+              try { (root.querySelector(`[data-top-tab="${st.id}"]`) as HTMLElement | null)?.remove() } catch {}
               // Update persisted custom tabs list
               try {
                 const saved = JSON.parse(localStorage.getItem(`tabs-${pid}`) || '[]') as Array<{ id: string; type: any; title?: string }>
