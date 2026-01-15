@@ -9712,6 +9712,42 @@ function hxwBindInteractions(root: HTMLElement, wrap: HTMLElement, canvas: HTMLE
     overlay.querySelector('#hxwDelClose')?.addEventListener('click', close)
     overlay.querySelector('#hxwDelCancel')?.addEventListener('click', close)
     overlay.querySelector('#hxwDelOk')?.addEventListener('click', () => {
+      // If deleting a 新規タブ widget, also remove its corresponding tab and clear association
+      try {
+        if ((m?.type || '') === 'tabnew') {
+          const wsKey = `tabnew:${id}`
+          try {
+            const st = wsGet(pid, wsKey) as { id?: string; title?: string } | null
+            if (st && st.id) {
+              const bar = root.querySelector('#tabBar') as HTMLElement | null
+              // Remove tab button from the bar
+              const btn = bar?.querySelector(`.tab-btn[data-tab="${st.id}"]`) as HTMLElement | null
+              const wrap = btn?.closest('span') as HTMLElement | null
+              if (wrap) wrap.remove()
+              // Remove corresponding panel section
+              const panel = root.querySelector(`section[data-tab="${st.id}"]`) as HTMLElement | null
+              panel?.parentElement?.removeChild(panel as Element)
+              // Update persisted custom tabs list
+              try {
+                const saved = JSON.parse(localStorage.getItem(`tabs-${pid}`) || '[]') as Array<{ id: string; type: any; title?: string }>
+                const next = saved.filter((t) => t.id !== st.id)
+                localStorage.setItem(`tabs-${pid}`, JSON.stringify(next))
+              } catch {}
+              // Update saved order
+              try {
+                const ids = Array.from((bar || document.createElement('div')).querySelectorAll('.tab-btn'))
+                  .map((b) => (b as HTMLElement).getAttribute('data-tab') || '')
+                  .filter((x) => x && x !== 'new')
+                localStorage.setItem(`tabs-order-${pid}`, JSON.stringify(ids))
+              } catch {}
+              // Activate another visible tab if available
+              try { (bar?.querySelector('.tab-btn:not(.hidden):not([data-tab="new"])') as HTMLElement | null)?.click() } catch {}
+            }
+          } catch {}
+          // Clear the association regardless
+          try { wsSet(pid, wsKey, null) } catch {}
+        }
+      } catch {}
       try { delete meta[id]; hxwSetMeta(pid, meta); try { hxwCustomDelete(pid, id) } catch {} } catch {}
       // Hide panel, clear selection, and re-render
       try { selId = null; infoHide() } catch {}
