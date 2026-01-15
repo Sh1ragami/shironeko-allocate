@@ -1,5 +1,5 @@
 import { apiFetch } from '../../utils/api'
-import { showRouteLoading } from '../../utils/route-loading'
+import { showRouteLoading, hideRouteLoading } from '../../utils/route-loading'
 
 type CreateTask = {
   mode: 'new' | 'existing'
@@ -68,6 +68,8 @@ export async function renderProjectCreating(container: HTMLElement): Promise<voi
     // Go to detail immediately (route-loading overlay closes on route change)
     window.location.hash = `#/project/detail?id=${encodeURIComponent(String(id))}`
   } catch (e) {
+    // Ensure the global route-loading overlay is closed on error
+    try { hideRouteLoading() } catch {}
     const msg = (e as any)?.message || ''
     if (typeof msg === 'string' && msg.includes('401')) {
       window.location.hash = '#/login'

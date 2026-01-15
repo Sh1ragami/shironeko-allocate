@@ -3653,9 +3653,15 @@ function openWidgetPickerModal(root: HTMLElement, pid: string, onPick?: (type: s
             </div>
           </div>
         </section>
-        <aside class="w-80 shrink-0 p-4 border-l border-neutral-600">
-          <div id=\"wp-desc-title\" class=\"text-base font-semibold mb-2\">ウィジェットを選択</div>
-          <div id=\"wp-desc-body\" class=\"text-sm text-gray-300 leading-relaxed\">左のハニカムからウィジェットを選んでください。カーソルを合わせるとここに説明が表示されます。</div>
+        <aside class="w-80 shrink-0 p-4 border-l border-neutral-600 space-y-4">
+          <div>
+            <div id=\"wp-desc-title\" class=\"text-base font-semibold mb-2\">ウィジェットを選択</div>
+            <div id=\"wp-desc-body\" class=\"text-sm text-gray-300 leading-relaxed\">左のハニカムからウィジェットを選んでください。カーソルを合わせるとここに説明が表示されます。</div>
+          </div>
+          <div>
+            <div class=\"text-xs text-gray-300 mb-1\">プロジェクトの自作ウィジェット</div>
+            <div id=\"wp-proj-lib\" class=\"space-y-1\"></div>
+          </div>
         </aside>
       </div>
     </div>
@@ -7649,25 +7655,36 @@ function buildTimelineTab(panel: HTMLElement, pid: string): void {
 
 // Build a widget-enabled tab panel with its own widget scope (pid:tabId)
 function buildWidgetTab(panel: HTMLElement, pid: string, scope: string, defaults: string[]): void {
-  panel.innerHTML = `
-    <div class="space-y-3">
-      <div class="grid gap-3 md:gap-4 grid-cols-1 md:grid-cols-12" id="widgetGrid" data-pid="${pid}:${scope}" style="grid-auto-rows: 3.5rem;">
-        ${addWidgetCard()}
-      </div>
-    </div>
-  `
-  // enable widget editing for this panel only
-  enableDragAndDrop(panel)
+  // Honeycomb field (scoped to this panel): reuse hxw engine with local IDs (allowed since we call render with panel root)
   const scoped = `${pid}:${scope}`
-  // seed defaults when there's no saved meta
-  const meta = getWidgetMeta(scoped)
-  if (Object.keys(meta).length === 0 && defaults.length) {
-    defaults.forEach((t) => addWidget(panel, scoped, t))
-  } else {
-    // Ensure widgets exist before applying sizes; ordering is handled by enableDragAndDrop's initializer
-    ensureWidgets(panel, scoped)
-    applyWidgetSizes(panel, scoped)
-  }
+  panel.innerHTML = `
+    <section class="relative rounded-xl ring-2 ring-neutral-600 bg-neutral-900/40 overflow-hidden" id="hxwHost" data-pid="${scoped}">
+      <section class="hxw-wrap" id="hxwWrap">
+        <div class="hxw-stage" id="hxwStage">
+          <div class="hxw-canvas hxw-base" id="hxwBase" style="width:1600px; height:1200px"></div>
+          <div class="hxw-canvas" id="hxwCanvas" style="width:1600px; height:1200px"></div>
+        </div>
+      </section>
+      <div class="absolute right-3 bottom-3 z-10">
+        <button id="hxwFab" class="hxw-fab" title="ウィジェットを追加" aria-label="ウィジェットを追加"><span class="fab-plus">＋</span></button>
+      </div>
+    </section>
+  `
+  try { renderHexWidgets(panel, scoped) } catch {}
+  // Bind local Add → open picker and start placement into this scoped field
+  const fab = panel.querySelector('#hxwFab') as HTMLElement | null
+  fab?.addEventListener('click', () => {
+    openWidgetPickerModal(panel, scoped, (type) => {
+      try { hxwStartPlacement(panel, scoped, type) } catch {}
+    })
+  })
+  // Seed defaults if empty
+  try {
+    const meta = hxwGetMeta(scoped)
+    if (Object.keys(meta).length === 0 && defaults.length) {
+      defaults.forEach((t) => { try { hxwAddWidget(panel, scoped, t) } catch {} })
+    }
+  } catch {}
 }
 
 function detailLayout(ctx: { id: number; name: string; fullName: string; owner?: string; repo?: string }, opts?: { entryHidden?: boolean }): string {
@@ -7766,7 +7783,7 @@ function detailLayout(ctx: { id: number; name: string; fullName: string; owner?:
               </div>
             </section>
 
-            <section class="mt-8 hidden" id="tab-board" data-tab="board">
+            <section class="mt-16 px-4 pt-14 pb-16 hidden" id="tab-board" data-tab="board">
               ${kanbanShell()}
             </section>
           </main>
@@ -7823,7 +7840,8 @@ function getCoreTabs(pid: string): CoreTabs {
     const raw = localStorage.getItem(coreKey(pid))
     if (raw) return JSON.parse(raw) as CoreTabs
   } catch { }
-  return { summary: { title: '概要', visible: true }, board: { title: 'カンバンボード', visible: true } }
+  // Default: show only Summary; Board is hidden until user adds it explicitly
+  return { summary: { title: '概要', visible: true }, board: { title: 'カンバンボード', visible: false } }
 }
 function saveCoreTabs(pid: string, v: CoreTabs): void { localStorage.setItem(coreKey(pid), JSON.stringify(v)) }
 
@@ -7890,6 +7908,11 @@ function applyCoreTabs(root: HTMLElement, pid: string): void {
   const brdSec = root.querySelector('[data-tab="board"]') as HTMLElement | null
   if (sumSec) sumSec.classList.toggle('hidden', !core.summary.visible)
   if (brdSec) brdSec.classList.toggle('hidden', !core.board.visible)
+  // Also toggle top-left quick button visibility in sync with core setting
+  try {
+    const topBoardBtn = document.getElementById('topGoBoard') as HTMLElement | null
+    if (topBoardBtn) topBoardBtn.classList.toggle('hidden', !core.board.visible)
+  } catch {}
   // Ensure at least one visible
   const visibleCount = Array.from(bar.querySelectorAll('.tab-btn')).filter(b => (b as HTMLElement).getAttribute('data-tab') !== 'new' && !(b as HTMLElement).classList.contains('hidden')).length
   if (visibleCount === 0) {
@@ -8072,7 +8095,8 @@ function addCustomTab(root: HTMLElement, pid: string, type: TabTemplate, persist
     root.querySelector('main')?.appendChild(panel)
     renderKanban(root, pid, boardId)
   } else if (type === 'blank') {
-    buildWidgetTab(panel, pid, id, [])
+    // Seed with a simple Markdown widget so the area isn't empty
+    buildWidgetTab(panel, pid, id, ['markdown'])
     root.querySelector('main')?.appendChild(panel)
   } else if (type === 'notes') {
     buildWidgetTab(panel, pid, id, ['markdown'])
@@ -8470,8 +8494,11 @@ const STATUS_DEF: Record<Status, { label: string; color: string }> = {
 }
 
 function kanbanShell(id = 'kb-board'): string {
+  // Extra padding container to avoid overlapping fixed HUD/crumbs
   return `
-    <div id="${id}" class="grid md:grid-cols-4 gap-4"></div>
+    <div class="relative">
+      <div id="${id}" class="grid md:grid-cols-4 gap-4 pt-4"></div>
+    </div>
   `
 }
 
@@ -8482,6 +8509,7 @@ async function renderKanban(root: HTMLElement, pid: string, targetId = 'kb-board
   const state: Task[] = loadTasks(pid)
   const repoFull = (root as HTMLElement).getAttribute('data-repo-full') || ''
   let ghTasks: any[] = []
+  let ghErr: string | null = null
   if (repoFull) {
     try {
       const issues = await apiFetch<any[]>(`/projects/${pid}/issues?state=all`)
@@ -8498,9 +8526,18 @@ async function renderKanban(root: HTMLElement, pid: string, targetId = 'kb-board
           _gh: { number: it.number, url: it.html_url }
         }
       })
-    } catch { }
+    } catch (e: any) { ghErr = 'GitHubのIssueを取得できませんでした。ログインとリポジトリ連携を確認してください。' }
   }
   const merged = [...state, ...ghTasks]
+  // Empty/notice states
+  if (!repoFull) {
+    board.innerHTML = `<div class=\"col-span-4\"><div class=\"rounded-xl ring-2 ring-neutral-600 bg-neutral-900/60 p-4 text-gray-200\">\n<div class=\"text-sm text-gray-300 mb-1\">GitHub未連携</div>\n<p class=\"text-sm text-gray-400\">設定からリポジトリをリンクしてください。リンク後にIssueが表示されます。</p>\n</div></div>`
+  } else if (ghErr) {
+    board.innerHTML = `<div class=\"col-span-4\"><div class=\"rounded-xl ring-2 ring-neutral-600 bg-neutral-900/60 p-4 text-gray-200\">\n<div class=\"text-sm text-rose-300 mb-1\">読み込みエラー</div>\n<p class=\"text-sm text-gray-300\">${ghErr}</p>\n</div></div>`
+  }
+  if (repoFull && merged.length === 0 && !ghErr) {
+    board.innerHTML = `<div class=\"col-span-4\"><div class=\"rounded-xl ring-2 ring-neutral-600 bg-neutral-900/60 p-6 text-gray-200 text-center\">\n<div class=\"text-sm text-gray-300 mb-2\">表示できるタスクがありません</div>\n<p class=\"text-sm text-gray-400\">GitHub上のIssueを作成するか、列の「追加」から新規作成してください。</p>\n</div></div>`
+  }
   board.innerHTML = ['todo', 'doing', 'review', 'done']
     .map((st) => columnHtml(st as Status, merged.filter((t) => t.status === st)))
     .join('')
