@@ -1540,6 +1540,11 @@ export async function renderProjectDetail(container: HTMLElement): Promise<void>
     rail.style.width = `${w}px`
     if (tabsLeftPad) tabsLeftPad.style.width = `${w}px`
     if (tabsWrap) tabsWrap.style.paddingLeft = `${w + 8}px`
+    // Align Kanban board content padding with rail width to avoid HUD overlap
+    try {
+      const kb = container.querySelector('#tab-board .kb-wrap') as HTMLElement | null
+      if (kb) kb.style.paddingLeft = `${w + 16}px`
+    } catch {}
     try { localStorage.setItem(railWKey, String(w)) } catch { }
   }
   // initial width from storage
@@ -8014,8 +8019,8 @@ function detailLayout(ctx: { id: number; name: string; fullName: string; owner?:
               </div>
             </section>
 
-            <section class="mt-20 px-8 pt-28 pb-28 hidden" id="tab-board" data-tab="board">
-              <div class="max-w-[1400px] mx-auto">
+            <section class="mt-24 px-8 pt-36 pb-28 hidden" id="tab-board" data-tab="board">
+              <div class="kb-wrap max-w-[1400px] mx-auto">
                 ${kanbanShell()}
               </div>
             </section>
