@@ -145,6 +145,7 @@ export function renderWidgetCreate(container: HTMLElement): void {
               <div id="wcl-wrap" class="absolute inset-0 hidden">
                 <div class="wcl-canvas absolute inset-0"></div>
                 <svg class="wcl-svg absolute inset-0 w-full h-full pointer-events-none"></svg>
+                <aside id="wcl-props" class="absolute right-0 top-0 h-full w-[280px] border-l border-neutral-700 bg-neutral-900/80 p-3 overflow-auto hidden" style="z-index:10"></aside>
               </div>
             </div>
           </div>

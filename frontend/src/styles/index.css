@@ -597,7 +597,7 @@ body[data-lock]:not([data-lock="0"]) .hxw-wrap { pointer-events: none; }
 .hxw-slot .slot-inner a, .hxw-slot .slot-inner input, .hxw-slot .slot-inner textarea, .hxw-slot .slot-inner button { pointer-events: auto; }
 
 /* Removed the global infinite overlay to avoid covering UI */
-.hxw-mini { position: fixed; right: 14px; top: 16px; width: 140px; height: 140px; border-radius: 50%; background: rgba(0,0,0,.32); backdrop-filter: blur(4px) saturate(120%); border: 1px solid var(--gh-border); display: grid; place-items: center; z-index: 11; }
+.hxw-mini { position: fixed; right: 14px; top: 16px; width: 140px; height: 140px; border-radius: 50%; background: rgba(0,0,0,.32); backdrop-filter: blur(4px) saturate(120%); border: 1px solid var(--gh-border); display: grid; place-items: center; z-index: 21; }
 :root[data-theme="warm"] .hxw-mini, :root[data-theme="sakura"] .hxw-mini { background: rgba(255,255,255,.45); }
 .hxw-mini canvas { width: 120px; height: 120px; border-radius: 50%; }
 
